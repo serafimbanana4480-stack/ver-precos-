@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import config
 from utils.logging_config import setup_logging
+from utils.health_check import get_system_health
 from database.db import init_db
 from validation.cli_models import ScrapeArgs, TrainArgs, FindDealsArgs, ValuateArgs, DashboardArgs
 
@@ -90,6 +91,9 @@ def main():
     dashboard_parser = subparsers.add_parser("dashboard", help="Start Streamlit dashboard")
     dashboard_parser.add_argument("--port", type=int, default=8501,
                                   help="Dashboard port")
+    
+    # Health check command
+    health_parser = subparsers.add_parser("health-check", help="Check system health")
     
     args = parser.parse_args()
     
@@ -221,6 +225,15 @@ def main():
             "--server.address", "0.0.0.0"
         ])
     
+    elif args.command == "health-check":
+        import json
+        health = get_system_health()
+        print(json.dumps(health, indent=2))
+        
+        # Exit with error code if unhealthy
+        if health["status"] != "healthy":
+            sys.exit(1)
+    
     else:
         parser.print_help()
         print("\nQuick Start:")
@@ -231,6 +244,7 @@ def main():
         print("  python main.py find-deals        # Find best deals")
         print("  python main.py scheduler         # Run scheduler")
         print("  python main.py dashboard         # Start dashboard")
+        print("  python main.py health-check      # Check system health")
 
 
 if __name__ == "__main__":

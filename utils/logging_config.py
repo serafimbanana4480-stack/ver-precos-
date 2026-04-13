@@ -4,6 +4,7 @@ Logging configuration
 import logging
 import sys
 import json
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -12,17 +13,24 @@ from config import settings, LOGS_DIR
 
 def setup_logging():
     """
-    Setup logging configuration
+    Setup logging configuration with log rotation
     """
     # Ensure logs directory exists
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Create rotating file handler
+    file_handler = RotatingFileHandler(
+        settings.log_file,
+        maxBytes=settings.log_max_bytes,
+        backupCount=settings.log_backup_count
+    )
     
     # Configure root logger
     logging.basicConfig(
         level=getattr(logging, settings.log_level),
         format=settings.log_format,
         handlers=[
-            logging.FileHandler(settings.log_file),
+            file_handler,
             logging.StreamHandler(sys.stdout)
         ]
     )
