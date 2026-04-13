@@ -16,6 +16,7 @@ from database.models import Vehicle, Source, VehicleType, FuelType, Transmission
 from database.db import get_db_context
 from utils.retry import retry_network
 from utils.deduplication import is_url_processed, mark_url_processed
+from validation.scraped_models import ScrapedVehicle
 
 logger = logging.getLogger(__name__)
 
@@ -398,6 +399,13 @@ class StandvirtualScraper:
                         # Check deduplication (in-memory)
                         if is_url_processed(url):
                             logger.debug(f"Skipping already processed URL: {url}")
+                            continue
+                        
+                        # Validate scraped data using pydantic model
+                        try:
+                            ScrapedVehicle(**listing_data)
+                        except Exception as e:
+                            logger.warning(f"Validation failed for listing {url}: {e}")
                             continue
                         
                         # Check if listing already exists in database

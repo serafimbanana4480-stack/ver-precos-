@@ -10,6 +10,7 @@ from config import GROK_API_KEY, GROK_API_URL, USE_OLLAMA, OLLAMA_URL, VISION_MO
 from database.models import Vehicle, AIReview
 from database.db import get_db_context
 from utils.retry import retry_ai_api
+from validation.ai_models import VisionAnalysisResponse
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +208,18 @@ Please examine the images carefully and provide a detailed condition assessment 
             
             if response.status_code == 200:
                 result = response.json()
-                return result["choices"][0]["message"]["content"]
+                response_content = result["choices"][0]["message"]["content"]
+                
+                # Validate vision response using pydantic model
+                try:
+                    import json
+                    response_dict = json.loads(response_content) if isinstance(response_content, str) else response_content
+                    VisionAnalysisResponse(**response_dict)
+                except Exception as e:
+                    logger.warning(f"Vision response validation failed: {e}")
+                    return None
+                
+                return response_content
             else:
                 logger.error(f"Grok Vision API error: {response.status_code} - {response.text}")
                 return None
@@ -247,7 +259,18 @@ Please examine the images carefully and provide a detailed condition assessment 
             
             if response.status_code == 200:
                 result = response.json()
-                return result.get("response", "")
+                response_content = result.get("response", "")
+                
+                # Validate vision response using pydantic model
+                try:
+                    import json
+                    response_dict = json.loads(response_content) if isinstance(response_content, str) else response_content
+                    VisionAnalysisResponse(**response_dict)
+                except Exception as e:
+                    logger.warning(f"Vision response validation failed: {e}")
+                    return None
+                
+                return response_content
             else:
                 logger.error(f"Ollama Vision API error: {response.status_code}")
                 return None

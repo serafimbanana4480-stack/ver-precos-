@@ -5,9 +5,11 @@ import logging
 from typing import Optional, Dict, List
 from datetime import datetime
 
-from config import GROK_API_KEY, GROK_API_URL, USE_OLLAMA, OLLAMA_URL, LLM_MODEL
-from database.models import Vehicle, AIReview
+from config import GROK_API_KEY, GROK_API_URL, USE_OLLAMA, OLLAMA_URL, LLM_MODEL, VISION_MODEL
+from validation.ai_models import LLMReviewResponse, AIReview
+from database.models import Vehicle
 from database.db import get_db_context
+from utils.retry import retry_ai_api
 
 logger = logging.getLogger(__name__)
 
@@ -139,9 +141,22 @@ Please provide your analysis following the guidelines above. Be specific and cit
             LLM response or None if call fails
         """
         if self.use_ollama:
-            return self._call_ollama(prompt)
+            response = self._call_ollama(prompt)
         else:
-            return self._call_grok(prompt)
+            response = self._call_grok(prompt)
+        
+        # Validate LLM response using pydantic model
+        if response:
+            try:
+                # Parse response as JSON for validation
+                import json
+                response_dict = json.loads(response) if isinstance(response, str) else response
+                LLMReviewResponse(**response_dict)
+            except Exception as e:
+                logger.warning(f"LLM response validation failed: {e}")
+                return None
+        
+        return response
     
     def _call_grok(self, prompt: str) -> Optional[str]:
         """Call Grok API"""

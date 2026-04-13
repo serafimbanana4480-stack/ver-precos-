@@ -13,6 +13,7 @@ from config import OLX_TRACKER_PATH, OLX_BASE_URL, USER_AGENTS, REQUEST_DELAY_SE
 from utils.retry import retry_network
 from database.models import Vehicle, Source, VehicleType, FuelType, Transmission
 from database.db import get_db_context
+from validation.scraped_models import ScrapedVehicle
 
 logger = logging.getLogger(__name__)
 
@@ -344,6 +345,13 @@ class OLXScraper:
             try:
                 for listing_data in listings:
                     try:
+                        # Validate scraped data using pydantic model
+                        try:
+                            ScrapedVehicle(**listing_data)
+                        except Exception as e:
+                            logger.warning(f"Validation failed for listing {listing_data.get('url')}: {e}")
+                            continue
+                        
                         # Check if listing already exists
                         existing = db.query(Vehicle).filter(
                             Vehicle.url == listing_data.get("url")

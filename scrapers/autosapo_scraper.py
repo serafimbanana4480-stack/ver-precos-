@@ -15,6 +15,7 @@ from config import (
 from database.models import Vehicle, Source, VehicleType, FuelType, Transmission
 from database.db import get_db_context
 from utils.retry import retry_network
+from validation.scraped_models import ScrapedVehicle
 
 logger = logging.getLogger(__name__)
 
@@ -376,6 +377,13 @@ class AutoSapoScraper:
             try:
                 for listing_data in listings:
                     try:
+                        # Validate scraped data using pydantic model
+                        try:
+                            ScrapedVehicle(**listing_data)
+                        except Exception as e:
+                            logger.warning(f"Validation failed for listing {listing_data.get('url')}: {e}")
+                            continue
+                        
                         existing = db.query(Vehicle).filter(
                             Vehicle.url == listing_data.get("url")
                         ).first()
