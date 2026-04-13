@@ -1,6 +1,6 @@
 # External Integrations
 
-**Analysis Date:** 2026-04-13
+**Analysis Date:** 2026-04-13 (Updated after Phase 1)
 
 ## APIs & External Services
 
@@ -67,8 +67,12 @@
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None - No external error tracking service
-  - Logging to file (logs/autodeal.log) and stdout
+- Sentry - Error tracking and monitoring (added in Phase 1)
+  - SDK/Client: sentry-sdk v1.40.0
+  - Auth: Sentry DSN in SENTRY_DSN env var
+  - Configuration: SENTRY_ENVIRONMENT (default: development), SENTRY_SAMPLE_RATE (default: 0.1)
+  - Features: Sensitive data filtering (API keys, passwords, tokens)
+  - Integration: Initialized in main.py with before_send filter for sensitive data
 
 **Analytics:**
 - None - No analytics service
@@ -87,7 +91,11 @@
   - Environment vars: .env file (gitignored)
 
 **CI Pipeline:**
-- None - No CI/CD configured
+- GitHub Actions - Automated testing (added in Phase 1)
+  - Workflow: .github/workflows/tests.yml
+  - Triggers: Push to master/main, pull requests
+  - Steps: Install dependencies, run tests with coverage, type checking with mypy, linting with flake8, formatting check with black
+  - Python version: 3.12
 
 ## Environment Configuration
 
@@ -95,6 +103,8 @@
 - Required env vars: None (all have defaults)
 - Secrets location: .env file (gitignored, .env.example provided)
 - Mock/stub services: SQLite for database, Ollama as optional LLM alternative
+- Validation config: VALIDATION_STRICT_MODE (default: false), VALIDATION_FAILURE_THRESHOLD (default: 10), VALIDATION_ALERT_ENABLED (default: true)
+- Retry config: REQUEST_DELAY_SECONDS (default: 2), MAX_RETRIES (default: 3), DEDUPLICATION_WINDOW (default: 3600)
 
 **Staging:**
 - Not configured (single environment)

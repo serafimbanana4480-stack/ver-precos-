@@ -1,6 +1,6 @@
 # Architecture
 
-**Analysis Date:** 2026-04-13
+**Analysis Date:** 2026-04-13 (Updated after Phase 1)
 
 ## Pattern Overview
 
@@ -66,22 +66,39 @@
 
 **Utility Layer:**
 - Purpose: Shared helpers and configuration
-- Contains: Logging setup, helper functions, configuration management
+- Contains: Logging setup, helper functions, configuration management, retry logic, deduplication
 - Location: `utils/*.py`, `config.py`
-- Depends on: Python standard library
+- Depends on: Python standard library, tenacity, pydantic-settings
 - Used by: All layers
+
+**Validation Layer (added in Phase 1):**
+- Purpose: Data validation and type safety across the application
+- Contains: CLI argument models, scraped data models, AI response models
+- Location: `validation/*.py`
+- Depends on: pydantic, pydantic-settings
+- Used by: CLI layer, scraper layer, AI agent layer
+
+**Retry Layer (added in Phase 1):**
+- Purpose: Automatic retry logic for transient errors
+- Contains: Network retry, AI API retry, database retry decorators
+- Location: `utils/retry.py`
+- Depends on: tenacity
+- Used by: Scraper layer, AI agent layer, database layer
 
 ## Data Flow
 
 **Scraping Flow:**
 
 1. User runs: `python main.py scrape --source all`
-2. CLI parses args and instantiates scrapers (OLXScraper, StandvirtualScraper, AutoSapoScraper)
-3. Scraper launches Playwright browser with stealth
-4. Browser navigates to target URL, handles consent, scrolls to load content
-5. HTML parsed with BeautifulSoup, listing data extracted
-6. Scraper saves to database via get_db_context() context manager
-7. ScrapingLog entry created/updated for tracking
+2. CLI parses args and validates using pydantic models (validation layer)
+3. Scraper instantiated with @retry_network decorator for transient errors (retry layer)
+4. Scraper launches Playwright browser with stealth
+5. Browser navigates to target URL, handles consent, scrolls to load content
+6. HTML parsed with BeautifulSoup, listing data extracted
+7. Data validated using ScrapedVehicle model (validation layer)
+8. Deduplication check via utils/deduplication (utility layer)
+9. Scraper saves to database via get_db_context() context manager with @retry_database (retry layer)
+10. ScrapingLog entry created/updated for tracking
 
 **Training Flow:**
 
@@ -179,10 +196,12 @@
 - File output: logs/autodeal.log
 
 **Configuration:**
-- Centralized in `config.py` using python-dotenv
-- Environment variables loaded from .env file
-- Config class provides validation and type safety
+- Centralized in `config.py` using pydantic-settings BaseSettings (refactored in Phase 1)
+- Environment variables loaded from .env file via python-dotenv
+- Settings class provides validation, type safety, and field validators
+- Configurable validation rules with override support
 - Defaults provided for all optional settings
+- Backward compatibility: config alias points to settings instance
 
 **Database Sessions:**
 - Context manager pattern for session lifecycle
@@ -195,6 +214,24 @@
 - Random user agents from list
 - Request delays to avoid rate limiting
 - Cookie consent handling
+
+**Validation (added in Phase 1):**
+- Pydantic models for CLI arguments, scraped data, AI responses
+- Configurable validation rules with override support
+- Structured logging for validation failures with context
+- Validation failure tracking and alerting
+
+**Retry Logic (added in Phase 1):**
+- Tenacity decorators for network, AI API, and database operations
+- Exponential backoff with configurable max attempts
+- Exception type filtering (retry only on transient errors)
+- Structured logging for retry attempts
+
+**Deduplication (added in Phase 1):**
+- In-memory tracking of processed URLs and vehicle IDs
+- Configurable deduplication window (default 1 hour)
+- Automatic reset after window expiration
+- Integration with scrapers and AI agents
 
 ---
 

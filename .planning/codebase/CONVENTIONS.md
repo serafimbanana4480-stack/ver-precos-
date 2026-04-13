@@ -1,12 +1,12 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-04-13
+**Analysis Date:** 2026-04-13 (Updated after Phase 1)
 
 ## Naming Patterns
 
 **Files:**
 - snake_case.py for all Python modules (e.g., olx_scraper.py, deal_finder.py)
-- No specific test file naming pattern yet (only test_database.py exists)
+- test_*.py for test files (added in Phase 1, e.g., test_scrapers.py, test_database.py)
 
 **Functions:**
 - snake_case for all functions (e.g., scrape_listings, train_model, find_best_deals)
@@ -26,15 +26,16 @@
 ## Code Style
 
 **Formatting:**
-- black 23.12.1 for code formatting
+- black 24.1.1 for code formatting (upgraded in Phase 1)
 - 88 character line length (black default)
 - Double quotes for strings (black default)
 - Semicolons not used (Python convention)
 
 **Linting:**
-- flake8 7.0.0 for linting
-- mypy 1.8.0 for type checking
-- Run: `flake8 .` or `mypy .` (not currently automated in scripts)
+- flake8 7.1.0 for linting (upgraded in Phase 1)
+- mypy 1.9.0 for type checking (upgraded in Phase 1, strict mode enabled)
+- Run: `flake8 .` or `mypy .` (automated in GitHub Actions workflow)
+- mypy.ini configuration with strict mode enabled (added in Phase 1)
 
 ## Import Organization
 
@@ -51,6 +52,13 @@
 - No path aliases configured
 - Use relative imports for local modules
 
+**Pydantic Models (added in Phase 1):**
+- PascalCase for pydantic model classes (e.g., ScrapeArgs, ScrapedVehicle, LLMReviewResponse)
+- Field definitions with type hints and validators
+- Use Field() for field configuration with constraints
+- Use @field_validator decorator for custom validation logic
+- Class methods for from_argparse() and with_overrides() pattern
+
 ## Error Handling
 
 **Patterns:**
@@ -64,9 +72,18 @@
 - Return None or empty list on failure (e.g., train_model returns None on insufficient data)
 - CLI exits with status code 1 on critical errors
 
+**Retry Logic (added in Phase 1):**
+- Use @retry_network decorator for network operations (scrapers, HTTP requests)
+- Use @retry_ai_api decorator for AI API calls (LLM, vision)
+- Use @retry_database decorator for database operations
+- Configure max_attempts (default: 3), min_wait (default: 2s), max_wait (default: 10s)
+- Retry only on transient errors (TimeoutError, ConnectionError)
+
 **Logging:**
 - Log error with context before raising: logger.error(f"Error scraping: {e}")
-- No exception chaining currently used
+- Use structured logging with JSON format for validation errors (added in Phase 1)
+- Use log_validation_error() for validation failures with context
+- Use log_retry_attempt() for retry attempts with context
 
 ## Logging
 
@@ -106,7 +123,8 @@
 **Parameters:**
 - No strict parameter limit
 - Use keyword arguments for optional parameters
-- Type hints used in some functions but not consistently
+- Type hints used in pydantic models (required in Phase 1)
+- Type hints encouraged in all functions (myPy strict mode enabled in Phase 1)
 
 **Return Values:**
 - Explicit return statements

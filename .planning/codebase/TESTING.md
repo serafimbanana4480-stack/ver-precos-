@@ -1,13 +1,16 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-04-13
+**Analysis Date:** 2026-04-13 (Updated after Phase 1)
 
 ## Test Framework
 
 **Runner:**
 - pytest 7.4.3
 - pytest-asyncio 0.21.1 for async test support
-- Config: pytest.ini or pytest configuration in setup.cfg (not present, using defaults)
+- pytest-cov 4.1.0 for coverage reporting (added in Phase 1)
+- pytest-mock 3.12.0 for mocking utilities (added in Phase 1)
+- factory-boy 3.3.0 for test data factories (added in Phase 1)
+- Config: mypy.ini with pytest configuration (added in Phase 1)
 
 **Assertion Library:**
 - pytest built-in assertions
@@ -24,8 +27,10 @@ pytest --cov             # Coverage report (if pytest-cov installed)
 ## Test File Organization
 
 **Location:**
-- test_*.py in project root (currently only test_database.py exists)
-- No separate tests/ directory
+- tests/ directory for test infrastructure (added in Phase 1)
+- tests/unit/ for unit tests (added in Phase 1)
+- tests/integration/ for integration tests (added in Phase 1)
+- test_database.py in project root (legacy test file)
 - No collocated test files alongside source
 
 **Naming:**
@@ -35,13 +40,18 @@ pytest --cov             # Coverage report (if pytest-cov installed)
 **Structure:**
 ```
 VER PRECOS/
-├── test_database.py      # Database tests (only test file)
+├── tests/                # Test infrastructure (added in Phase 1)
+│   ├── conftest.py       # Shared pytest fixtures
+│   ├── factories.py      # Factory Boy test data factories
+│   ├── unit/             # Unit tests
+│   └── integration/      # Integration tests
+├── test_database.py      # Database tests (legacy test file)
 ├── scrapers/
 │   ├── olx_scraper.py
-│   └── (no test files)
+│   └── (no test files yet)
 ├── database/
 │   ├── models.py
-│   └── (no test files)
+│   └── (no test files yet)
 ```
 
 ## Test Structure
@@ -90,22 +100,26 @@ def test_with_mock(monkeypatch):
 ## Fixtures and Factories
 
 **Test Data:**
-- No factory functions defined
-- No shared fixtures directory
-- Test data inline in test files (if tests existed)
+- Factory Boy factories defined in tests/factories.py (added in Phase 1)
+- VehicleFactory, PriceHistoryFactory, AIReviewFactory, ScrapingLogFactory
+- Shared fixtures in tests/conftest.py (added in Phase 1)
+- Fixtures: temp_dir, db_session, mock_grok, mock_ollama, sample_vehicle_data
 
 **Location:**
-- Not applicable (no test infrastructure yet)
+- tests/conftest.py - Shared pytest fixtures
+- tests/factories.py - Factory Boy test data factories
 
 ## Coverage
 
 **Requirements:**
-- No enforced coverage target
-- Coverage not currently tracked
-- pytest-cov not installed (available but not in requirements.txt)
+- Coverage target: 70% minimum (configured in mypy.ini, added in Phase 1)
+- pytest-cov 4.1.0 installed (added in Phase 1)
+- Coverage tracked in GitHub Actions workflow (added in Phase 1)
 
 **Configuration:**
-- No coverage configuration
+- Configured in mypy.ini pytest section
+- Report: term-missing, xml
+- Fail on: cov-fail-under=70
 
 **View Coverage:**
 ```bash
@@ -115,11 +129,13 @@ pytest --cov  # Would require pytest-cov installation
 ## Test Types
 
 **Unit Tests:**
-- Not currently implemented
-- Would test individual functions/classes in isolation
+- tests/unit/ directory created (added in Phase 1)
+- Test individual functions/classes in isolation
+- No test files written yet
 
 **Integration Tests:**
-- test_database.py exists (minimal)
+- tests/integration/ directory created (added in Phase 1)
+- test_database.py exists (minimal, legacy)
 - Tests database connection and basic operations
 
 **E2E Tests:**

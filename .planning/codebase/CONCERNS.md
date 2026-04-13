@@ -1,6 +1,6 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-04-13
+**Analysis Date:** 2026-04-13 (Updated after Phase 1)
 
 ## Tech Debt
 
@@ -24,6 +24,7 @@
 - Why: Rapid development, assumed trusted sources
 - Impact: Invalid data can enter database, potential crashes, security risk
 - Fix approach: Add pydantic models for validation, validate scraped data before database insertion
+- **RESOLVED in Phase 1:** Added pydantic models for CLI arguments, scraped data, and AI responses in validation/ directory
 
 ## Known Bugs
 
@@ -155,6 +156,7 @@
 - Current workaround: Check logs manually
 - Blocks: Cannot detect failures proactively, no alerting on critical issues
 - Implementation complexity: Medium (Prometheus + Grafana, or Sentry)
+- **RESOLVED in Phase 1:** Added Sentry SDK for error tracking with sensitive data filtering, validation failure tracking and alerting
 
 **No retry mechanism:**
 - Problem: Scrapers fail on transient errors without retry
@@ -162,12 +164,14 @@
 - Current workaround: Manual re-run
 - Blocks: Scraping failures require manual intervention
 - Implementation complexity: Low (implement retry logic with exponential backoff)
+- **RESOLVED in Phase 1:** Added tenacity retry decorators for network, AI API, and database operations in utils/retry.py
 
 **No data validation pipeline:**
 - Problem: No validation of scraped data before database insertion
 - Current workaround: Trust scraper output
 - Blocks: Invalid data enters database, model training on bad data
 - Implementation complexity: Medium (pydantic models, validation rules)
+- **RESOLVED in Phase 1:** Added pydantic validation models for scraped data, configurable validation rules, and validation failure tracking
 
 ## Test Coverage Gaps
 

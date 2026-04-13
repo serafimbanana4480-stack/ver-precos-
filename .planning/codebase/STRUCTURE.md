@@ -1,6 +1,6 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-04-13
+**Analysis Date:** 2026-04-13 (Updated after Phase 1)
 
 ## Directory Layout
 
@@ -24,16 +24,31 @@ VER PRECOS/
 │   └── daily_job.py
 ├── dashboard/             # Streamlit web dashboard
 │   └── app.py
+├── validation/            # Pydantic validation models (added in Phase 1)
+│   ├── cli_models.py
+│   ├── scraped_models.py
+│   └── ai_models.py
 ├── utils/                 # Shared utilities and helpers
 │   ├── helpers.py
-│   └── logging_config.py
+│   ├── logging_config.py
+│   ├── retry.py          # Retry decorators (added in Phase 1)
+│   └── deduplication.py  # Deduplication tracking (added in Phase 1)
+├── tests/                 # Test infrastructure (added in Phase 1)
+│   ├── conftest.py       # Shared fixtures
+│   ├── factories.py      # Test data factories
+│   ├── unit/             # Unit tests
+│   └── integration/      # Integration tests
 ├── data/                  # Data directory (exports, watchlist)
 │   └── exports/
 ├── models/                # Trained ML models
 ├── logs/                  # Application logs
+├── .github/               # GitHub configuration (added in Phase 1)
+│   └── workflows/
+│       └── tests.yml     # CI/CD workflow
 ├── main.py                # CLI entry point
 ├── config.py              # Centralized configuration
 ├── requirements.txt       # Python dependencies
+├── mypy.ini               # Type checking configuration (added in Phase 1)
 ├── .env.example          # Environment variables template
 ├── Dockerfile            # Docker image definition
 └── docker-compose.yml    # Docker Compose configuration
@@ -79,9 +94,27 @@ VER PRECOS/
 
 **utils/**
 - Purpose: Shared utility functions and configuration
-- Contains: Logging setup, helper functions
-- Key files: logging_config.py (logging setup), helpers.py (shared helpers)
+- Contains: Logging setup, helper functions, retry logic, deduplication tracking
+- Key files: logging_config.py (logging setup), helpers.py (shared helpers), retry.py (retry decorators), deduplication.py (deduplication)
 - Subdirectories: None
+
+**validation/** (added in Phase 1)
+- Purpose: Pydantic validation models for data validation
+- Contains: CLI argument models, scraped data models, AI response models
+- Key files: cli_models.py, scraped_models.py, ai_models.py
+- Subdirectories: None
+
+**tests/** (added in Phase 1)
+- Purpose: Test infrastructure and test files
+- Contains: Shared fixtures, test data factories, unit tests, integration tests
+- Key files: conftest.py (fixtures), factories.py (test data factories)
+- Subdirectories: unit/, integration/
+
+**.github/** (added in Phase 1)
+- Purpose: GitHub configuration for CI/CD
+- Contains: GitHub Actions workflows
+- Key files: workflows/tests.yml (automated testing workflow)
+- Subdirectories: workflows/
 
 **data/**
 - Purpose: Data storage for exports and watchlist
@@ -109,9 +142,10 @@ VER PRECOS/
 - `scheduler/daily_job.py` - Scheduler entry point
 
 **Configuration:**
-- `config.py` - Centralized configuration using python-dotenv
+- `config.py` - Centralized configuration using pydantic-settings (refactored in Phase 1)
 - `.env.example` - Environment variables template
 - `requirements.txt` - Python dependencies
+- `mypy.ini` - Type checking configuration (added in Phase 1)
 
 **Core Logic:**
 - `scrapers/*.py` - Scraping logic for each source
@@ -119,10 +153,16 @@ VER PRECOS/
 - `valuation/train_model.py` - ML model training
 - `ai_agent/deal_finder.py` - Deal finding logic
 - `scheduler/daily_job.py` - Daily job orchestration
+- `validation/*.py` - Pydantic validation models (added in Phase 1)
+- `utils/retry.py` - Retry decorators (added in Phase 1)
+- `utils/deduplication.py` - Deduplication tracking (added in Phase 1)
 
 **Testing:**
-- `test_database.py` - Database tests (only test file present)
-- No comprehensive test suite yet
+- `tests/conftest.py` - Shared pytest fixtures (added in Phase 1)
+- `tests/factories.py` - Factory Boy test data factories (added in Phase 1)
+- `tests/unit/` - Unit tests directory (added in Phase 1)
+- `tests/integration/` - Integration tests directory (added in Phase 1)
+- `test_database.py` - Database tests (legacy test file)
 
 **Documentation:**
 - `README.md` - User-facing documentation

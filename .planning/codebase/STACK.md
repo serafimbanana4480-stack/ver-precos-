@@ -1,6 +1,6 @@
 # Technology Stack
 
-**Analysis Date:** 2026-04-13
+**Analysis Date:** 2026-04-13 (Updated after Phase 1)
 
 ## Languages
 
@@ -32,12 +32,15 @@
 **Testing:**
 - pytest 7.4.3 - Unit and integration tests
 - pytest-asyncio 0.21.1 - Async test support
+- pytest-cov 4.1.0 - Code coverage reporting
+- pytest-mock 3.12.0 - Mocking utilities
+- factory-boy 3.3.0 - Test data factories
 
 **Build/Dev:**
 - None - Pure Python, no build step required
-- black 23.12.1 - Code formatting
-- flake8 7.0.0 - Linting
-- mypy 1.8.0 - Type checking
+- black 24.1.1 - Code formatting
+- flake8 7.1.0 - Linting
+- mypy 1.9.0 - Type checking (strict mode enabled)
 
 ## Key Dependencies
 
@@ -51,6 +54,9 @@
 **Infrastructure:**
 - python-dotenv 1.0.0 - Environment configuration
 - pydantic 2.5.0 - Data validation
+- pydantic-settings 2.1.0 - Configuration validation with BaseSettings
+- tenacity 8.2.3 - Retry logic with exponential backoff
+- sentry-sdk 1.40.0 - Error tracking and monitoring
 - beautifulsoup4 4.12.2 - HTML parsing
 - aiohttp 3.9.1 - Async HTTP client
 - httpx 0.26.0 - HTTP client for API calls
