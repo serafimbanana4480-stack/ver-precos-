@@ -22,19 +22,24 @@ Accurate deal identification through ML-based valuation and AI-powered analysis 
 - ✓ Vision analysis capability — existing
 - ✓ Notification channels (Discord, Email, Telegram) — existing
 - ✓ Docker deployment setup — existing
+- ✓ Input validation with pydantic models — v1.0
+- ✓ Retry mechanism for transient scraping failures — v1.0
+- ✓ Monitoring and alerting system (partial) — v1.0
+- ✓ Robust error handling and logging improvements (partial) — v1.0
 
 ### Active
 
-- [ ] Comprehensive test coverage (pytest) — currently only test_database.py exists
-- [ ] Input validation with pydantic models
+- [ ] Comprehensive test coverage (pytest) — infrastructure in place, tests not written
 - [ ] Database migrations with Alembic
-- [ ] Retry mechanism for transient scraping failures
 - [ ] Caching layer (Redis) for performance
-- [ ] Monitoring and alerting system
 - [ ] Automated database backups
 - [ ] Authentication for dashboard
 - [ ] Rate limiting for API calls
-- [ ] Robust error handling and logging improvements
+- [ ] Log rotation to prevent uncontrolled growth
+- [ ] Sensitive data filtering in all logs
+- [ ] Health check endpoint for monitoring
+- [ ] Metrics tracking (scraping, AI API, scheduler)
+- [ ] Type hints on all functions
 
 ### Out of Scope
 
@@ -45,6 +50,14 @@ Accurate deal identification through ML-based valuation and AI-powered analysis 
 - User account management — autonomous operation only
 
 ## Context
+
+**Shipped v1.0 Foundation (2026-04-13):**
+- 84,717 lines of code added across 313 files
+- Validation layer with pydantic models for configuration, CLI, scraped data, and AI responses
+- Retry decorators with exponential backoff for network, AI API, and database operations
+- Sentry error tracking with sensitive data filtering
+- Test infrastructure with pytest, fixtures, and factories
+- GitHub Actions CI workflow for automated testing, linting, and type checking
 
 **Existing Codebase:**
 - Python 3.12+ monolithic CLI application with layered architecture
@@ -57,16 +70,16 @@ Accurate deal identification through ML-based valuation and AI-powered analysis 
 **Technical Debt:**
 - DetachedInstanceError workarounds in deal_finder.py
 - Alembic installed but not configured for migrations
-- No input validation on CLI arguments or scraped data
-- Minimal test coverage (only test_database.py)
-- No retry mechanism for transient failures
-- No caching layer for performance optimization
+- Test infrastructure in place but actual tests not written (0% coverage)
+- Log rotation not implemented (log files could grow unbounded)
+- Sensitive data filtering only in Sentry (not in general logs)
+- No health check endpoint for system status
+- No metrics tracking (scraping, AI API, scheduler performance)
+- Type hints not added to all functions
 
 **Known Issues:**
 - Scrapers depend on HTML structure (fragile to site changes)
 - Brand/model parsing uses hardcoded lists
-- No monitoring/alerting for scraping failures
-- Environment variables stored in plain text .env file
 - Dashboard has no authentication
 - SQLite used in development (limited concurrency)
 
@@ -96,6 +109,13 @@ Accurate deal identification through ML-based valuation and AI-powered analysis 
 | Streamlit dashboard | Rapid development, Python-native, good for data apps | ✓ Good |
 | APScheduler for automation | Built-in job scheduling, timezone support | ✓ Good |
 | Grok/Ollama for AI | Flexibility between cloud and local AI | — Pending |
+| pydantic-settings for validation | Type hints, automatic validation, clear error messages | ✓ Good |
+| tenacity for retry logic | Robust retry with exponential backoff, industry standard | ✓ Good |
+| In-memory deduplication | Simplicity for 1-hour window, no database overhead | ✓ Good |
+| Sentry for error tracking | Production error monitoring, context-rich reports | ✓ Good |
+| mypy strict mode | Catch type errors early, enforce type safety | ✓ Good |
+| Test infrastructure first | Set up fixtures and factories before writing tests | ✓ Good |
+| Partial Phase 1.3/1.4 completion | Prioritize foundation, defer full monitoring/testing to future | ⚠️ Revisit |
 
 ## Evolution
 
@@ -115,4 +135,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-13 after initialization*
+*Last updated: 2026-04-13 after v1.0 milestone*
