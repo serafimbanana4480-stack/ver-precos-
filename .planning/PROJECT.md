@@ -29,17 +29,12 @@ Accurate deal identification through ML-based valuation and AI-powered analysis 
 
 ### Active
 
-- [ ] Comprehensive test coverage (pytest) — infrastructure in place, tests not written
 - [ ] Database migrations with Alembic
 - [ ] Caching layer (Redis) for performance
-- [ ] Automated database backups
 - [ ] Authentication for dashboard
-- [ ] Rate limiting for API calls
 - [ ] Log rotation to prevent uncontrolled growth
 - [ ] Sensitive data filtering in all logs
 - [ ] Health check endpoint for monitoring
-- [ ] Metrics tracking (scraping, AI API, scheduler)
-- [ ] Type hints on all functions
 
 ### Out of Scope
 
@@ -48,6 +43,17 @@ Accurate deal identification through ML-based valuation and AI-powered analysis 
 - Mobile app — dashboard is web-based
 - Payment processing — not a commercial platform
 - User account management — autonomous operation only
+
+## Current Milestone: v2.0 Quality & Observability
+
+**Goal:** Add comprehensive testing, metrics tracking, rate limiting, database backups, and type hints to improve code quality, monitoring, and reliability.
+
+**Target features:**
+- Comprehensive test coverage (pytest) - test everything thoroughly
+- Metrics tracking (scraping, AI API, scheduler performance)
+- Rate limiting for API calls
+- Automated database backups
+- Type hints on all functions
 
 ## Context
 
