@@ -1,7 +1,7 @@
 """
 SQLAlchemy ORM models for AutoDeal IA Hunter
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean, 
@@ -98,6 +98,11 @@ class Vehicle(Base):
     first_seen = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     last_seen = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     is_active = Column(Boolean, default=True, index=True)
+    
+    # Valuation and Analysis
+    deal_score = Column(Float, nullable=True, index=True)  # 0-100 score
+    valuation_details = Column(JSON, nullable=True)  # Detailed breakdown
+    
     scrape_count = Column(Integer, default=1)
     
     # Additional data
@@ -200,6 +205,7 @@ class Watchlist(Base):
     max_price = Column(Float, nullable=True)
     max_km = Column(Integer, nullable=True)
     min_profit = Column(Float, nullable=True)
+    fuel_type = Column(Enum(FuelType), nullable=True)
     
     # Notifications
     notify_on_match = Column(Boolean, default=True)
@@ -235,9 +241,10 @@ class AIReview(Base):
     # Detected issues
     issues = Column(JSON, nullable=True)
     positives = Column(JSON, nullable=True)
+    is_active = Column(Boolean, default=True, index=True)
     
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     processing_time = Column(Float, nullable=True)  # seconds
     
     vehicle = relationship("Vehicle", back_populates="ai_reviews")
