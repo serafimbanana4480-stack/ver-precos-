@@ -1,37 +1,77 @@
 """
 Logging configuration
 """
+from __future__ import annotations
 import logging
 import sys
 import json
+import re
 from logging.handlers import RotatingFileHandler
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
-from config import settings, LOGS_DIR
+from config import settings
 
 
-def setup_logging():
+class SensitiveDataFilter(logging.Filter):
+    """Filter to redact sensitive data from logs"""
+    
+    def __init__(self, patterns: str = settings.sensitive_patterns) -> None:
+        super().__init__()
+        # Simple regex to redact key=value pairs for sensitive keys
+        if not patterns:
+            patterns = "api_key|password|token|secret"
+        self.pattern = re.compile(rf'({patterns})\s*[=:]\s*([^,\s&"\'}}]+)', re.IGNORECASE)
+        
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = self.pattern.sub(r'\1=***REDACTED***', record.msg)
+        # Also clean up structured data if present in args
+        if record.args and isinstance(record.args, dict):
+            # This is a bit complex for a simple filter, standard record.msg is priority
+            pass
+        return True
+
+
+def setup_logging() -> None:
     """
     Setup logging configuration with log rotation
     """
+    from config import LOGS_DIR
+
     # Ensure logs directory exists
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     # Create rotating file handler
     file_handler = RotatingFileHandler(
         settings.log_file,
         maxBytes=settings.log_max_bytes,
-        backupCount=settings.log_backup_count
+        backupCount=settings.log_backup_count,
+        encoding='utf-8'
     )
-    
+
+    # Create stream handler with UTF-8 encoding for Windows console
+    stream_handler = logging.StreamHandler(sys.stdout)
+    if sys.platform == 'win32':
+        # On Windows, try to set UTF-8 encoding to avoid UnicodeEncodeError
+        try:
+            import codecs
+            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')  # type: ignore[assignment]
+        except Exception:
+            pass
+
+    # Create sensitive data filter
+    sensitive_filter = SensitiveDataFilter()
+    file_handler.addFilter(sensitive_filter)
+    stream_handler.addFilter(sensitive_filter)
+
     # Configure root logger
     logging.basicConfig(
         level=getattr(logging, settings.log_level),
         format=settings.log_format,
         handlers=[
             file_handler,
-            logging.StreamHandler(sys.stdout)
+            stream_handler
         ]
     )
     
@@ -97,7 +137,7 @@ def log_validation_error(
 # Validation failure tracking (simple in-memory counter)
 _validation_failure_count = 0
 _validation_failure_start = None
-_validation_failure_fields = {}  # Track which fields are failing
+_validation_failure_fields: dict[str, int] = {}  # Track which fields are failing
 
 
 def track_validation_failure(field_name: Optional[str] = None) -> None:
@@ -105,7 +145,7 @@ def track_validation_failure(field_name: Optional[str] = None) -> None:
     global _validation_failure_count, _validation_failure_start, _validation_failure_fields
     
     if _validation_failure_start is None:
-        _validation_failure_start = datetime.utcnow()
+        _validation_failure_start = datetime.now(timezone.utc)
     
     _validation_failure_count += 1
     
@@ -119,7 +159,7 @@ def track_validation_failure(field_name: Optional[str] = None) -> None:
         
         # Calculate failure rate
         if _validation_failure_start:
-            elapsed = (datetime.utcnow() - _validation_failure_start).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - _validation_failure_start).total_seconds()
             failure_rate = _validation_failure_count / max(elapsed, 1)
         else:
             failure_rate = 0
@@ -141,7 +181,7 @@ def track_validation_failure(field_name: Optional[str] = None) -> None:
             send_validation_alert(_validation_failure_count, failure_rate, top_fields)
 
 
-def send_validation_alert(count: int, rate: float, top_fields: list) -> None:
+def send_validation_alert(count: int, rate: float, top_fields: list[tuple[str, int]]) -> None:
     """Send validation failure alert via configured notification channels"""
     # This is a placeholder - actual implementation would use notification channels
     logger = logging.getLogger("validation_error")
@@ -156,7 +196,7 @@ def get_validation_health() -> Dict[str, Any]:
     global _validation_failure_count, _validation_failure_start, _validation_failure_fields
     
     if _validation_failure_start:
-        elapsed = (datetime.utcnow() - _validation_failure_start).total_seconds()
+        elapsed = (datetime.now(timezone.utc) - _validation_failure_start).total_seconds()
         failure_rate = _validation_failure_count / max(elapsed, 1)
     else:
         failure_rate = 0

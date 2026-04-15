@@ -13,12 +13,12 @@ import enum
 Base = declarative_base()
 
 
-class VehicleType(enum.Enum):
+class VehicleType(str, enum.Enum):
     CAR = "car"
     MOTO = "moto"
 
 
-class FuelType(enum.Enum):
+class FuelType(str, enum.Enum):
     GASOLINE = "gasolina"
     DIESEL = "diesel"
     ELECTRIC = "eletrico"
@@ -27,13 +27,13 @@ class FuelType(enum.Enum):
     GAS = "gas natural"
 
 
-class Transmission(enum.Enum):
+class Transmission(str, enum.Enum):
     MANUAL = "manual"
     AUTOMATIC = "automatico"
     SEMI_AUTOMATIC = "semi-automatico"
 
 
-class Source(enum.Enum):
+class Source(str, enum.Enum):
     OLX = "olx"
     STANDVIRTUAL = "standvirtual"
     AUTOSAPO = "autosapo"
@@ -95,8 +95,8 @@ class Vehicle(Base):
     ai_review_date = Column(DateTime, nullable=True)
     
     # Scraping metadata
-    first_seen = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    last_seen = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    first_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    last_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     is_active = Column(Boolean, default=True, index=True)
     
     # Valuation and Analysis
@@ -179,7 +179,7 @@ class PriceHistory(Base):
     id = Column(Integer, primary_key=True, index=True)
     vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=False, index=True)
     price = Column(Float, nullable=False)
-    recorded_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    recorded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     
     vehicle = relationship("Vehicle", back_populates="price_history")
     
@@ -212,7 +212,7 @@ class Watchlist(Base):
     last_notified = Column(DateTime, nullable=True)
     
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     is_active = Column(Boolean, default=True)
     
     __table_args__ = (
@@ -260,7 +260,7 @@ class ScrapingLog(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     source = Column(Enum(Source), nullable=False)
-    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     finished_at = Column(DateTime, nullable=True)
     status = Column(String(50), nullable=False)  # 'running', 'completed', 'failed'
     listings_found = Column(Integer, default=0)
