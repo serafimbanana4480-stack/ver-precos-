@@ -1,92 +1,42 @@
-# Technology Stack
+# Technology Stack - AutoDeal IA Hunter
 
-**Analysis Date:** 2026-04-13 (Updated after Phase 1)
+## Core Engine
+- **Language:** Python 3.12+
+- **Database:** SQLite (Default for local) / PostgreSQL (Supported via SQLAlchemy)
+- **ORM:** SQLAlchemy 2.0+
+- **Migrations:** Alembic 1.13+ (Installed but needs configuration)
+- **Validation:** Pydantic 2.6+ (Core models), Pydantic-settings 2.2+ (Configuration)
 
-## Languages
+## Web Scraping
+- **Engine:** Playwright 1.44+
+- **Stealth:** `playwright-stealth`
+- **Parsing:** BeautifulSoup4, lxml
+- **HTTP Clients:** Requests, aiohttp, httpx
+- **AI Extraction:** Parsera (AI-powered scraping)
+- **Managed Services:** ScraperAPI, ZenRows, Apify (Integrated but optional)
 
-**Primary:**
-- Python 3.12+ - All application code
+## AI & Machine Learning
+- **ML Engine:** XGBoost 2.0.3 (Price prediction)
+- **Data Analysis:** Pandas, NumPy
+- **Model Management:** Scikit-learn, joblib
+- **LLM Integration:** 
+  - **Ollama:** Local model execution (`deepseek-r1:8b`)
+  - **Grok API:** x.ai integration for high-end analysis
+  - **LangChain:** For LLM orchestration
 
-**Secondary:**
-- None - All code is Python
+## Frontend & Dashboard
+- **Framework:** Streamlit 1.29+
+- **Visualization:** Plotly, Altair
 
-## Runtime
+## Operations & Infrastructure
+- **Scheduler:** APScheduler 3.10+
+- **Monitoring:** Sentry SDK
+- **Notifications:** Discord Webhook
+- **Logging:** Standard logging with log rotation
+- **Containerization:** Docker & Docker Compose
+- **Environment:** python-dotenv
 
-**Environment:**
-- Python 3.12+ (LTS recommended)
-- No browser runtime required
-- Playwright Chromium for web scraping (managed by Playwright)
-
-**Package Manager:**
-- pip
-- Lockfile: `requirements.txt` present
-
-## Frameworks
-
-**Core:**
-- SQLAlchemy 2.0.25 - ORM for database operations
-- Playwright 1.40.0 - Browser automation for web scraping
-- APScheduler 3.10.4 - Job scheduling
-- Streamlit 1.29.0 - Dashboard UI framework
-
-**Testing:**
-- pytest 7.4.3 - Unit and integration tests
-- pytest-asyncio 0.21.1 - Async test support
-- pytest-cov 4.1.0 - Code coverage reporting
-- pytest-mock 3.12.0 - Mocking utilities
-- factory-boy 3.3.0 - Test data factories
-
-**Build/Dev:**
-- None - Pure Python, no build step required
-- black 24.1.1 - Code formatting
-- flake8 7.1.0 - Linting
-- mypy 1.9.0 - Type checking (strict mode enabled)
-
-## Key Dependencies
-
-**Critical:**
-- xgboost 2.0.3 - ML model for price prediction
-- pandas 2.1.4 - Data manipulation and analysis
-- numpy 1.26.2 - Numerical computing
-- scikit-learn 1.4.0 - ML utilities and preprocessing
-- openai 1.6.1 - LLM API integration (Grok compatibility)
-
-**Infrastructure:**
-- python-dotenv 1.0.0 - Environment configuration
-- pydantic 2.5.0 - Data validation
-- pydantic-settings 2.1.0 - Configuration validation with BaseSettings
-- tenacity 8.2.3 - Retry logic with exponential backoff
-- sentry-sdk 1.40.0 - Error tracking and monitoring
-- beautifulsoup4 4.12.2 - HTML parsing
-- aiohttp 3.9.1 - Async HTTP client
-- httpx 0.26.0 - HTTP client for API calls
-
-## Configuration
-
-**Environment:**
-- `.env` file for environment variables (`.env.example` provided)
-- Key configs: DATABASE_URL, GROK_API_KEY, OLLAMA_URL, DISCORD_WEBHOOK_URL
-- Centralized configuration in `config.py`
-
-**Build:**
-- No build configuration required
-- Direct Python execution
-
-## Platform Requirements
-
-**Development:**
-- Any platform with Python 3.12+ (Windows, macOS, Linux)
-- Playwright browsers (install via `playwright install chromium`)
-- PostgreSQL 15+ (optional - SQLite for local dev)
-- Grok API key or Ollama for AI features
-
-**Production:**
-- Docker container recommended (Dockerfile and docker-compose.yml provided)
-- PostgreSQL database
-- Environment variables for secrets
-- Optional: Redis for caching
-
----
-
-*Stack analysis: 2026-04-13*
-*Update after major dependency changes*
+## Development & Quality
+- **Testing:** Pytest, pytest-asyncio, pytest-cov, pytest-mock
+- **Mocking:** factory-boy
+- **Linting/Formatting:** Black, Flake8, Mypy

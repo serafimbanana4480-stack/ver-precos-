@@ -1,237 +1,33 @@
-# Codebase Structure
+# Directory Structure - AutoDeal IA Hunter
 
-**Analysis Date:** 2026-04-13 (Updated after Phase 1)
-
-## Directory Layout
-
-```
-VER PRECOS/
-├── scrapers/              # Web scraping modules for different sources
-│   ├── olx_scraper.py
-│   ├── standvirtual_scraper.py
-│   └── autosapo_scraper.py
-├── database/              # Database models and connection management
-│   ├── models.py
-│   └── db.py
-├── valuation/             # ML model training and price prediction
-│   ├── train_model.py
-│   └── predict.py
-├── ai_agent/              # AI-powered analysis and deal finding
-│   ├── deal_finder.py
-│   ├── llm_review.py
-│   └── vision_analysis.py
-├── scheduler/             # Job scheduling and daily automation
-│   └── daily_job.py
-├── dashboard/             # Streamlit web dashboard
-│   └── app.py
-├── validation/            # Pydantic validation models (added in Phase 1)
-│   ├── cli_models.py
-│   ├── scraped_models.py
-│   └── ai_models.py
-├── utils/                 # Shared utilities and helpers
-│   ├── helpers.py
-│   ├── logging_config.py
-│   ├── retry.py          # Retry decorators (added in Phase 1)
-│   └── deduplication.py  # Deduplication tracking (added in Phase 1)
-├── tests/                 # Test infrastructure (added in Phase 1)
-│   ├── conftest.py       # Shared fixtures
-│   ├── factories.py      # Test data factories
-│   ├── unit/             # Unit tests
-│   └── integration/      # Integration tests
-├── data/                  # Data directory (exports, watchlist)
-│   └── exports/
-├── models/                # Trained ML models
-├── logs/                  # Application logs
-├── .github/               # GitHub configuration (added in Phase 1)
-│   └── workflows/
-│       └── tests.yml     # CI/CD workflow
-├── main.py                # CLI entry point
-├── config.py              # Centralized configuration
-├── requirements.txt       # Python dependencies
-├── mypy.ini               # Type checking configuration (added in Phase 1)
-├── .env.example          # Environment variables template
-├── Dockerfile            # Docker image definition
-└── docker-compose.yml    # Docker Compose configuration
+```text
+d:/VER PRECOS/
+├── ai_agent/           # LLM-based deal scoring and verification
+├── analysis/           # Data analysis notebooks and scripts
+├── dashboard/          # Streamlit dashboard implementation
+├── data/               # Persistent data (SQLite, model files, exports)
+├── database/           # SQLAlchemy models and database logic
+├── logs/               # Application logs with rotation
+├── models/             # Saved XGBoost models and vectorizers
+├── scheduler/          # Periodic job management
+├── scrapers/           # Modular scrapers (OLX, Standvirtual, AutoSapo)
+├── services/           # Core background services
+├── tests/              # Pytest suite (unit and integration)
+├── utils/              # Shared utilities (logging, proxy, captcha, retry)
+├── validation/         # Pydantic validation models for CLI and data
+├── valuation/          # ML training and prediction logic
+├── .planning/          # Project roadmaps and codebase documentation
+├── app.py              # Alternative dashboard entry point
+├── config.py           # Centralized Pydantic configuration
+├── main.py             # CLI application entry point
+├── run_hunter.py       # Standalone execution script
+└── start.bat           # Windows startup script
 ```
 
-## Directory Purposes
-
-**scrapers/**
-- Purpose: Web scraping modules for different vehicle listing sources
-- Contains: Python scraper classes (OLXScraper, StandvirtualScraper, AutoSapoScraper)
-- Key files: Each source has its own scraper with common interface
-- Subdirectories: None (flat structure)
-
-**database/**
-- Purpose: Database models, ORM configuration, and session management
-- Contains: SQLAlchemy models, connection setup, context managers
-- Key files: models.py (Vehicle, PriceHistory, AIReview, ScrapingLog), db.py (session management)
-- Subdirectories: None
-
-**valuation/**
-- Purpose: ML model training and vehicle price prediction
-- Contains: XGBoost training logic, prediction utilities
-- Key files: train_model.py (training pipeline), predict.py (inference)
-- Subdirectories: None
-
-**ai_agent/**
-- Purpose: AI-powered vehicle analysis and deal finding
-- Contains: LLM review, vision analysis, deal scoring
-- Key files: deal_finder.py (main agent), llm_review.py (text analysis), vision_analysis.py (image analysis)
-- Subdirectories: None
-
-**scheduler/**
-- Purpose: Automated job scheduling and daily pipeline execution
-- Contains: APScheduler configuration, daily job orchestration
-- Key files: daily_job.py (scheduler setup and job definition)
-- Subdirectories: None
-
-**dashboard/**
-- Purpose: Streamlit web interface for data visualization
-- Contains: Streamlit application with filters, charts, and export
-- Key files: app.py (main dashboard)
-- Subdirectories: None
-
-**utils/**
-- Purpose: Shared utility functions and configuration
-- Contains: Logging setup, helper functions, retry logic, deduplication tracking
-- Key files: logging_config.py (logging setup), helpers.py (shared helpers), retry.py (retry decorators), deduplication.py (deduplication)
-- Subdirectories: None
-
-**validation/** (added in Phase 1)
-- Purpose: Pydantic validation models for data validation
-- Contains: CLI argument models, scraped data models, AI response models
-- Key files: cli_models.py, scraped_models.py, ai_models.py
-- Subdirectories: None
-
-**tests/** (added in Phase 1)
-- Purpose: Test infrastructure and test files
-- Contains: Shared fixtures, test data factories, unit tests, integration tests
-- Key files: conftest.py (fixtures), factories.py (test data factories)
-- Subdirectories: unit/, integration/
-
-**.github/** (added in Phase 1)
-- Purpose: GitHub configuration for CI/CD
-- Contains: GitHub Actions workflows
-- Key files: workflows/tests.yml (automated testing workflow)
-- Subdirectories: workflows/
-
-**data/**
-- Purpose: Data storage for exports and watchlist
-- Contains: exports/ (CSV exports), watchlist.json
-- Key files: watchlist.json (user watchlist criteria)
-- Subdirectories: exports/
-
-**models/**
-- Purpose: Trained ML model artifacts
-- Contains: xgboost_model.json, feature_names.json, label_encoders.joblib, model_metrics.json
-- Key files: xgboost_model.json (trained model)
-- Subdirectories: None
-
-**logs/**
-- Purpose: Application log files
-- Contains: autodeal.log (main application log)
-- Key files: autodeal.log
-- Subdirectories: None
-
-## Key File Locations
-
-**Entry Points:**
-- `main.py` - CLI entry point with argparse command routing
-- `dashboard/app.py` - Streamlit dashboard entry point
-- `scheduler/daily_job.py` - Scheduler entry point
-
-**Configuration:**
-- `config.py` - Centralized configuration using pydantic-settings (refactored in Phase 1)
-- `.env.example` - Environment variables template
-- `requirements.txt` - Python dependencies
-- `mypy.ini` - Type checking configuration (added in Phase 1)
-
-**Core Logic:**
-- `scrapers/*.py` - Scraping logic for each source
-- `database/models.py` - SQLAlchemy ORM models
-- `valuation/train_model.py` - ML model training
-- `ai_agent/deal_finder.py` - Deal finding logic
-- `scheduler/daily_job.py` - Daily job orchestration
-- `validation/*.py` - Pydantic validation models (added in Phase 1)
-- `utils/retry.py` - Retry decorators (added in Phase 1)
-- `utils/deduplication.py` - Deduplication tracking (added in Phase 1)
-
-**Testing:**
-- `tests/conftest.py` - Shared pytest fixtures (added in Phase 1)
-- `tests/factories.py` - Factory Boy test data factories (added in Phase 1)
-- `tests/unit/` - Unit tests directory (added in Phase 1)
-- `tests/integration/` - Integration tests directory (added in Phase 1)
-- `test_database.py` - Database tests (legacy test file)
-
-**Documentation:**
-- `README.md` - User-facing documentation
-- No developer-specific documentation beyond code comments
-
-## Naming Conventions
-
-**Files:**
-- snake_case.py: Python modules (e.g., olx_scraper.py, deal_finder.py)
-- snake_case.txt: Configuration files (requirements.txt)
-- UPPERCASE: Environment files (.env.example)
-- Dockerfile: Docker image definition
-- docker-compose.yml: Docker Compose configuration
-
-**Directories:**
-- snake_case: All directories (scrapers, database, valuation, ai_agent)
-- Plural for collections: scrapers, utils, models, logs
-
-**Special Patterns:**
-- *_scraper.py: Scraper modules (olx_scraper.py)
-- *_model.py: ML model files (train_model.py)
-- *_config.py: Configuration files (config.py, logging_config.py)
-
-## Where to Add New Code
-
-**New Scraper:**
-- Primary code: `scrapers/{source}_scraper.py`
-- Tests: `test_{source}_scraper.py` (not yet implemented)
-- Config if needed: Add source URL to config.py
-
-**New AI Agent:**
-- Implementation: `ai_agent/{agent_name}.py`
-- Tests: `test_{agent_name}.py` (not yet implemented)
-
-**New Dashboard Page:**
-- Implementation: Add to `dashboard/app.py` (single file architecture)
-- Tests: Not applicable (Streamlit app)
-
-**New Scheduled Job:**
-- Implementation: Add to `scheduler/daily_job.py`
-- Tests: `test_scheduler.py` (not yet implemented)
-
-**Utilities:**
-- Shared helpers: `utils/helpers.py`
-- Type definitions: Inline in modules (no separate types directory)
-
-## Special Directories
-
-**data/**
-- Purpose: Runtime data storage (exports, watchlist)
-- Source: Generated at runtime
-- Committed: No (in .gitignore)
-
-**models/**
-- Purpose: Trained ML model artifacts
-- Source: Generated by training pipeline
-- Committed: No (in .gitignore)
-
-**logs/**
-- Purpose: Application log files
-- Source: Generated at runtime
-- Committed: No (in .gitignore)
-
-**__pycache__/**
-- Purpose: Python bytecode cache
-- Source: Generated by Python interpreter
-- Committed: No (in .gitignore)
-
----
-
-*Structure analysis: 2026-04-13*
-*Update when directory structure changes*
+## Key Files
+- `config.py`: Central settings management using environment variables.
+- `main.py`: The main conductor for all system operations.
+- `database/models.py`: Defines the core data structure of the application.
+- `scrapers/olx_scraper.py`: Primary implementation of the OLX scraping logic.
+- `valuation/predict.py`: Core logic for vehicle price valuation.
+- `ai_agent/deal_finder.py`: Logic for selecting the best deals based on value/price.

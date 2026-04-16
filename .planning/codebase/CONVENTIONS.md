@@ -1,148 +1,31 @@
-# Coding Conventions
+# Coding Conventions - AutoDeal IA Hunter
 
-**Analysis Date:** 2026-04-13 (Updated after Phase 1)
+## Python Style
+- **Version:** Python 3.12+
+- **Formatting:** Clean code following PEP 8 (implicitly enforced via Black).
+- **Type Hinting:** Required for new modules; partially implemented in legacy code.
+- **Async/Await:** Preferred for all I/O bound operations (scraping, API calls).
 
-## Naming Patterns
-
-**Files:**
-- snake_case.py for all Python modules (e.g., olx_scraper.py, deal_finder.py)
-- test_*.py for test files (added in Phase 1, e.g., test_scrapers.py, test_database.py)
-
-**Functions:**
-- snake_case for all functions (e.g., scrape_listings, train_model, find_best_deals)
-- No special prefix for async functions
-- Private methods use _prefix (e.g., _parse_brand_model, _handle_consent)
-
-**Variables:**
-- snake_case for variables (e.g., vehicle_data, deal_score, max_listings)
-- UPPER_SNAKE_CASE for constants (e.g., DATABASE_URL, GROK_API_KEY, MAX_RETRIES)
-- _prefix for private class members (e.g., _headless, _timeout)
-
-**Types:**
-- PascalCase for class names (e.g., Vehicle, DealFinder, StandvirtualScraper)
-- PascalCase for enum classes (e.g., VehicleType, FuelType, Transmission, Source)
-- UPPER_CASE for enum values (e.g., VehicleType.CAR, FuelType.GASOLINE)
-
-## Code Style
-
-**Formatting:**
-- black 24.1.1 for code formatting (upgraded in Phase 1)
-- 88 character line length (black default)
-- Double quotes for strings (black default)
-- Semicolons not used (Python convention)
-
-**Linting:**
-- flake8 7.1.0 for linting (upgraded in Phase 1)
-- mypy 1.9.0 for type checking (upgraded in Phase 1, strict mode enabled)
-- Run: `flake8 .` or `mypy .` (automated in GitHub Actions workflow)
-- mypy.ini configuration with strict mode enabled (added in Phase 1)
-
-## Import Organization
-
-**Order:**
-1. Standard library imports (os, sys, logging, datetime)
-2. Third-party imports (sqlalchemy, pandas, xgboost, playwright)
-3. Local imports (from config import, from database.models import)
-
-**Grouping:**
-- Blank line between groups
-- Not strictly alphabetical within groups
-
-**Path Aliases:**
-- No path aliases configured
-- Use relative imports for local modules
-
-**Pydantic Models (added in Phase 1):**
-- PascalCase for pydantic model classes (e.g., ScrapeArgs, ScrapedVehicle, LLMReviewResponse)
-- Field definitions with type hints and validators
-- Use Field() for field configuration with constraints
-- Use @field_validator decorator for custom validation logic
-- Class methods for from_argparse() and with_overrides() pattern
+## Design Patterns
+- **Pydantic Models:** Used for configuration, CLI arguments, and data validation.
+- **Centralized Config:** All settings must be in `config.py` using `BaseSettings`.
+- **Dependency Injection:** (Informal) Passing service instances or configuration objects to functions/classes.
+- **Fail-Safe Startup:** Environment and dependency verification before main loop execution.
 
 ## Error Handling
+- **Tenacity:** Use `@retry` decorators for network and database operations.
+- **Custom Exceptions:** Domain-specific exceptions defined for scrapers and AI logic.
+- **Logging:** 
+  - Use `logger = logging.getLogger(__name__)`.
+  - Sensitive data (passwords, keys) must be redacted.
+  - Standard format: `%(asctime)s - %(name)s - %(levelname)s - %(message)s`.
 
-**Patterns:**
-- Try/except at operation level, log errors, continue processing
-- Generic Exception catching with logging
-- No custom error classes defined
-- Database operations wrapped in context manager with automatic rollback
+## Documentation
+- **File Headers:** Every major file should have a docstring explaining its purpose.
+- **Function Docstrings:** Use Google/Sphinx style for public methods.
+- **Comments:** Explain "Why" not "What" in complex logic sections.
 
-**Error Types:**
-- Log errors at WARNING or ERROR level
-- Return None or empty list on failure (e.g., train_model returns None on insufficient data)
-- CLI exits with status code 1 on critical errors
-
-**Retry Logic (added in Phase 1):**
-- Use @retry_network decorator for network operations (scrapers, HTTP requests)
-- Use @retry_ai_api decorator for AI API calls (LLM, vision)
-- Use @retry_database decorator for database operations
-- Configure max_attempts (default: 3), min_wait (default: 2s), max_wait (default: 10s)
-- Retry only on transient errors (TimeoutError, ConnectionError)
-
-**Logging:**
-- Log error with context before raising: logger.error(f"Error scraping: {e}")
-- Use structured logging with JSON format for validation errors (added in Phase 1)
-- Use log_validation_error() for validation failures with context
-- Use log_retry_attempt() for retry attempts with context
-
-## Logging
-
-**Framework:**
-- Python logging module
-- Levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
-
-**Patterns:**
-- Centralized configuration in utils/logging_config.py
-- File handler (logs/autodeal.log) and stream handler (stdout)
-- Log at service boundaries and external calls
-- Format: timestamp, name, level, message
-
-## Comments
-
-**When to Comment:**
-- Docstrings for all classes and public functions (triple-quoted strings)
-- Explain non-obvious logic (e.g., brand/model parsing)
-- Document configuration options in config.py
-
-**Docstrings:**
-- Required for all classes and public methods
-- Format: Triple-quoted strings at function/class start
-- Args and Returns documented in docstrings
-
-**TODO Comments:**
-- No TODO comments currently in codebase
-- No issue tracking integration
-
-## Function Design
-
-**Size:**
-- Functions can be long (e.g., scrape_listings is ~200 lines)
-- Private helper methods extracted for parsing logic
-- No strict size limit enforced
-
-**Parameters:**
-- No strict parameter limit
-- Use keyword arguments for optional parameters
-- Type hints used in pydantic models (required in Phase 1)
-- Type hints encouraged in all functions (myPy strict mode enabled in Phase 1)
-
-**Return Values:**
-- Explicit return statements
-- Return None on failure
-- Return empty list [] for no results
-
-## Module Design
-
-**Exports:**
-- No explicit export mechanism (Python implicit)
-- __init__.py files in each directory for package structure
-- No barrel files (index.py) used
-
-**Barrel Files:**
-- __init__.py files empty or contain minimal imports
-- No circular dependency issues observed
-
----
-
-*Convention analysis: 2026-04-13*
-*Update when patterns change*
+## Database
+- **SQLAlchemy 2.0:** Use the modern `Session` and `Select` patterns.
+- **Migrations:** Alembic is the designated tool for schema changes.
+- **Safety:** Always use transactions; avoid raw SQL where possible.
