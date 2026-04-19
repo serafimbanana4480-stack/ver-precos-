@@ -1,6 +1,11 @@
 """
 Scraped data validation models using pydantic
+
+NOTE: ScrapedVehicle is intentionally lenient — it validates INITIAL scrape data
+where many fields are missing. Enrichment (brand/model parsing, detail scraping)
+happens after initial save. Strict validation belongs at the DB/export layer.
 """
+from __future__ import annotations
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -34,110 +39,142 @@ class Source(str, Enum):
 
 
 class ScrapedVehicle(BaseModel):
-    """Validation model for scraped vehicle data"""
+    """Validation model for scraped vehicle data.
+    
+    This model is used for INITIAL scraping validation.
+    Many fields are Optional because listing cards don't always
+    contain all vehicle details. Data enrichment (brand/model parsing,
+    detail page scraping) happens after initial save.
+    """
     model_config = ConfigDict(extra='allow')
     
-    source: str
-    source_id: str
+    # Required fields - must have at minimum a URL and title
     url: str
-    vehicle_type: str
-    brand: str
-    model: str
+    title: str = ""
+    source_id: str = ""
+    
+    # Fields that get enriched after initial scrape
+    source: Optional[str] = None
+    vehicle_type: Optional[str] = None
+    brand: Optional[str] = None
+    model: Optional[str] = None
     version: Optional[str] = None
-    year: int = Field(gt=1989, description="Vehicle year must be >= 1990")
+    
+    # Fields that may or may not be available from listing cards
+    year: Optional[int] = Field(default=None, description="Vehicle year")
     km: Optional[int] = Field(default=None, ge=0, description="Kilometers must be >= 0")
-    horsepower: Optional[int] = Field(default=None, ge=0, description="Horsepower must be >= 0")
-    engine_size: Optional[int] = Field(default=None, ge=0, description="Engine size in cc must be >= 0")
+    horsepower: Optional[int] = Field(default=None, ge=0)
+    engine_size: Optional[int] = Field(default=None, ge=0)
     fuel_type: Optional[str] = None
     transmission: Optional[str] = None
-    doors: Optional[int] = Field(default=None, ge=0, description="Doors must be >= 0")
-    seats: Optional[int] = Field(default=None, ge=0, description="Seats must be >= 0")
+    doors: Optional[int] = Field(default=None, ge=0)
+    seats: Optional[int] = Field(default=None, ge=0)
     color: Optional[str] = None
     location: Optional[str] = None
     district: Optional[str] = None
-    price: float = Field(gt=0, description="Price must be > 0")
-    title: str
+    price: Optional[float] = Field(default=None, description="Price in EUR")
     description: Optional[str] = None
     images: Optional[List[str]] = None
-    image_count: int = Field(default=0, ge=0, description="Image count must be >= 0")
+    image_count: int = Field(default=0, ge=0)
     
     @classmethod
     def with_overrides(cls, data: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None) -> 'ScrapedVehicle':
         """Create instance with optional validation overrides"""
         if overrides:
-            # Apply overrides to data before validation
             for key, value in overrides.items():
                 if key in data:
                     data[key] = value
         return cls(**data)
     
-    @field_validator('source')
+    @field_validator('source', mode='before')
     @classmethod
-    def validate_source(cls, v):
+    def validate_source(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
         valid_sources = ["olx", "standvirtual", "autosapo"]
         if v.lower() not in valid_sources:
-            raise ValueError(f"source must be one of {valid_sources}")
+            return None
         return v.lower()
     
-    @field_validator('vehicle_type')
+    @field_validator('vehicle_type', mode='before')
     @classmethod
-    def validate_vehicle_type(cls, v):
+    def validate_vehicle_type(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
         valid_types = ["car", "moto", "carros", "motos"]
         if v.lower() not in valid_types:
-            raise ValueError(f"vehicle_type must be one of {valid_types}")
-        # Normalize to enum values
+            return None
         return "car" if v.lower() in ["car", "carros"] else "moto"
     
-    @field_validator('brand')
+    @field_validator('brand', mode='before')
     @classmethod
-    def validate_brand(cls, v):
-        known_brands = [
-            "Volkswagen", "Renault", "Peugeot", "Citroen", "Ford", "Toyota", 
-            "Honda", "BMW", "Mercedes", "Audi", "Opel", "Fiat", "Seat", "Skoda",
-            "Nissan", "Hyundai", "Kia", "Mazda", "Suzuki", "Mitsubishi", "Volvo"
-        ]
-        if not v or len(v.strip()) == 0:
-            raise ValueError("brand cannot be empty")
-        # Warn if brand not in known list (don't fail to allow new brands)
-        if v not in known_brands:
-            # Log warning in actual implementation
-            pass
+    def validate_brand(cls, v: str | None) -> str | None:
+        if v is None or (isinstance(v, str) and len(v.strip()) == 0):
+            return None
         return v.strip()
     
-    @field_validator('model')
+    @field_validator('model', mode='before')
     @classmethod
-    def validate_model(cls, v):
-        if not v or len(v.strip()) == 0:
-            raise ValueError("model cannot be empty")
+    def validate_model(cls, v: str | None) -> str | None:
+        if v is None or (isinstance(v, str) and len(v.strip()) == 0):
+            return None
         return v.strip()
     
-    @field_validator('fuel_type')
+    @field_validator('year', mode='before')
     @classmethod
-    def validate_fuel_type(cls, v):
+    def validate_year(cls, v: Any) -> int | None:
         if v is None:
+            return None
+        try:
+            year = int(v)
+            if 1980 <= year <= 2030:
+                return year
+        except (ValueError, TypeError):
+            pass
+        return None
+    
+    @field_validator('price', mode='before')
+    @classmethod
+    def validate_price(cls, v: Any) -> float | None:
+        if v is None:
+            return None
+        try:
+            price = float(v)
+            if price > 0:
+                return price
+        except (ValueError, TypeError):
+            pass
+        return None
+    
+    @field_validator('fuel_type', mode='before')
+    @classmethod
+    def validate_fuel_type(cls, v: str | None) -> str | None:
+        if v is None or v == "":
             return None
         valid_types = ["gasolina", "diesel", "eletrico", "hibrido", "gpl", "gas natural"]
-        if v.lower() not in valid_types:
-            raise ValueError(f"fuel_type must be one of {valid_types}")
-        return v.lower()
+        if isinstance(v, str) and v.lower() in valid_types:
+            return v.lower()
+        return None
     
-    @field_validator('transmission')
+    @field_validator('transmission', mode='before')
     @classmethod
-    def validate_transmission(cls, v):
-        if v is None:
+    def validate_transmission(cls, v: str | None) -> str | None:
+        if v is None or v == "":
             return None
         valid_types = ["manual", "automatico", "semi-automatico"]
-        if v.lower() not in valid_types:
-            raise ValueError(f"transmission must be one of {valid_types}")
-        return v.lower()
+        if isinstance(v, str) and v.lower() in valid_types:
+            return v.lower()
+        return None
     
     @field_validator('url')
     @classmethod
-    def validate_url(cls, v):
+    def validate_url(cls, v: str) -> str:
         if not v or len(v.strip()) == 0:
             raise ValueError("url cannot be empty")
         if not v.startswith(('http://', 'https://')):
             raise ValueError("url must start with http:// or https://")
+        if 'example.com' in v.lower():
+            raise ValueError("url appears to be a test/fake URL")
         return v.strip()
 
 
@@ -150,7 +187,7 @@ class ScrapedPriceHistory(BaseModel):
     
     @field_validator('source')
     @classmethod
-    def validate_source(cls, v):
+    def validate_source(cls, v: str | None) -> str | None:
         if v is None:
             return None
         valid_sources = ["olx", "standvirtual", "autosapo"]

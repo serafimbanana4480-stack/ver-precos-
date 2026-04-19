@@ -1,6 +1,7 @@
 """
 Database connection and session management
 """
+from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
@@ -8,15 +9,15 @@ from contextlib import contextmanager
 from utils.retry import retry_database
 from typing import Generator
 import logging
-from config import config, LOG_FORMAT
+from config import settings
 import sys
 
 # Configure logging
 logging.basicConfig(
-    level=getattr(logging, config.log_level),
-    format=LOG_FORMAT,
+    level=getattr(logging, settings.log_level),
+    format=settings.log_format,
     handlers=[
-        logging.FileHandler(config.log_file),
+        logging.FileHandler(settings.log_file),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Create engine with connection pooling
 engine = create_engine(
-    config.database_url,
+    settings.database_url,
     poolclass=QueuePool,
     pool_size=5,
     max_overflow=10,
@@ -37,8 +38,8 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-@retry_database(max_attempts=3, min_wait=2, max_wait=10)
-def init_db():
+@retry_database(max_attempts=3, min_wait=2, max_wait=10)  # type: ignore[misc]
+def init_db() -> None:
     """Initialize database tables"""
     from .models import Base, ScrapingLog
     
@@ -63,7 +64,7 @@ def get_db() -> Generator[Session, None, None]:
 
 
 @contextmanager
-def get_db_context():
+def get_db_context() -> Generator[Session, None, None]:
     """
     Context manager for database sessions
     Usage:
@@ -82,12 +83,13 @@ def get_db_context():
         db.close()
 
 
-@retry_database(max_attempts=3, min_wait=2, max_wait=10)
+@retry_database(max_attempts=3, min_wait=2, max_wait=10)  # type: ignore[misc]
 def health_check() -> bool:
     """Check if database connection is healthy"""
     try:
+        from sqlalchemy import text
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         return True
     except Exception as e:
         logger.error(f"Database health check failed: {e}")

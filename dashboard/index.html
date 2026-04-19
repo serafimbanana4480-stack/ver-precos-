@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoDeal IA Hunter - Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="dark-mode">
+    <div class="glass-container">
+        <header>
+            <div class="logo">
+                <span class="highlight">AutoDeal</span> IA Hunter
+            </div>
+            <nav>
+                <div class="status-badge">
+                    <span class="pulse"></span> Hunter Active
+                </div>
+            </nav>
+        </header>
+
+        <main>
+            <section class="hero">
+                <h1>Top <span class="gradient-text">Oportunidades</span> Detetadas</h1>
+                <p>Veículos analisados por IA com score superior a 80/100</p>
+            </section>
+
+            <div class="deals-grid">
+                {% for deal in deals %}
+                <div class="deal-card glass">
+                    <div class="card-image">
+                        {% if deal.images %}
+                        <img src="{{ deal.images[0] }}" alt="{{ deal.title }}">
+                        {% else %}
+                        <div class="img-placeholder">Sem Imagem</div>
+                        {% endif %}
+                        <div class="score-badge">{{ deal.deal_score|round|int }}</div>
+                    </div>
+                    <div class="card-content">
+                        <h3>{{ deal.brand }} {{ deal.model }}</h3>
+                        <div class="details">
+                            <span>{{ deal.year }}</span> • <span>{{ deal.km }} km</span>
+                        </div>
+                        <div class="price-row">
+                            <span class="price">{{ "{:,.0f}".format(deal.price).replace(',', ' ') }} €</span>
+                            {% if deal.valuation_details %}
+                            <span class="market-avg">Mercado: {{ "{:,.0f}".format(deal.valuation_details.market_avg).replace(',', ' ') }} €</span>
+                            {% endif %}
+                        </div>
+                        <a href="{{ deal.url }}" target="_blank" class="btn-primary">Ver Anúncio</a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </main>
+    </div>
+
+    <div class="bg-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+</body>
+</html>

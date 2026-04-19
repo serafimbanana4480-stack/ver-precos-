@@ -1,21 +1,41 @@
 """
 AutoSapo.pt scraper using Playwright
 """
+from __future__ import annotations
 import logging
 import random
 import time
-from typing import List, Dict, Optional
-from datetime import datetime
+import asyncio
+from typing import List, Dict, Optional, Any
+from datetime import datetime, timezone
 from urllib.parse import urljoin, quote
 
-from config import (
-    AUTOSAPO_BASE_URL, USER_AGENTS, REQUEST_DELAY_SECONDS,
-    MAX_RETRIES, PLAYWRIGHT_HEADLESS, PLAYWRIGHT_TIMEOUT
-)
+from config import settings
 from database.models import Vehicle, Source, VehicleType, FuelType, Transmission
 from database.db import get_db_context
 from utils.retry import retry_network
 from validation.scraped_models import ScrapedVehicle
+from utils.data_validation import DataValidator, validate_scraped_data
+from utils.production_safeguards import with_circuit_breaker, _autosapo_circuit_breaker
+from utils.captcha_solver import CaptchaDetector, get_captcha_solver
+from utils.proxy_manager import get_proxy_pool
+from utils.selector_manager import get_selector_manager
+
+# Optional imports - modules may not be available in simplified version
+try:
+    from scrapers.ai_scraper import get_ai_scraper
+except ImportError:
+    get_ai_scraper = None
+
+try:
+    from scrapers.regex_extractor import get_regex_extractor
+except ImportError:
+    get_regex_extractor = None
+
+try:
+    from scrapers.managed_client import get_managed_client
+except ImportError:
+    get_managed_client = None
 
 logger = logging.getLogger(__name__)
 
@@ -23,20 +43,24 @@ logger = logging.getLogger(__name__)
 class AutoSapoScraper:
     """Scraper for AutoSapo.pt using Playwright"""
     
-    def __init__(self):
-        self.base_url = AUTOSAPO_BASE_URL
-        self.headless = PLAYWRIGHT_HEADLESS
-        self.timeout = PLAYWRIGHT_TIMEOUT
+    def __init__(self) -> None:
+        self.base_url = settings.autosapo_base_url
+        self.headless = settings.playwright_headless
+        self.timeout = settings.playwright_timeout
+        self.proxy_pool = get_proxy_pool()
+        self.selector_manager = get_selector_manager()
+        self.managed_client = get_managed_client() if get_managed_client else None
         
-    @retry_network(max_attempts=3, min_wait=2, max_wait=10)
-    def scrape_listings(
+    @with_circuit_breaker(_autosapo_circuit_breaker, "AutoSapo scraping")
+    @retry_network(max_attempts=3, min_wait=2, max_wait=10)  # type: ignore[misc]
+    async def scrape_listings(
         self,
         vehicle_type: str = "carros",
         max_listings: int = 100,
-        filters: Optional[Dict] = None
-    ) -> List[Dict]:
+        filters: Optional[Dict[str, object]] = None
+    ) -> List[Dict[str, object]]:
         """
-        Scrape listings from AutoSapo.pt
+        Scrape listings from AutoSapo.pt using AI-first or Playwright-first approach based on priority
         
         Args:
             vehicle_type: 'carros' or 'motos'
@@ -46,62 +70,105 @@ class AutoSapoScraper:
         Returns:
             List of vehicle dictionaries
         """
-        logger.info(f"Starting AutoSapo scrape for {vehicle_type}, max {max_listings} listings")
+        logger.info(f"[PROGRESS] Starting AutoSapo scrape for {vehicle_type}, max {max_listings} listings")
+        logger.info(f"[PROGRESS] AI scraping priority: {settings.ai_scraper_priority}")
         
-        try:
-            from playwright.sync_api import sync_playwright
-            from bs4 import BeautifulSoup
-        except ImportError:
-            logger.error("Playwright not installed")
-            return []
-        
-        listings = []
-        
-        # Build URL with filters
         url = self._build_url(vehicle_type, filters)
         
-        with sync_playwright() as p:
+        # AI-First Approach (if configured as primary)
+        if settings.ai_scraping_enabled and settings.ai_scraper_priority == "primary" and get_ai_scraper:
+            logger.info("[AI_PRIMARY] Using AI scraper as primary method")
             try:
-                browser = p.chromium.launch(headless=self.headless)
-                context = browser.new_context(
-                    user_agent=random.choice(USER_AGENTS),
-                    viewport={"width": 1920, "height": 1080},
-                    locale="pt-PT",
-                    timezone_id="Europe/Lisbon"
-                )
-                
-                # Add stealth
-                context.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', {
-                        get: () => undefined
-                    });
-                """)
-                
-                page = context.new_page()
-                
-                page.goto(url, timeout=self.timeout)
-                time.sleep(random.uniform(2, 4))
-                
-                # Handle cookie consent
-                self._handle_consent(page)
-                
-                # Scroll to load listings
-                self._scroll_to_load(page)
-                
-                html = page.content()
-                browser.close()
-                
-                soup = BeautifulSoup(html, 'lxml')
-                listings = self._parse_listings(soup, max_listings)
-                
-                logger.info(f"Scraped {len(listings)} listings from AutoSapo")
-                
+                ai_scraper = get_ai_scraper()
+                listings = await ai_scraper.scrape_listings("autosapo", url, max_listings)
+                if listings:
+                    logger.info(f"[AI_PRIMARY] AI scraper successfully retrieved {len(listings)} listings")
+                    return listings
+                else:
+                    logger.warning("[AI_PRIMARY] AI scraper returned no results, falling back to Playwright")
             except Exception as e:
-                logger.error(f"Error scraping AutoSapo: {e}")
+                logger.error(f"[AI_PRIMARY] AI scraper failed: {e}, falling back to Playwright")
+        
+        # Playwright-First Approach (fallback or if AI disabled)
+        logger.info(f"[PROGRESS] Phase 1/5: Building URL with filters")
+        listings = await self._scrape_with_resilient_flow(vehicle_type, max_listings, filters)
+        return listings
+
+    async def _scrape_with_resilient_flow(
+        self,
+        vehicle_type: str,
+        max_listings: int,
+        filters: Optional[Dict[str, object]] = None
+    ) -> List[Dict[str, object]]:
+        from bs4 import BeautifulSoup
+        url = self._build_url(vehicle_type, filters)
+        
+        # Use managed_client if available, otherwise fallback to local playwright
+        if self.managed_client:
+            html = await self.managed_client.get_html(url, source="autosapo")
+        else:
+            logger.warning("[AUTOSAPO_RESILIENT] Managed client not available, using local playwright")
+            html = await self._fetch_html_with_playwright(url)
+            
+        if not html:
+            return []
+            
+        # Tentar parsing tradicional primeiro
+        soup = BeautifulSoup(html, 'lxml')
+        listings = self._parse_soup_to_listings(soup, max_listings)
+        
+        # Se não encontrar listings, usar IA como fallback
+        if not listings and get_ai_scraper:
+            logger.info("[AI_FALLBACK] CSS selectors retornaram 0 resultados, usando IA como fallback")
+            try:
+                ai_scraper = get_ai_scraper()
+                listings = await ai_scraper.scrape_from_html("autosapo", html, max_listings)
+                if listings:
+                    logger.info(f"[SIMPLE_AI] IA extraiu {len(listings)} listings do AutoSapo")
+            except Exception as e:
+                logger.error(f"[SIMPLE_AI] Falha no fallback IA: {e}")
+        
+        # Se ainda não encontrar listings, usar regex como último recurso
+        if not listings and get_regex_extractor:
+            logger.info("[REGEX] IA falhou, usando regex como último recurso")
+            try:
+                regex_extractor = get_regex_extractor()
+                listings = regex_extractor.extract_listings(html, "autosapo", max_listings)
+                if listings:
+                    logger.info(f"[REGEX] Regex extraiu {len(listings)} listings do AutoSapo")
+            except Exception as e:
+                logger.error(f"[REGEX] Falha no fallback regex: {e}")
         
         return listings
+
+    async def _fetch_html_with_playwright(self, url: str) -> Optional[str]:
+        from playwright.async_api import async_playwright
+        import asyncio
+        try:
+             async with async_playwright() as p:
+                 browser = await p.chromium.launch(headless=self.headless)
+                 context = await browser.new_context(user_agent=random.choice(settings.user_agents))
+                 page = await context.new_page()
+                 await page.goto(url, timeout=self.timeout, wait_until='networkidle')
+                 await asyncio.sleep(5) # AutoSapo has lighter protection but still needs settle time
+                 html = await page.content()
+                 await browser.close()
+                 return html
+        except Exception as e:
+             logger.error(f"[PLAYWRIGHT] AutoSapo local fetch failed: {e}")
+             return None
+
+    def _parse_soup_to_listings(self, soup: Any, max_listings: int) -> List[Dict[str, object]]:
+        listings = []
+        # Fallback to general article searching or specific autosapo classes
+        listing_elements = soup.find_all('div', class_='list-item') or soup.find_all('article')
+        for idx, elem in enumerate(listing_elements[:max_listings]):
+             listing = self._parse_listing_element(elem)
+             if listing:
+                 listings.append(listing)
+        return listings
     
-    def _build_url(self, vehicle_type: str, filters: Optional[Dict]) -> str:
+    def _build_url(self, vehicle_type: str, filters: Optional[Dict[str, object]]) -> str:
         """Build URL with query parameters"""
         url = f"{self.base_url}/{vehicle_type}"
         
@@ -109,9 +176,13 @@ class AutoSapoScraper:
         
         if filters:
             if filters.get("brand"):
-                params.append(f"marca={quote(filters['brand'])}")
+                brand = filters["brand"]
+                if isinstance(brand, str):
+                    params.append(f"marca={quote(brand)}")
             if filters.get("model"):
-                params.append(f"modelo={quote(filters['model'])}")
+                model = filters["model"]
+                if isinstance(model, str):
+                    params.append(f"modelo={quote(model)}")
             if filters.get("min_price"):
                 params.append(f"precoMin={filters['min_price']}")
             if filters.get("max_price"):
@@ -128,100 +199,75 @@ class AutoSapoScraper:
         
         return url
     
-    def _handle_consent(self, page):
+    def _handle_consent(self, page: Any) -> None:
         """Handle cookie consent popup"""
         try:
             accept_button = page.query_selector('button:has-text("Aceitar"), button:has-text("Aceitar tudo")')
             if accept_button:
                 accept_button.click()
                 time.sleep(1)
-        except:
-            pass
-    
-    def _scroll_to_load(self, page):
+        except Exception as e:
+            logger.debug(f"Cookie consent handling failed: {e}")
+
+    def _scroll_to_load(self, page: Any) -> None:
         """Scroll page to load lazy-loaded content"""
         for i in range(5):
             page.evaluate("window.scrollBy(0, 800)")
             time.sleep(random.uniform(0.5, 1.0))
-        
+
         page.evaluate("window.scrollTo(0, 0)")
         time.sleep(1)
-    
-    def _parse_listings(self, soup, max_listings: int) -> List[Dict]:
+
+    def _parse_listings(self, soup: Any, max_listings: int) -> List[Dict[str, object]]:
         """Parse listings from BeautifulSoup object"""
         listings = []
-        
+
         # AutoSapo listing structure (may vary, adjust selectors)
         listing_elements = soup.find_all('div', class_='anuncio') or soup.find_all('article', class_='listing-item')
-        
-        for elem in listing_elements[:max_listings]:
+
+        for idx, elem in enumerate(listing_elements[:max_listings], 1):
             try:
                 listing = self._parse_listing_element(elem)
                 if listing:
                     listings.append(listing)
+                    if idx % 10 == 0:
+                        logger.info(f"[PROGRESS] Parsed {idx}/{min(len(listing_elements), max_listings)} listings")
             except Exception as e:
-                logger.warning(f"Error parsing listing: {e}")
+                logger.warning(f"Error parsing listing {idx}: {e}")
                 continue
-        
+
         return listings
-    
-    def _parse_listing_element(self, element) -> Optional[Dict]:
+
+    def _parse_listing_element(self, element: Any) -> Optional[Dict[str, object]]:
         """Parse a single AutoSapo listing element"""
         try:
-            # Extract link
-            link_elem = element.find('a', href=True)
-            if not link_elem:
-                return None
-            
-            url = link_elem.get('href', '')
-            if url.startswith('/'):
+            # Extract using SelectorManager fallback system
+            url, _ = self.selector_manager.extract_with_fallback(element, 'autosapo', 'url')
+            if not url:
+                link_elem = element.find('a', href=True)
+                if not link_elem: return None
+                url = link_elem.get('href', '')
+                
+            if isinstance(url, str) and url.startswith('/'):
                 url = urljoin(self.base_url, url)
+                
+            title, _ = self.selector_manager.extract_with_fallback(element, 'autosapo', 'title')
+            title = title or ""
             
-            # Extract title
-            title_elem = element.find('h3') or element.find('h2')
-            title = title_elem.get_text(strip=True) if title_elem else ""
+            price, _ = self.selector_manager.extract_with_fallback(element, 'autosapo', 'price')
+            location, _ = self.selector_manager.extract_with_fallback(element, 'autosapo', 'location')
+            location = location or ""
             
-            # Extract price
-            price_elem = element.find('span', class_='price') or element.find('span', class_='preco')
-            price = None
-            if price_elem:
-                price_text = price_elem.get_text(strip=True)
-                price_text = price_text.replace('€', '').replace(' ', '').replace('.', '')
-                try:
-                    price = float(price_text.replace(',', '.'))
-                except ValueError:
-                    pass
+            year, _ = self.selector_manager.extract_with_fallback(element, 'autosapo', 'year')
+            km, _ = self.selector_manager.extract_with_fallback(element, 'autosapo', 'km')
             
-            # Extract year
-            year_elem = element.find('span', class_='year') or element.find('span', class_='ano')
-            year = None
-            if year_elem:
-                year_text = year_elem.get_text(strip=True)
-                try:
-                    year = int(year_text)
-                except ValueError:
-                    pass
-            
-            # Extract km
-            km_elem = element.find('span', class_='km') or element.find('span', class_='quilometros')
-            km = None
-            if km_elem:
-                km_text = km_elem.get_text(strip=True)
-                try:
-                    km = int(km_text.replace(' ', '').replace('km', ''))
-                except ValueError:
-                    pass
-            
-            # Extract location
-            location_elem = element.find('span', class_='location') or element.find('span', class_='localizacao')
-            location = location_elem.get_text(strip=True) if location_elem else ""
-            
-            # Extract image
+            # Extract image manually
             img_elem = element.find('img')
             image_url = img_elem.get('src', '') if img_elem else ''
             
-            # Extract source ID from URL
-            source_id = url.split('/')[-1] if url else ""
+            # Extract source ID stably
+            import hashlib
+            source_id = hashlib.md5(str(url).encode()).hexdigest()
             
             return {
                 "source_id": source_id,
@@ -239,35 +285,36 @@ class AutoSapoScraper:
             logger.warning(f"Error parsing element: {e}")
             return None
     
-    def scrape_listing_details(self, url: str) -> Optional[Dict]:
+    async def scrape_listing_details(self, url: str) -> Optional[Dict[str, object]]:
         """Scrape detailed information from a single listing page"""
         try:
-            from playwright.sync_api import sync_playwright
+            from playwright.async_api import async_playwright
             from bs4 import BeautifulSoup
         except ImportError:
             logger.error("Playwright not installed")
             return None
         
+        import asyncio
         try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=self.headless)
-                context = browser.new_context(
-                    user_agent=random.choice(USER_AGENTS),
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=self.headless)
+                import random
+                context = await browser.new_context(
+                    user_agent=random.choice(settings.user_agents),
                     viewport={"width": 1920, "height": 1080}
                 )
-                page = context.new_page()
+                page = await context.new_page()
                 
-                page.goto(url, timeout=self.timeout)
-                time.sleep(random.uniform(2, 3))
+                # Navigate and wait
+                await page.goto(url, timeout=30000)
+                await asyncio.sleep(random.uniform(2, 4))
                 
-                self._handle_consent(page)
-                
-                html = page.content()
-                browser.close()
+                html = await page.content()
+                await browser.close()
                 
                 soup = BeautifulSoup(html, 'lxml')
-                
-                details = {
+
+                details: Dict[str, object] = {
                     "description": "",
                     "year": None,
                     "km": None,
@@ -304,12 +351,12 @@ class AutoSapoScraper:
                                 try:
                                     details["year"] = int(value_text)
                                 except ValueError:
-                                    pass
+                                    logger.debug(f"Could not parse year: {value_text}")
                             elif "quilómetros" in label_text or "km" in label_text:
                                 try:
                                     details["km"] = int(value_text.replace(' ', '').replace('km', ''))
                                 except ValueError:
-                                    pass
+                                    logger.debug(f"Could not parse km: {value_text}")
                             elif "combustível" in label_text:
                                 details["fuel_type"] = value_text.lower()
                             elif "caixa" in label_text:
@@ -318,22 +365,22 @@ class AutoSapoScraper:
                                 try:
                                     details["horsepower"] = int(value_text.split()[0])
                                 except (ValueError, IndexError):
-                                    pass
+                                    logger.debug(f"Could not parse horsepower: {value_text}")
                             elif "cilindrada" in label_text:
                                 try:
                                     details["engine_size"] = int(value_text.split()[0])
                                 except (ValueError, IndexError):
-                                    pass
+                                    logger.debug(f"Could not parse engine size: {value_text}")
                             elif "portas" in label_text:
                                 try:
                                     details["doors"] = int(value_text)
                                 except ValueError:
-                                    pass
+                                    logger.debug(f"Could not parse doors: {value_text}")
                             elif "lugares" in label_text:
                                 try:
                                     details["seats"] = int(value_text)
                                 except ValueError:
-                                    pass
+                                    logger.debug(f"Could not parse seats: {value_text}")
                             elif "cor" in label_text:
                                 details["color"] = value_text
                 
@@ -358,8 +405,9 @@ class AutoSapoScraper:
             logger.error(f"Error scraping listing details: {e}")
             return None
     
-    def save_to_database(self, listings: List[Dict], vehicle_type: str = "carros"):
+    def save_to_database(self, listings: List[Dict[str, object]], vehicle_type: str = "carros") -> None:
         """Save scraped listings to database"""
+        logger.info(f"[PROGRESS] Saving {len(listings)} listings to database")
         saved_count = 0
         updated_count = 0
         
@@ -375,11 +423,20 @@ class AutoSapoScraper:
             db.refresh(log)
             
             try:
-                for listing_data in listings:
+                for idx, listing_data in enumerate(listings, 1):
                     try:
-                        # Validate scraped data using pydantic model
+                        if idx % 20 == 0:
+                            logger.info(f"[PROGRESS] Processing {idx}/{len(listings)} listings")
+                        # Validate scraped data using pydantic model and custom validation
                         try:
-                            ScrapedVehicle(**listing_data)
+                            # First validate with pydantic
+                            ScrapedVehicle(**listing_data)  # type: ignore[arg-type]
+                            
+                            # Then validate with custom data validation
+                            is_valid, validation_error = validate_scraped_data(listing_data)
+                            if not is_valid:
+                                logger.warning(f"Data validation failed for listing {listing_data.get('url')}: {validation_error}")
+                                continue
                         except Exception as e:
                             logger.warning(f"Validation failed for listing {listing_data.get('url')}: {e}")
                             continue
@@ -389,14 +446,17 @@ class AutoSapoScraper:
                         ).first()
                         
                         title = listing_data.get("title", "")
-                        brand, model = self._parse_brand_model(title)
+                        if isinstance(title, str):
+                            brand, model = self._parse_brand_model(title)
+                        else:
+                            brand, model = "Unknown", "Unknown"
                         
                         v_type = VehicleType.CAR if vehicle_type == "carros" else VehicleType.MOTO
                         
                         if existing:
-                            existing.price = listing_data.get("price")
-                            existing.last_seen = datetime.utcnow()
-                            existing.scrape_count += 1
+                            existing.price = listing_data.get("price")  # type: ignore[assignment]
+                            existing.last_seen = datetime.now(timezone.utc)  # type: ignore[assignment]
+                            existing.scrape_count += 1  # type: ignore[assignment]
                             updated_count += 1
                         else:
                             vehicle = Vehicle(
@@ -410,7 +470,7 @@ class AutoSapoScraper:
                                 price=listing_data.get("price"),
                                 location=listing_data.get("location"),
                                 images=listing_data.get("images", []),
-                                image_count=len(listing_data.get("images", [])),
+                                image_count=0,
                                 description=listing_data.get("description", ""),
                                 year=listing_data.get("year"),
                                 km=listing_data.get("km"),
@@ -426,25 +486,25 @@ class AutoSapoScraper:
                             )
                             
                             fuel_type = listing_data.get("fuel_type", "")
-                            if fuel_type:
-                                fuel_type = fuel_type.lower()
+                            if isinstance(fuel_type, str) and fuel_type:
+                                fuel_type_lower = fuel_type.lower()
                                 if "gasolina" in fuel_type:
                                     vehicle.fuel_type = FuelType.GASOLINE
                                 elif "diesel" in fuel_type:
                                     vehicle.fuel_type = FuelType.DIESEL
-                                elif "eletrico" in fuel_type:
+                                elif "eletrico" in fuel_type or "eléctrico" in fuel_type:
                                     vehicle.fuel_type = FuelType.ELECTRIC
-                                elif "hibrido" in fuel_type:
+                                elif "hibrido" in fuel_type or "híbrido" in fuel_type:
                                     vehicle.fuel_type = FuelType.HYBRID
                                 elif "gpl" in fuel_type:
                                     vehicle.fuel_type = FuelType.GPL
-                            
+
                             transmission = listing_data.get("transmission", "")
-                            if transmission:
+                            if isinstance(transmission, str) and transmission:
                                 transmission = transmission.lower()
                                 if "manual" in transmission:
                                     vehicle.transmission = Transmission.MANUAL
-                                elif "automatic" in transmission:
+                                elif "automatic" in transmission or "automático" in transmission:
                                     vehicle.transmission = Transmission.AUTOMATIC
                             
                             db.add(vehicle)
@@ -454,23 +514,22 @@ class AutoSapoScraper:
                         logger.warning(f"Error saving listing: {e}")
                         continue
                 
-                log.status = "completed"
-                log.finished_at = datetime.utcnow()
-                log.listings_found = len(listings)
-                log.listings_added = saved_count
-                log.listings_updated = updated_count
+                log.status = "completed"  # type: ignore[assignment]
+                log.finished_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+                log.listings_scraped = saved_count
+                log.listings_updated = updated_count  # type: ignore[assignment]
                 
                 db.commit()
-                logger.info(f"Saved {saved_count} new listings, updated {updated_count} existing")
+                logger.info(f"[PROGRESS] Database save completed: {saved_count} new, {updated_count} updated")
                 
             except Exception as e:
-                log.status = "failed"
-                log.error_message = str(e)
-                log.finished_at = datetime.utcnow()
+                log.status = "failed"  # type: ignore[assignment]
+                log.error_message = str(e)  # type: ignore[assignment]
+                log.finished_at = datetime.now(timezone.utc)  # type: ignore[assignment]
                 db.commit()
                 raise
     
-    def _parse_brand_model(self, title: str) -> tuple:
+    def _parse_brand_model(self, title: str) -> tuple[str, str]:
         """Parse brand and model from title"""
         brands = [
             "Volkswagen", "BMW", "Mercedes", "Audi", "Renault", "Peugeot", 

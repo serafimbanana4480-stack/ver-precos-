@@ -33,7 +33,7 @@ jobs:
     
     - name: Run type checking with mypy
       run: |
-        mypy .
+        mypy . --strict
     
     - name: Run linting with flake8
       run: |

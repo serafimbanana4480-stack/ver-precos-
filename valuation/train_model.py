@@ -1,10 +1,11 @@
 """
 XGBoost model training for vehicle price prediction
 """
+from __future__ import annotations
 import logging
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, List
 import numpy as np
 import pandas as pd
@@ -14,7 +15,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from joblib import dump
 
-from config import MODEL_PATH, MODELS_DIR, MODEL_FEATURES, MIN_TRAINING_SAMPLES
+from config import settings
 from database.db import get_db_context
 from database.models import Vehicle
 
@@ -34,11 +35,11 @@ def train_model(force_retrain: bool = False) -> Optional[xgb.XGBRegressor]:
     logger.info("Starting XGBoost model training")
     
     # Check if model already exists
-    if MODEL_PATH.exists() and not force_retrain:
-        logger.info(f"Model already exists at {MODEL_PATH}. Use force_retrain=True to retrain.")
+    if settings.model_path.exists() and not force_retrain:
+        logger.info(f"Model already exists at {settings.model_path}. Use force_retrain=True to retrain.")
         try:
             model = xgb.XGBRegressor()
-            model.load_model(MODEL_PATH)
+            model.load_model(settings.model_path)
             logger.info("Loaded existing model")
             return model
         except Exception as e:
@@ -53,8 +54,8 @@ def train_model(force_retrain: bool = False) -> Optional[xgb.XGBRegressor]:
             Vehicle.km.isnot(None)
         ).all()
         
-        if len(vehicles) < MIN_TRAINING_SAMPLES:
-            logger.warning(f"Insufficient data for training: {len(vehicles)} samples (minimum {MIN_TRAINING_SAMPLES})")
+        if len(vehicles) < settings.min_training_samples:
+            logger.warning(f"Insufficient data for training: {len(vehicles)} samples (minimum {settings.min_training_samples})")
             return None
         
         logger.info(f"Training with {len(vehicles)} samples")
@@ -82,7 +83,7 @@ def train_model(force_retrain: bool = False) -> Optional[xgb.XGBRegressor]:
     # Data preprocessing
     df = preprocess_data(df)
     
-    if df is None or len(df) < MIN_TRAINING_SAMPLES:
+    if df is None or len(df) < settings.min_training_samples:
         logger.warning("Insufficient data after preprocessing")
         return None
     
@@ -118,32 +119,32 @@ def train_model(force_retrain: bool = False) -> Optional[xgb.XGBRegressor]:
     logger.info(f"Model performance - MAE: €{mae:.2f}, RMSE: €{rmse:.2f}, R2: {r2:.4f}")
     
     # Save model
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    model.save_model(str(MODEL_PATH))
-    
+    settings.model_path.parent.mkdir(parents=True, exist_ok=True)
+    model.save_model(str(settings.model_path))
+
     # Save feature names
-    feature_names_path = MODELS_DIR / "feature_names.json"
+    feature_names_path = settings.models_dir / "feature_names.json"
     with open(feature_names_path, 'w') as f:
         json.dump(list(X.columns), f)
-    
+
     # Save model metrics
-    metrics_path = MODELS_DIR / "model_metrics.json"
+    metrics_path = settings.models_dir / "model_metrics.json"
     with open(metrics_path, 'w') as f:
         json.dump({
             "mae": float(mae),
             "rmse": float(rmse),
             "r2": float(r2),
-            "training_date": datetime.utcnow().isoformat(),
+            "training_date": datetime.now(timezone.utc).isoformat(),
             "n_samples": len(df),
             "features": list(X.columns)
         }, f, indent=2)
-    
+
     # Save label encoders
-    encoders_path = MODELS_DIR / "label_encoders.joblib"
+    encoders_path = settings.models_dir / "label_encoders.joblib"
     encoders = get_label_encoders()
     dump(encoders, encoders_path)
-    
-    logger.info(f"Model saved to {MODEL_PATH}")
+
+    logger.info(f"Model saved to {settings.model_path}")
     
     return model
 

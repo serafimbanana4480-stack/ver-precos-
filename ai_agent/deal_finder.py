@@ -1,11 +1,12 @@
 """
 AI Agent to find the best deals
 """
+from __future__ import annotations
 import logging
 from typing import List, Optional, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
-from config import DEAL_SCORE_THRESHOLD, TOP_DEALS_COUNT, AI_REVIEW_COUNT
+from config import settings
 from database.models import Vehicle
 from database.db import get_db_context
 from .llm_review import LLMReviewer
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 class DealFinder:
     """AI Agent to find the best vehicle deals"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.llm_reviewer = LLMReviewer()
         self.vision_analyzer = VisionAnalyzer()
     
@@ -27,8 +28,8 @@ class DealFinder:
         self,
         vehicle_type: Optional[str] = None,
         min_profit: Optional[float] = None,
-        limit: int = TOP_DEALS_COUNT
-    ) -> List[Dict]:
+        limit: int = settings.top_deals_count
+    ) -> List[Dict[str, object]]:
         """
         Find the best deals from the database
         
@@ -47,7 +48,7 @@ class DealFinder:
             query = db.query(Vehicle).filter(
                 Vehicle.is_active == True,
                 Vehicle.deal_score.isnot(None),
-                Vehicle.deal_score >= DEAL_SCORE_THRESHOLD
+                Vehicle.deal_score >= settings.deal_score_threshold
             )
             
             if vehicle_type:
@@ -70,7 +71,7 @@ class DealFinder:
             deals = query.limit(limit * 2).all()  # Get more to filter
             
             # Filter by recency (last 7 days)
-            recent_cutoff = datetime.utcnow() - timedelta(days=7)
+            recent_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
             deals = [v for v in deals if v.first_seen >= recent_cutoff]
             
             # Sort and limit
@@ -92,49 +93,60 @@ class DealFinder:
             logger.info(f"Found {len(deal_dicts)} best deals")
             return deal_dicts
     
-    def perform_second_review(self, vehicles: List[Vehicle]) -> List[Vehicle]:
+    def perform_second_review(self, vehicles: List[Dict[str, object]]) -> List[Dict[str, object]]:
         """
         Perform second AI review on top deals
-        
+
         Args:
-            vehicles: List of vehicles to review
-        
+            vehicles: List of vehicle dictionaries to review
+
         Returns:
-            List of vehicles that passed second review
+            List of vehicle dictionaries that passed second review
         """
         logger.info(f"Performing second review on {len(vehicles)} vehicles")
-        
+
         approved_vehicles = []
-        
-        for vehicle in vehicles:
+
+        for vehicle_dict in vehicles:
             try:
-                # Check deduplication
-                if is_vehicle_processed(vehicle.id):
-                    logger.debug(f"Skipping already processed vehicle: {vehicle.id}")
+                vehicle_id = vehicle_dict.get("id")
+                if not vehicle_id:
                     continue
-                
-                # LLM review
-                llm_review = self.llm_reviewer.review_vehicle(vehicle)
-                
-                # Vision analysis (if images available)
-                if vehicle.images and len(vehicle.images) > 0:
-                    vision_review = self.vision_analyzer.analyze_vehicle_images(vehicle)
-                
-                # Check if approved
+
+                # Check deduplication
+                vid = int(vehicle_id) if isinstance(vehicle_id, (int, str)) else 0
+                if is_vehicle_processed(vid):
+                    logger.debug(f"Skipping already processed vehicle: {vehicle_id}")
+                    continue
+
+                # Get vehicle from database for AI review
                 with get_db_context() as db:
+                    from database.models import Vehicle
+                    vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
+                    if not vehicle:
+                        continue
+
+                    # LLM review
+                    llm_review = self.llm_reviewer.review_vehicle(vehicle)
+
+                    # Vision analysis (if images available)
+                    if vehicle.images and len(vehicle.images) > 0:
+                        vision_review = self.vision_analyzer.analyze_vehicle_images(vehicle)
+
+                    # Check if approved
                     db.refresh(vehicle)
                     if vehicle.ai_approved:
-                        approved_vehicles.append(vehicle)
-                        mark_vehicle_processed(vehicle.id)
-                
+                        approved_vehicles.append(vehicle.to_dict())
+                        mark_vehicle_processed(vid)
+
             except Exception as e:
-                logger.warning(f"Error in second review for vehicle {vehicle.id}: {e}")
+                logger.warning(f"Error in second review for vehicle: {e}")
                 continue
-        
+
         logger.info(f"Second review: {len(approved_vehicles)} approved out of {len(vehicles)}")
         return approved_vehicles
     
-    def run_daily_analysis(self):
+    def run_daily_analysis(self) -> List[Dict[str, object]]:
         """
         Run complete daily analysis pipeline
         1. Find top deals based on deal score
@@ -142,9 +154,9 @@ class DealFinder:
         3. Return final approved deals
         """
         logger.info("Starting daily analysis")
-        
+
         # Find top deals
-        top_deals = self.find_best_deals(limit=AI_REVIEW_COUNT)
+        top_deals = self.find_best_deals(limit=settings.ai_review_count)
         
         if not top_deals:
             logger.warning("No deals found for analysis")
@@ -155,17 +167,17 @@ class DealFinder:
         
         # Sort by combined score
         approved_deals.sort(
-            key=lambda x: (x.deal_score or 0, x.profit_potential or 0),
+            key=lambda x: (x.get("deal_score") or 0, x.get("profit_potential") or 0),
             reverse=True
         )
         
         # Return top deals
-        final_deals = approved_deals[:TOP_DEALS_COUNT]
+        final_deals = approved_deals[:settings.top_deals_count]
         
         logger.info(f"Daily analysis complete: {len(final_deals)} final deals")
         return final_deals
     
-    def get_deal_summary(self, vehicle: Vehicle) -> Dict:
+    def get_deal_summary(self, vehicle: Vehicle) -> Dict[str, object]:
         """
         Get summary of a deal
         
@@ -203,7 +215,7 @@ class DealFinder:
                 "ai_review": None,
             }
     
-    def export_deals_report(self, vehicles: List[Vehicle], format: str = "dict") -> List[Dict]:
+    def export_deals_report(self, vehicles: List[Vehicle], format: str = "dict") -> List[Dict[str, object]] | str:
         """
         Export deals as report
         
@@ -225,42 +237,41 @@ class DealFinder:
     def calculate_combined_score(self, vehicle: Vehicle) -> float:
         """
         Calculate combined score considering deal score, condition, and AI approval
-        
+
         Args:
             vehicle: Vehicle to score
-        
+
         Returns:
             Combined score (0-10)
         """
-        base_score = vehicle.deal_score or 5.0
-        
+        base_score = float(vehicle.deal_score) if vehicle.deal_score else 5.0
+
         # Adjust for condition
         if vehicle.condition_score:
             condition_weight = 0.3
-            base_score = base_score * (1 - condition_weight) + vehicle.condition_score * condition_weight
-        
+            base_score = base_score * (1 - condition_weight) + float(vehicle.condition_score) * condition_weight
+
         # Adjust for AI approval
         if vehicle.ai_approved is False:
             base_score *= 0.5  # Heavy penalty for AI rejection
-        
+
         # Adjust for AI confidence
         if vehicle.ai_confidence:
-            confidence_factor = 0.5 + (vehicle.ai_confidence * 0.5)
+            confidence_factor = 0.5 + (float(vehicle.ai_confidence) * 0.5)
             base_score *= confidence_factor
-        
+
         return max(0.0, min(10.0, base_score))
 
 
 if __name__ == "__main__":
     # Test deal finder
     finder = DealFinder()
-    
+
     # Run daily analysis
     deals = finder.run_daily_analysis()
-    
+
     print(f"Found {len(deals)} top deals:")
     for deal in deals:
-        summary = finder.get_deal_summary(deal)
-        print(f"- {summary['brand']} {summary['model']} ({summary['year']}): "
-              f"€{summary['price']}, Score: {summary['deal_score']}, "
-              f"Profit: €{summary['profit_potential']}")
+        print(f"- {deal.get('brand')} {deal.get('model')} ({deal.get('year')}): "
+              f"€{deal.get('price')}, Score: {deal.get('deal_score')}, "
+              f"Profit: €{deal.get('profit_potential')}")

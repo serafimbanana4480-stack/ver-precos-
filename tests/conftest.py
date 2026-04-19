@@ -17,17 +17,21 @@ def temp_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def db_session():
-    """Database session fixture (in-memory SQLite for tests)"""
-    from database.db import engine, SessionLocal
+def db():
+    """Database engine fixture (in-memory SQLite for tests)"""
     from database.models import Base
-    
-    # Use in-memory SQLite for tests
     from sqlalchemy import create_engine
+    
     test_engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=test_engine)
+    return test_engine
+
+@pytest.fixture
+def session(db):
+    """Database session fixture"""
+    from sqlalchemy.orm import sessionmaker
     
-    TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+    TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db)
     session = TestSessionLocal()
     
     try:

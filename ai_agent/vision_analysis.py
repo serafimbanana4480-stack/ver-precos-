@@ -1,12 +1,13 @@
 """
 Vision AI analysis of vehicle images
 """
+from __future__ import annotations
 import logging
 from typing import Optional, Dict, List
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 
-from config import GROK_API_KEY, GROK_API_URL, USE_OLLAMA, OLLAMA_URL, VISION_MODEL
+from config import settings
 from database.models import Vehicle, AIReview
 from database.db import get_db_context
 from utils.retry import retry_ai_api
@@ -18,12 +19,12 @@ logger = logging.getLogger(__name__)
 class VisionAnalyzer:
     """Analyze vehicle images using vision AI"""
     
-    def __init__(self):
-        self.api_key = GROK_API_KEY
-        self.api_url = GROK_API_URL
-        self.use_ollama = USE_OLLAMA
-        self.ollama_url = OLLAMA_URL
-        self.model = VISION_MODEL
+    def __init__(self) -> None:
+        self.api_key = settings.grok_api_key
+        self.api_url = settings.grok_api_url
+        self.use_ollama = settings.use_ollama
+        self.ollama_url = settings.ollama_url
+        self.model = settings.vision_model
         
         self.system_prompt = """You are an expert automotive visual analyst. Analyze vehicle images to identify:
 
@@ -97,7 +98,7 @@ Provide detailed analysis in Portuguese with specific observations from the imag
                 approval=condition_score >= 6.0,
                 confidence=0.7,
                 issues=damages,
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             
             # Update vehicle with analysis

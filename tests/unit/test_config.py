@@ -117,7 +117,7 @@ class TestSettingsValidation:
     def test_validate_returns_true(self):
         """Test validate method returns True for valid config"""
         settings = Settings()
-        assert settings.validate() is True
+        assert settings.validate_config() is True
 
 
 class TestDirectoryCreation:

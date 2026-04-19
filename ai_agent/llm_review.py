@@ -1,13 +1,14 @@
 """
 LLM-based review of vehicle descriptions
 """
+from __future__ import annotations
 import logging
 from typing import Optional, Dict, List
-from datetime import datetime
+from datetime import datetime, timezone
 
-from config import GROK_API_KEY, GROK_API_URL, USE_OLLAMA, OLLAMA_URL, LLM_MODEL, VISION_MODEL
-from validation.ai_models import LLMReviewResponse, AIReview
-from database.models import Vehicle
+from config import settings
+from validation.ai_models import LLMReviewResponse
+from database.models import Vehicle, AIReview
 from database.db import get_db_context
 from utils.retry import retry_ai_api
 
@@ -17,12 +18,12 @@ logger = logging.getLogger(__name__)
 class LLMReviewer:
     """Review vehicle descriptions using LLM"""
     
-    def __init__(self):
-        self.api_key = GROK_API_KEY
-        self.api_url = GROK_API_URL
-        self.use_ollama = USE_OLLAMA
-        self.ollama_url = OLLAMA_URL
-        self.model = LLM_MODEL
+    def __init__(self) -> None:
+        self.api_key = settings.grok_api_key
+        self.api_url = settings.grok_api_url
+        self.use_ollama = settings.use_ollama
+        self.ollama_url = settings.ollama_url
+        self.model = settings.llm_model
         
         self.system_prompt = """You are an expert automotive analyst specializing in the Portuguese used car market. Your task is to analyze vehicle listings and identify:
 
@@ -89,7 +90,7 @@ Provide your analysis in Portuguese with specific evidence from the description.
                 score=score,
                 approval=approval,
                 confidence=0.8,  # Default confidence
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             
             # Update vehicle with review
@@ -97,7 +98,7 @@ Provide your analysis in Portuguese with specific evidence from the description.
                 vehicle.ai_review = response
                 vehicle.ai_approved = approval
                 vehicle.ai_confidence = 0.8
-                vehicle.ai_review_date = datetime.utcnow()
+                vehicle.ai_review_date = datetime.now(timezone.utc)
                 db.add(review)
                 db.commit()
             

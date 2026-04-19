@@ -1,0 +1,22 @@
+# AutoDeal IA Hunter - Minimal Requirements (Fast Installation)
+# Only essential dependencies with pre-built Windows wheels
+
+# Core dependencies
+python-dotenv==1.0.0
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+tenacity==8.2.3
+
+# Database
+sqlalchemy==2.0.25
+
+# Scraping
+beautifulsoup4==4.12.2
+requests==2.31.0
+httpx==0.26.0
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+tqdm==4.66.1
+colorama==0.4.6

@@ -14,8 +14,8 @@ Base = declarative_base()
 
 
 class VehicleType(str, enum.Enum):
-    CAR = "car"
-    MOTO = "moto"
+    CAR = "carros"
+    MOTO = "motos"
 
 
 class FuelType(str, enum.Enum):
@@ -37,6 +37,7 @@ class Source(str, enum.Enum):
     OLX = "olx"
     STANDVIRTUAL = "standvirtual"
     AUTOSAPO = "autosapo"
+    CUSTOJUSTO = "custojusto"
 
 
 class Vehicle(Base):
@@ -100,7 +101,6 @@ class Vehicle(Base):
     is_active = Column(Boolean, default=True, index=True)
     
     # Valuation and Analysis
-    deal_score = Column(Float, nullable=True, index=True)  # 0-100 score
     valuation_details = Column(JSON, nullable=True)  # Detailed breakdown
     
     scrape_count = Column(Integer, default=1)
@@ -108,6 +108,10 @@ class Vehicle(Base):
     # Additional data
     seller_name = Column(String(200), nullable=True)
     seller_type = Column(String(50), nullable=True)  # particular, profissional
+    trim_level = Column(String(200), nullable=True)
+    has_damage = Column(Boolean, nullable=True, default=False)
+    maintenance_history = Column(Boolean, nullable=True, default=False)
+    aesthetic_score = Column(Integer, nullable=True)
     extras = Column(JSON, nullable=True)  # List of extras
     features = Column(JSON, nullable=True)  # Additional features
     
@@ -125,12 +129,16 @@ class Vehicle(Base):
     
     def to_dict(self) -> dict:
         """Convert to dictionary"""
+        def get_val(v):
+            if v is None: return None
+            return v.value if hasattr(v, 'value') else str(v)
+            
         return {
             "id": self.id,
-            "source": self.source.value if self.source else None,
+            "source": get_val(self.source),
             "source_id": self.source_id,
             "url": self.url,
-            "vehicle_type": self.vehicle_type.value if self.vehicle_type else None,
+            "vehicle_type": get_val(self.vehicle_type),
             "brand": self.brand,
             "model": self.model,
             "version": self.version,
@@ -138,8 +146,8 @@ class Vehicle(Base):
             "km": self.km,
             "horsepower": self.horsepower,
             "engine_size": self.engine_size,
-            "fuel_type": self.fuel_type.value if self.fuel_type else None,
-            "transmission": self.transmission.value if self.transmission else None,
+            "fuel_type": get_val(self.fuel_type),
+            "transmission": get_val(self.transmission),
             "doors": self.doors,
             "seats": self.seats,
             "color": self.color,
@@ -167,6 +175,10 @@ class Vehicle(Base):
             "scrape_count": self.scrape_count,
             "seller_name": self.seller_name,
             "seller_type": self.seller_type,
+            "trim_level": self.trim_level,
+            "has_damage": self.has_damage,
+            "maintenance_history": self.maintenance_history,
+            "aesthetic_score": self.aesthetic_score,
             "extras": self.extras,
             "features": self.features,
         }

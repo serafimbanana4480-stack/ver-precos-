@@ -1,6 +1,7 @@
 """
 AI response validation models using pydantic
 """
+from __future__ import annotations
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
@@ -25,7 +26,7 @@ class LLMReviewResponse(BaseModel):
     
     @field_validator('recommendation')
     @classmethod
-    def validate_recommendation(cls, v):
+    def validate_recommendation(cls, v: str) -> str:
         valid_recommendations = ["Approved", "Rejected", "Neutral"]
         if v not in valid_recommendations:
             raise ValueError(f"recommendation must be one of {valid_recommendations}")
@@ -33,7 +34,7 @@ class LLMReviewResponse(BaseModel):
     
     @field_validator('issues')
     @classmethod
-    def validate_issues(cls, v):
+    def validate_issues(cls, v: list) -> list:
         if not isinstance(v, list):
             raise ValueError("issues must be a list")
         return v
@@ -47,7 +48,7 @@ class VisionAnalysisResponse(BaseModel):
     
     @field_validator('damage_detected')
     @classmethod
-    def validate_damage_detected(cls, v):
+    def validate_damage_detected(cls, v: list) -> list:
         if not isinstance(v, list):
             raise ValueError("damage_detected must be a list")
         return v
@@ -62,7 +63,7 @@ class DealAnalysisResponse(BaseModel):
     
     @field_validator('recommendation')
     @classmethod
-    def validate_recommendation(cls, v):
+    def validate_recommendation(cls, v: str) -> str:
         valid_recommendations = ["Strong Buy", "Buy", "Hold", "Skip"]
         if v not in valid_recommendations:
             raise ValueError(f"recommendation must be one of {valid_recommendations}")

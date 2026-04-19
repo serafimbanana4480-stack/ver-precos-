@@ -2,7 +2,7 @@
 Test data factories using factory-boy
 """
 import factory
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from database.models import Vehicle, PriceHistory, AIReview, ScrapingLog, Source, VehicleType, FuelType, Transmission
 
 
@@ -44,9 +44,9 @@ class VehicleFactory(factory.Factory):
     ai_review = factory.Faker('paragraph')
     ai_approved = True
     ai_confidence = factory.Faker('random_float', min=0, max=1)
-    ai_review_date = factory.LazyFunction(datetime.utcnow)
-    first_seen = factory.LazyFunction(datetime.utcnow)
-    last_seen = factory.LazyFunction(datetime.utcnow)
+    ai_review_date = factory.LazyFunction(lambda: datetime.now(timezone.utc))
+    first_seen = factory.LazyFunction(lambda: datetime.now(timezone.utc))
+    last_seen = factory.LazyFunction(lambda: datetime.now(timezone.utc))
     is_active = True
 
 
@@ -57,7 +57,7 @@ class PriceHistoryFactory(factory.Factory):
     
     vehicle = factory.SubFactory(VehicleFactory)
     price = factory.Faker('random_int', min=1000, max=100000)
-    recorded_at = factory.LazyFunction(datetime.utcnow)
+    recorded_at = factory.LazyFunction(lambda: datetime.now(timezone.utc))
 
 
 class AIReviewFactory(factory.Factory):
@@ -69,7 +69,7 @@ class AIReviewFactory(factory.Factory):
     recommendation = factory.Iterator(['Approved', 'Rejected', 'Neutral'])
     confidence = factory.Faker('random_float', min=0, max=1)
     issues = factory.List([factory.Faker('word') for _ in range(3)])
-    review_date = factory.LazyFunction(datetime.utcnow)
+    review_date = factory.LazyFunction(lambda: datetime.now(timezone.utc))
 
 
 class ScrapingLogFactory(factory.Factory):
@@ -81,5 +81,5 @@ class ScrapingLogFactory(factory.Factory):
     status = factory.Iterator(['running', 'completed', 'failed'])
     listings_found = factory.Faker('random_int', min=0, max=100)
     listings_added = factory.Faker('random_int', min=0, max=100)
-    started_at = factory.LazyFunction(datetime.utcnow)
-    finished_at = factory.LazyFunction(lambda: datetime.utcnow() + timedelta(minutes=10))
+    started_at = factory.LazyFunction(lambda: datetime.now(timezone.utc))
+    finished_at = factory.LazyFunction(lambda: datetime.now(timezone.utc) + timedelta(minutes=10))

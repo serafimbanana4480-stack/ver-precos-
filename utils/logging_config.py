@@ -10,6 +10,7 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
+from pythonjsonlogger import jsonlogger
 from config import settings
 
 
@@ -51,19 +52,30 @@ def setup_logging() -> None:
     )
 
     # Create stream handler with UTF-8 encoding for Windows console
-    stream_handler = logging.StreamHandler(sys.stdout)
     if sys.platform == 'win32':
         # On Windows, try to set UTF-8 encoding to avoid UnicodeEncodeError
         try:
-            import codecs
-            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')  # type: ignore[assignment]
+            sys.stdout.reconfigure(encoding='utf-8')
         except Exception:
             pass
+    stream_handler = logging.StreamHandler(sys.stdout)
+
+    # Create JSON file handler for metrics/stats
+    metrics_log_path = LOGS_DIR / "metrics.jsonlines"
+    json_handler = RotatingFileHandler(
+        metrics_log_path,
+        maxBytes=settings.log_max_bytes,
+        backupCount=settings.log_backup_count,
+        encoding='utf-8'
+    )
+    json_formatter = jsonlogger.JsonFormatter('%(asctime)s %(name)s %(levelname)s %(message)s %(filename)s %(lineno)d')
+    json_handler.setFormatter(json_formatter)
 
     # Create sensitive data filter
     sensitive_filter = SensitiveDataFilter()
     file_handler.addFilter(sensitive_filter)
     stream_handler.addFilter(sensitive_filter)
+    json_handler.addFilter(sensitive_filter)
 
     # Configure root logger
     logging.basicConfig(
@@ -71,7 +83,8 @@ def setup_logging() -> None:
         format=settings.log_format,
         handlers=[
             file_handler,
-            stream_handler
+            stream_handler,
+            json_handler
         ]
     )
     

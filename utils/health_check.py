@@ -1,13 +1,14 @@
 """
 Health check utilities for system monitoring
 """
+from __future__ import annotations
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
 from sqlalchemy import text
-from database.db import get_db_session
-from config import settings, LOGS_DIR
+from database.db import get_db_context
+from config import settings
 from utils.logging_config import get_validation_health
 
 
@@ -19,7 +20,7 @@ def check_database_connection() -> Dict[str, Any]:
         Dictionary with connection status and details
     """
     try:
-        with get_db_session() as session:
+        with get_db_context() as session:
             # Execute a simple query to test connection
             result = session.execute(text("SELECT 1"))
             result.fetchone()
@@ -27,14 +28,14 @@ def check_database_connection() -> Dict[str, Any]:
             return {
                 "status": "healthy",
                 "database": settings.database_url.split("///")[0].split(":")[-1] if "sqlite" in settings.database_url else "postgresql",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "error": None
             }
     except Exception as e:
         return {
             "status": "unhealthy",
             "database": settings.database_url.split("///")[0].split(":")[-1] if "sqlite" in settings.database_url else "postgresql",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "error": str(e)
         }
 
@@ -48,7 +49,7 @@ def check_configuration() -> Dict[str, Any]:
     """
     try:
         # Validate settings
-        is_valid = settings.validate()
+        is_valid = settings.validate_config()
         
         # Check critical configuration
         critical_checks = {
@@ -63,7 +64,7 @@ def check_configuration() -> Dict[str, Any]:
             "status": "healthy" if (is_valid and all_critical_passed) else "degraded",
             "valid": is_valid,
             "critical_checks": critical_checks,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "error": None
         }
     except Exception as e:
@@ -71,7 +72,7 @@ def check_configuration() -> Dict[str, Any]:
             "status": "unhealthy",
             "valid": False,
             "critical_checks": {},
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "error": str(e)
         }
 
@@ -85,7 +86,7 @@ def check_log_file_writability() -> Dict[str, Any]:
     """
     try:
         # Ensure logs directory exists
-        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        settings.logs_dir.mkdir(parents=True, exist_ok=True)
         
         # Try to write to log file
         log_file = settings.log_file
@@ -101,7 +102,7 @@ def check_log_file_writability() -> Dict[str, Any]:
             "status": "healthy",
             "log_file": str(log_file),
             "writable": True,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "error": None
         }
     except Exception as e:
@@ -109,7 +110,7 @@ def check_log_file_writability() -> Dict[str, Any]:
             "status": "unhealthy",
             "log_file": str(settings.log_file),
             "writable": False,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "error": str(e)
         }
 
@@ -143,7 +144,7 @@ def get_system_health() -> Dict[str, Any]:
     
     return {
         "status": overall_status,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "components": {
             "database": db_health,
             "configuration": config_health,

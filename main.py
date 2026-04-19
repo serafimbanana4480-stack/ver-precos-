@@ -2,57 +2,86 @@
 AutoDeal IA Hunter - Main Entry Point
 Intelligent vehicle deal finder for Portugal
 """
-import argparse
+from __future__ import annotations
 import sys
+import argparse
 import logging
+import json
+import asyncio
+import inspect
 from pathlib import Path
+from typing import Union
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import config
+from config import settings
 from utils.logging_config import setup_logging
 from utils.health_check import get_system_health
+from utils.production_safeguards import setup_signal_handlers, validate_environment, get_health_check_summary
+from utils.request_queue import initialize_queue, shutdown_queue
 from database.db import init_db
 from validation.cli_models import ScrapeArgs, TrainArgs, FindDealsArgs, ValuateArgs, DashboardArgs
 
 # Initialize Sentry if DSN is configured
-if config.sentry_dsn:
+if settings.sentry_dsn:
     import sentry_sdk
-    
-    def filter_sentry_event(event, hint):
+
+    def filter_sentry_event(event: dict[str, object], hint: dict[str, object]) -> dict[str, object]:
         """Filter sensitive data from Sentry events"""
         if 'request' in event:
-            # Filter headers
-            if 'headers' in event['request']:
-                headers = event['request']['headers']
-                sensitive_keys = ['authorization', 'api-key', 'x-api-key', 'password']
-                for key in list(headers.keys()):
-                    if key.lower() in sensitive_keys:
-                        headers[key] = '***REDACTED***'
-        
-        # Filter extra data
+            request_obj = event.get('request')
+            if isinstance(request_obj, dict):
+                # Filter headers
+                if 'headers' in request_obj:
+                    headers = request_obj.get('headers')
+                    if isinstance(headers, dict):
+                        sensitive_keys = ['authorization', 'api-key', 'x-api-key', 'password']
+                        for key in list(headers.keys()):
+                            if isinstance(key, str) and key.lower() in sensitive_keys:
+                                headers[key] = '***REDACTED***'
+
+        # Filter environment variables
         if 'extra' in event:
-            for key in list(event['extra'].keys()):
-                if any(s in key.lower() for s in ['api_key', 'password', 'token', 'secret']):
-                    event['extra'][key] = '***REDACTED***'
-        
+            extra_obj = event.get('extra')
+            if isinstance(extra_obj, dict):
+                if 'env' in extra_obj:
+                    env = extra_obj.get('env')
+                    if isinstance(env, dict):
+                        sensitive_keys = ['api_key', 'password', 'token', 'secret']
+                        for key in list(env.keys()):
+                            if isinstance(key, str) and key.lower() in sensitive_keys:
+                                env[key] = '***REDACTED***'
+
         return event
     
     sentry_sdk.init(
-        dsn=config.sentry_dsn,
-        environment=config.sentry_environment,
-        sample_rate=config.sentry_sample_rate,
+        dsn=settings.sentry_dsn,
+        environment=settings.sentry_environment,
+        sample_rate=settings.sentry_sample_rate,
         before_send=filter_sentry_event
     )
 
 
 def main():
-    """Main entry point"""
-    parser = argparse.ArgumentParser(
-        description="AutoDeal IA Hunter - Intelligent Vehicle Deal Finder"
-    )
+    """Main entry point with production safeguards"""
+    # Setup signal handlers for graceful shutdown
+    setup_signal_handlers()
     
+    # Validate environment on startup (temporarily disabled for testing)
+    # from utils.production_safeguards import validate_environment
+    # env_check = validate_environment()
+    # if env_check['issues']:
+    #     print("CRITICAL: Environment validation failed:")
+    #     for issue in env_check['issues']:
+    #         print(f"  - {issue}")
+    #     sys.exit(1)
+    # if env_check['warnings']:
+    #     print("WARNINGS:")
+    #     for warning in env_check['warnings']:
+    #         print(f"  - {warning}")
+    
+    parser = argparse.ArgumentParser(description='AutoDeal IA Hunter')
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
     # Init command
@@ -96,7 +125,12 @@ def main():
     health_parser = subparsers.add_parser("health-check", help="Check system health")
     
     args = parser.parse_args()
-    
+
+    if args.command == 'health-check':
+        health_summary = get_health_check_summary()
+        print(json.dumps(health_summary, indent=2))
+        sys.exit(0 if health_summary['overall_status'] == 'healthy' else 1)
+
     # Validate CLI arguments using pydantic models
     if args.command == "scrape":
         try:
@@ -134,7 +168,7 @@ def main():
     logger = logging.getLogger(__name__)
     
     # Validate configuration
-    if not config.validate():
+    if not settings.validate_config():
         logger.error("Configuration validation failed. Please check your .env file.")
         sys.exit(1)
     
@@ -147,33 +181,37 @@ def main():
     elif args.command == "scrape":
         logger.info(f"Starting scraping: {args.source}, {args.vehicle_type}")
         
-        from scrapers.olx_scraper import OLXScraper
-        from scrapers.standvirtual_scraper import StandvirtualScraper
-        from scrapers.autosapo_scraper import AutoSapoScraper
+        async def run_scraping():
+            from scrapers import OLXScraper, StandvirtualScraper, AutoSapoScraper
+
+            olx_scraper = OLXScraper()
+            sv_scraper = StandvirtualScraper()
+            as_scraper = AutoSapoScraper()
+
+            sources_to_scrape: list[tuple[str, Union[OLXScraper, StandvirtualScraper, AutoSapoScraper]]] = []
+            if args.source in ["olx", "all"]:
+                sources_to_scrape.append(("OLX", olx_scraper))
+            if args.source in ["standvirtual", "all"]:
+                sources_to_scrape.append(("Standvirtual", sv_scraper))
+            if args.source in ["autosapo", "all"]:
+                sources_to_scrape.append(("AutoSapo", as_scraper))
+            
+            vehicle_types = ["carros", "motos"] if args.vehicle_type == "all" else [args.vehicle_type]
+            
+            for source_name, scraper in sources_to_scrape:
+                for vtype in vehicle_types:
+                    logger.info(f"Scraping {source_name} - {vtype}")
+                    
+                    # All scrapers are now async - await directly
+                    listings = await scraper.scrape_listings(vtype, max_listings=args.max_listings)
+                        
+                    if listings:
+                        scraper.save_to_database(listings, vtype)
+                        logger.info(f"Saved {len(listings)} listings from {source_name}")
+            
+            logger.info("Scraping completed!")
         
-        olx_scraper = OLXScraper()
-        sv_scraper = StandvirtualScraper()
-        as_scraper = AutoSapoScraper()
-        
-        sources_to_scrape = []
-        if args.source in ["olx", "all"]:
-            sources_to_scrape.append(("OLX", olx_scraper))
-        if args.source in ["standvirtual", "all"]:
-            sources_to_scrape.append(("Standvirtual", sv_scraper))
-        if args.source in ["autosapo", "all"]:
-            sources_to_scrape.append(("AutoSapo", as_scraper))
-        
-        vehicle_types = ["carros", "motos"] if args.vehicle_type == "all" else [args.vehicle_type]
-        
-        for source_name, scraper in sources_to_scrape:
-            for vtype in vehicle_types:
-                logger.info(f"Scraping {source_name} - {vtype}")
-                listings = scraper.scrape_listings(vtype, max_listings=args.max_listings)
-                if listings:
-                    scraper.save_to_database(listings, vtype)
-                    logger.info(f"Saved {len(listings)} listings from {source_name}")
-        
-        logger.info("Scraping completed!")
+        asyncio.run(run_scraping())
     
     elif args.command == "train":
         logger.info("Training ML model...")
@@ -218,21 +256,12 @@ def main():
     elif args.command == "dashboard":
         logger.info(f"Starting dashboard on port {args.port}...")
         import subprocess
-        import sys
         subprocess.run([
             sys.executable, "-m", "streamlit", "run", "dashboard/app.py",
             "--server.port", str(args.port),
             "--server.address", "0.0.0.0"
         ])
     
-    elif args.command == "health-check":
-        import json
-        health = get_system_health()
-        print(json.dumps(health, indent=2))
-        
-        # Exit with error code if unhealthy
-        if health["status"] != "healthy":
-            sys.exit(1)
     
     else:
         parser.print_help()

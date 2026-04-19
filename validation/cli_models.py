@@ -1,6 +1,7 @@
 """
 CLI argument validation models using pydantic
 """
+from __future__ import annotations
 from typing import Optional
 from pydantic import BaseModel, field_validator, Field
 
@@ -13,7 +14,7 @@ class ScrapeArgs(BaseModel):
     
     @field_validator('source')
     @classmethod
-    def validate_source(cls, v):
+    def validate_source(cls, v: str) -> str:
         valid_sources = ["olx", "standvirtual", "autosapo", "all"]
         if v not in valid_sources:
             raise ValueError(f"source must be one of {valid_sources}")
@@ -21,7 +22,7 @@ class ScrapeArgs(BaseModel):
     
     @field_validator('vehicle_type')
     @classmethod
-    def validate_vehicle_type(cls, v):
+    def validate_vehicle_type(cls, v: str) -> str:
         valid_types = ["carros", "motos", "all"]
         if v not in valid_types:
             raise ValueError(f"vehicle_type must be one of {valid_types}")
@@ -44,7 +45,7 @@ class TrainArgs(BaseModel):
     
     @field_validator('model_type')
     @classmethod
-    def validate_model_type(cls, v):
+    def validate_model_type(cls, v: str) -> str:
         valid_types = ["xgboost"]
         if v not in valid_types:
             raise ValueError(f"model_type must be one of {valid_types}")

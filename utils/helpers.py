@@ -1,6 +1,7 @@
 """
 Helper functions for data formatting and calculations
 """
+from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
@@ -38,23 +39,20 @@ def format_km(km: Optional[int]) -> str:
     return f"{km:,} km"
 
 
-def calculate_age(year: Optional[int], current_year: Optional[int] = None) -> Optional[int]:
+def calculate_age(year: int, current_year: Optional[int] = None) -> int:
     """
-    Calculate vehicle age
-    
+    Calculate vehicle age from year
+
     Args:
         year: Vehicle year
         current_year: Current year (defaults to current year)
-    
+
     Returns:
-        Age in years or None
+        Age in years
     """
-    if year is None:
-        return None
-    
     if current_year is None:
         current_year = datetime.now().year
-    
+
     age = current_year - year
     return max(0, age)
 
@@ -76,7 +74,7 @@ def calculate_km_per_year(km: Optional[int], year: Optional[int]) -> Optional[fl
     age = calculate_age(year)
     if age == 0:
         return None
-    
+
     return round(km / age, 0)
 
 

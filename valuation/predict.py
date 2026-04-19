@@ -1,6 +1,7 @@
 """
 Price prediction and deal scoring using trained XGBoost model
 """
+from __future__ import annotations
 import logging
 import json
 from pathlib import Path
@@ -10,7 +11,7 @@ import pandas as pd
 import xgboost as xgb
 from joblib import load
 
-from config import MODEL_PATH, MODELS_DIR, MIN_PROFIT_MARGIN_EUR, MAX_PROFIT_MARGIN_PERCENT
+from config import settings
 from database.models import Vehicle
 
 logger = logging.getLogger(__name__)
@@ -19,17 +20,17 @@ logger = logging.getLogger(__name__)
 def load_model() -> Optional[xgb.XGBRegressor]:
     """
     Load trained XGBoost model
-    
+
     Returns:
         Loaded model or None if not found
     """
-    if not MODEL_PATH.exists():
-        logger.warning(f"Model not found at {MODEL_PATH}")
+    if not settings.model_path.exists():
+        logger.warning(f"Model not found at {settings.model_path}")
         return None
-    
+
     try:
         model = xgb.XGBRegressor()
-        model.load_model(str(MODEL_PATH))
+        model.load_model(str(settings.model_path))
         logger.info("Model loaded successfully")
         return model
     except Exception as e:
@@ -39,7 +40,7 @@ def load_model() -> Optional[xgb.XGBRegressor]:
 
 def load_feature_names() -> List[str]:
     """Load feature names from file"""
-    feature_names_path = MODELS_DIR / "feature_names.json"
+    feature_names_path = settings.models_dir / "feature_names.json"
     
     if not feature_names_path.exists():
         logger.warning("Feature names file not found")
@@ -115,9 +116,20 @@ def prepare_features(vehicle: Vehicle) -> Optional[Dict]:
         age = current_year - vehicle.year if vehicle.year else 0
         km_per_year = vehicle.km / age if age > 0 and vehicle.km else 0
         
-        # Simple encoding for categorical variables (in production, use saved encoders)
-        brand_encoded = hash(vehicle.brand.lower()) % 1000 if vehicle.brand else 0
-        model_encoded = hash(vehicle.model.lower()) % 1000 if vehicle.model else 0
+        # Consistent encoding for categorical variables using seeded hash
+        # Note: In production, should use saved LabelEncoder from training
+        # Using deterministic hash for now to ensure consistency across runs
+        def consistent_hash(s: str, seed: int = 42) -> int:
+            """Consistent hash using a simple algorithm"""
+            if not s:
+                return 0
+            value = seed
+            for char in s.lower():
+                value = (value * 31 + ord(char)) % 1000
+            return value
+        
+        brand_encoded = consistent_hash(vehicle.brand) if vehicle.brand else 0
+        model_encoded = consistent_hash(vehicle.model) if vehicle.model else 0
         
         fuel_type_map = {
             "gasolina": 1,
