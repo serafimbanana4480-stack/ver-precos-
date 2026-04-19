@@ -116,3 +116,24 @@ class VehicleListing(BaseModel):
                 except ValueError:
                     return None
         return None
+
+    @field_validator("horsepower", "engine_size", "doors", "seats", mode="before")
+    @classmethod
+    def parse_int_fields(cls, v: Any) -> Optional[int]:
+        if v is None or v == "":
+            return None
+        if isinstance(v, int):
+            return v
+        if isinstance(v, float):
+            return int(v)
+        if isinstance(v, str):
+            # Remove common units that might contain numbers (like cm3)
+            v = re.sub(r"cm3|cc", "", v, flags=re.IGNORECASE)
+            # Extract digits (this also handles thousands separators like . or , or space)
+            v_digits = re.sub(r"[^\d]", "", v)
+            if v_digits:
+                try:
+                    return int(v_digits)
+                except ValueError:
+                    return None
+        return None

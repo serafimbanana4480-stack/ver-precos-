@@ -82,17 +82,27 @@ class AIExtractor:
         """
         Parse the LLM response resiliently, looking for JSON blocks.
         """
-        # Try to find a JSON block in the response
-        json_block_match = re.search(r'```json\s*(\[[\s\S]*?\])\s*```', raw_text)
-        if json_block_match:
-            json_str = json_block_match.group(1)
+        # Try to find a JSON list block first
+        list_block = re.search(r'```json\s*(\[[\s\S]*?\])\s*```', raw_text)
+        if list_block:
+            json_str = list_block.group(1)
         else:
-            # Fallback: try to find anything that looks like a JSON list
-            json_list_match = re.search(r'(\[[\s\S]*?\])', raw_text)
-            if json_list_match:
-                json_str = json_list_match.group(1)
+            # Try to find a JSON object block
+            dict_block = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', raw_text)
+            if dict_block:
+                json_str = dict_block.group(1)
             else:
-                json_str = raw_text
+                # Fallback: try to find anything that looks like a JSON list
+                json_list = re.search(r'(\[[\s\S]*?\])', raw_text)
+                if json_list:
+                    json_str = json_list.group(1)
+                else:
+                    # Fallback: try to find anything that looks like a JSON object
+                    json_dict = re.search(r'(\{[\s\S]*?\})', raw_text)
+                    if json_dict:
+                        json_str = json_dict.group(1)
+                    else:
+                        json_str = raw_text
 
         try:
             data = json.loads(json_str)
@@ -111,8 +121,6 @@ class AIExtractor:
                     listings.append(listing.model_dump())
                 except Exception as ve:
                     logger.warning(f"[AI_EXTRACT] Item validation failed: {ve}")
-                    # Still try to keep it if it has some data? 
-                    # No, strict conformance requested.
                     continue
             
             return listings

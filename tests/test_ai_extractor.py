@@ -43,6 +43,21 @@ def test_parse_llm_response_single_object(extractor):
     assert results[0]["title"] == "Mercedes C220"
     assert results[0]["price"] == 20000.0
 
+def test_parse_llm_response_single_object_with_text(extractor):
+    raw_text = """
+    Found one car:
+    ```json
+    {
+      "title": "Mercedes C220",
+      "price": "20.000"
+    }
+    ```
+    """
+    results = extractor._parse_llm_response(raw_text)
+    assert len(results) == 1
+    assert results[0]["title"] == "Mercedes C220"
+    assert results[0]["price"] == 20000.0
+
 def test_parse_llm_response_invalid_json(extractor):
     raw_text = "This is not JSON at all."
     results = extractor._parse_llm_response(raw_text)
@@ -122,3 +137,32 @@ def test_parse_llm_response_resilience(extractor):
     assert len(results) == 2
     assert results[0]["title"] == "Car 1"
     assert results[1]["title"] == "Car 2"
+
+def test_parse_llm_response_very_messy(extractor):
+    raw_text = """
+    Here is some garbage.
+    
+    [{"title": "Valid 1", "price": 100}]
+    
+    More garbage.
+    
+    ```json
+    [
+      {"title": "Valid 2", "price": 200},
+      {"price": 300}
+    ]
+    ```
+    
+    Even more garbage.
+    """
+    results = extractor._parse_llm_response(raw_text)
+    # It should pick the markdown block and then filter out the invalid item
+    assert len(results) == 1
+    assert results[0]["title"] == "Valid 2"
+
+def test_vehicle_listing_int_fields_parsing():
+    assert VehicleListing(title="Test", horsepower="150 cv").horsepower == 150
+    assert VehicleListing(title="Test", engine_size="1995 cm3").engine_size == 1995
+    assert VehicleListing(title="Test", doors="5 portas").doors == 5
+    assert VehicleListing(title="Test", seats="5 lugares").seats == 5
+    assert VehicleListing(title="Test", horsepower="N/A").horsepower is None
