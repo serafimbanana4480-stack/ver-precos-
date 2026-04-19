@@ -533,13 +533,19 @@ def run_scrapers(vehicle_type: str = "carros", max_listings: int = 100) -> dict[
     import subprocess
     import sys
     import json
+    import re
+    from datetime import datetime
 
     results: dict[str, object] = {
         "olx": 0,
         "standvirtual": 0,
         "autosapo": 0,
         "total": 0,
-        "errors": []
+        "errors": [],
+        "logs": [],
+        "start_time": datetime.now().isoformat(),
+        "end_time": None,
+        "duration_seconds": 0
     }
 
     try:
@@ -553,6 +559,10 @@ def run_scrapers(vehicle_type: str = "carros", max_listings: int = 100) -> dict[
             "--max-listings", str(max_listings)
         ]
 
+        # Log the command being executed
+        results["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Starting scraping process...")
+        results["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Command: {' '.join(cmd)}")
+
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -560,24 +570,84 @@ def run_scrapers(vehicle_type: str = "carros", max_listings: int = 100) -> dict[
             timeout=300  # 5 minute timeout
         )
 
+        results["end_time"] = datetime.now().isoformat()
+        results["duration_seconds"] = (datetime.now() - datetime.fromisoformat(results["start_time"])).total_seconds()
+
+        # Capture stdout for detailed logging
+        if result.stdout:
+            results["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] STDOUT:")
+            for line in result.stdout.split('\n')[:50]:  # Limit to first 50 lines
+                if line.strip():
+                    results["logs"].append(f"  {line}")
+
         if result.returncode == 0:
-            # Parse output to count listings
-            # Since we can't easily parse the output, we'll return success
-            results["olx"] = "Success"
-            results["standvirtual"] = "Success"
-            results["autosapo"] = "Success"
-            results["total"] = "Success"
+            # Try to parse output to count listings
+            results["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Scraping completed successfully")
+            
+            # Parse output for listing counts
+            output_text = result.stdout.lower()
+            
+            # Try to extract listing counts from output
+            olx_match = re.search(r'olx.*?(\d+)', output_text)
+            sv_match = re.search(r'standvirtual.*?(\d+)', output_text)
+            as_match = re.search(r'autosapo.*?(\d+)', output_text)
+            
+            if olx_match:
+                results["olx"] = int(olx_match.group(1))
+            else:
+                results["olx"] = "Success"
+            
+            if sv_match:
+                results["standvirtual"] = int(sv_match.group(1))
+            else:
+                results["standvirtual"] = "Success"
+            
+            if as_match:
+                results["autosapo"] = int(as_match.group(1))
+            else:
+                results["autosapo"] = "Success"
+            
+            # Calculate total if all are numbers
+            if all(isinstance(results[k], int) for k in ["olx", "standvirtual", "autosapo"]):
+                results["total"] = results["olx"] + results["standvirtual"] + results["autosapo"]
+            else:
+                results["total"] = "Success"
+                
         else:
+            results["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Scraping failed with return code: {result.returncode}")
             if isinstance(results["errors"], list):
-                results["errors"].append(f"Scraping failed: {result.stderr}")
+                results["errors"].append(f"Scraping failed (Exit Code {result.returncode})")
+            
+            # Capture stderr for error details
+            if result.stderr:
+                results["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] STDERR:")
+                for line in result.stderr.split('\n')[:30]:  # Limit to first 30 lines
+                    if line.strip():
+                        results["logs"].append(f"  {line}")
+                        # Categorize errors
+                        if "timeout" in line.lower():
+                            results["errors"].append("Timeout error detected")
+                        elif "connection" in line.lower():
+                            results["errors"].append("Connection error detected")
+                        elif "permission" in line.lower():
+                            results["errors"].append("Permission error detected")
+                        elif "not found" in line.lower():
+                            results["errors"].append("Resource not found error")
 
     except subprocess.TimeoutExpired:
+        results["end_time"] = datetime.now().isoformat()
+        results["duration_seconds"] = (datetime.now() - datetime.fromisoformat(results["start_time"])).total_seconds()
+        results["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ERROR: Scraping timed out after 5 minutes")
         if isinstance(results["errors"], list):
             results["errors"].append("Scraping timed out after 5 minutes")
     except Exception as e:
+        results["end_time"] = datetime.now().isoformat()
+        results["duration_seconds"] = (datetime.now() - datetime.fromisoformat(results["start_time"])).total_seconds()
+        results["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ERROR: {str(e)}")
         if isinstance(results["errors"], list):
-            results["errors"].append(f"Error running scrapers: {str(e)}")
+            results["errors"].append(f"Unexpected error: {str(e)}")
 
+    results["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Process completed in {results['duration_seconds']:.2f} seconds")
     return results
 
 
