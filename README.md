@@ -2,6 +2,28 @@
 
 Intelligent vehicle deal finder for Portugal using AI, machine learning, and web scraping.
 
+## 📊 Project Status
+
+> **Last updated:** 2026-05-25
+
+| Metric | Status |
+|--------|--------|
+| **Branch** | `master` |
+| **Last commit** | `62dfc8c` — feat: BLOCKER — auto-mode recovery failed |
+| **Uncommitted changes** | 352 files modified/deleted |
+| **Python files** | 576 modules |
+| **Total files** | ~1,964 (excl. venv, cache) |
+
+**Current state:**
+- ✅ Multi-source scrapers (OLX.pt, Standvirtual, AutoSapo) implemented
+- ✅ ML valuation pipeline (XGBoost) with training & prediction
+- ✅ AI analysis layer (LLM + Vision)
+- ✅ Streamlit dashboard active
+- ✅ Scheduler & notification system (Discord, Email, Telegram)
+- ✅ Docker Compose setup ready
+- ⚠️ Auto-mode recovery blocked — requires manual intervention
+- 🔄 Heavy refactoring in progress (Pydantic schemas, database alignment, test coverage)
+
 ## 🎯 Features
 
 - **Multi-Source Scraping**: Automatically scrapes OLX.pt, Standvirtual, and AutoSapo.pt
@@ -23,7 +45,7 @@ AutoDeal IA Hunter
 │   ├── OLX.pt
 │   ├── Standvirtual
 │   └── AutoSapo
-├── Database (PostgreSQL + SQLAlchemy)
+├── Database (SQLite by default; PostgreSQL optional)
 ├── ML Valuation (XGBoost)
 ├── AI Agent
 │   ├── LLM Review (Grok/Ollama)
@@ -35,7 +57,7 @@ AutoDeal IA Hunter
 ## 📋 Requirements
 
 - Python 3.12+
-- PostgreSQL 15+
+- SQLite (default, no extra install) or PostgreSQL 15+ (optional)
 - Docker & Docker Compose (optional)
 - Grok API key or Ollama for AI features
 
@@ -81,11 +103,12 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
-4. Start PostgreSQL (or use existing instance)
+4. (Optional) Configure PostgreSQL in `.env`; otherwise SQLite (`autodeal.db`) is used by default.
 
 5. Initialize database:
 ```bash
-python main.py init
+py -3 main.py init
+py -3 main.py health-check
 ```
 
 6. Run scrapers:
@@ -119,7 +142,13 @@ python main.py dashboard
 
 ```bash
 # Initialize database
-python main.py init
+py -3 main.py init
+
+# Verify imports (non-pytest script)
+py -3 scripts/verify_imports.py
+
+# Run tests (skips legacy compat placeholders by default)
+py -3 -m pytest tests/ -q
 
 # Run scrapers
 python main.py scrape --source all --vehicle-type carros --max-listings 50
