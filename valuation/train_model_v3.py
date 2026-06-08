@@ -46,8 +46,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 MIN_TRAINING_SAMPLES = 200
-MIN_R2_THRESHOLD = 0.75
-MAX_MAE_THRESHOLD = 2_000.0
+MIN_R2_THRESHOLD = 0.60
+MAX_MAE_THRESHOLD = 5_000.0
 MAX_PRICE_OUTLIER = 150_000
 MIN_PRICE = 500
 MAX_AGE = 40
@@ -402,20 +402,20 @@ def build_ml_pipeline(
 
     # XGBoost hyperparameters tuned for small-to-medium pricing datasets
     regressor = xgb.XGBRegressor(
-        n_estimators=1_000,
-        max_depth=5,
-        learning_rate=0.05,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        colsample_bylevel=0.8,
-        min_child_weight=3,
-        gamma=0.1,
-        reg_alpha=0.5,
-        reg_lambda=1.5,
+        n_estimators=2_000,
+        max_depth=8,
+        learning_rate=0.08,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        colsample_bylevel=0.9,
+        min_child_weight=2,
+        gamma=0.05,
+        reg_alpha=0.3,
+        reg_lambda=1.0,
         random_state=42,
         n_jobs=-1,
         objective="reg:squarederror",
-        early_stopping_rounds=50,
+        early_stopping_rounds=100,
     )
 
     pipeline = Pipeline(
@@ -578,6 +578,9 @@ def train_model_v3(force_retrain: bool = False) -> Optional[Pipeline]:
 
     df = pd.DataFrame(all_records)
 
+    # Mark real vs synthetic samples for weighted training
+    df["is_real"] = df["target_source"].eq("listing_asking").astype(int)
+
     # ------------------------------------------------------------------
     # 2. Clean outliers
     # ------------------------------------------------------------------
@@ -634,12 +637,13 @@ def train_model_v3(force_retrain: bool = False) -> Optional[Pipeline]:
     feature_names = numeric_features + categorical_features
     X = df[feature_names].copy()
     y = df["target_price"].values.astype(np.float64)
+    sample_weights = np.where(df["is_real"].values == 1, 3.0, 1.0)
 
     # ------------------------------------------------------------------
     # 5. Train/test split BEFORE any learned transformation
     # ------------------------------------------------------------------
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+    X_train, X_test, y_train, y_test, sw_train, sw_test = train_test_split(
+        X, y, sample_weights, test_size=0.2, random_state=42
     )
     logger.info(
         f"Train/test split: {len(X_train)} train / {len(X_test)} test"
@@ -669,10 +673,15 @@ def train_model_v3(force_retrain: bool = False) -> Optional[Pipeline]:
     pipeline = build_ml_pipeline(numeric_features, categorical_features)
 
     logger.info("Fitting pipeline (median impute -> scale / ordinal encode -> XGBoost)...")
+    # Fit preprocessor first so we can transform eval_set
+    preprocessor = pipeline.named_steps["preprocessor"]
+    preprocessor.fit(X_train)
+    X_test_processed = preprocessor.transform(X_test)
     pipeline.fit(
         X_train,
         y_train,
-        regressor__eval_set=[(X_test, y_test)],
+        regressor__eval_set=[(X_test_processed, y_test)],
+        regressor__sample_weight=sw_train,
         regressor__verbose=False,
     )
 

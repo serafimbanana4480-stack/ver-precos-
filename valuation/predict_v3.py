@@ -371,6 +371,23 @@ def predict_price_v3(
         prediction = float(artifacts.pipeline.predict(X)[0])
         prediction = max(prediction, 500.0)  # floor at €500
 
+        # Apply calibration factor if available (adjusts synthetic-trained model to real market)
+        calibration_path = settings.models_dir / "calibration_v3.json"
+        calibration_factor = 1.0
+        if calibration_path.exists():
+            try:
+                with open(calibration_path, "r", encoding="utf-8") as f:
+                    cal = json.load(f)
+                    calibration_factor = float(cal.get("median_ratio", 1.0))
+                    if 0.5 <= calibration_factor <= 2.0:  # sanity bounds
+                        prediction *= calibration_factor
+                        logger.debug(f"Applied calibration factor: {calibration_factor:.3f}")
+                    else:
+                        logger.warning(f"Calibration factor {calibration_factor:.3f} out of bounds, ignoring")
+                        calibration_factor = 1.0
+            except Exception as e:
+                logger.warning(f"Failed to load calibration: {e}")
+
         result: Dict[str, Any] = {
             "predicted_price": round(prediction, 2),
             "model_version": "v3",
@@ -389,7 +406,7 @@ def predict_price_v3(
 
         logger.info(
             f"v3 prediction: €{result['predicted_price']:,.2f} "
-            f"(MAPE={artifacts.mape:.1f}%)"
+            f"(MAPE={artifacts.mape:.1f}%, cal={calibration_factor:.3f})"
         )
         return result
 

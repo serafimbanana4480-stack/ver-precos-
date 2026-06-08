@@ -1,0 +1,352 @@
+"""
+Mass Scraper using OLX API with multiple sort orders and price filters
+to bypass the ~1000 listing limit per query.
+"""
+from __future__ import annotations
+import sys
+import asyncio
+import logging
+import re
+from typing import List, Dict, Any
+from datetime import datetime, timezone
+
+sys.path.insert(0, '.')
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+for noisy in ['httpx']:
+    logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+async def fetch_olx_api(client, vehicle_type: str, page: int, sort_by: str = "created_at:desc", 
+                        price_from: int = None, price_to: int = None, limit: int = 40) -> List[Dict[str, Any]]:
+    """Fetch a single page from OLX API."""
+    import httpx
+    
+    url = "https://www.olx.pt/api/v1/offers/"
+    category_id = 379 if vehicle_type == "motos" else 378
+    
+    params = {
+        "offset": (page - 1) * limit,
+        "limit": limit,
+        "category_id": category_id,
+        "sort_by": sort_by,
+        "filter_refiners": "spell_checker",
+    }
+    
+    if price_from:
+        params["filter[price_from]"] = price_from
+    if price_to:
+        params["filter[price_to]"] = price_to
+    
+    headers = {
+        "User-Agent": "OLX/6.70.0 (Android; Android 14; pt-PT)",
+        "Accept": "application/json",
+        "X-OLX-App-Version": "6.70.0",
+        "X-OLX-Platform": "android",
+    }
+    
+    try:
+        response = await client.get(url, params=params, headers=headers, timeout=30)
+        if response.status_code != 200:
+            return []
+        
+        data = response.json()
+        
+        if isinstance(data, dict):
+            data_content = data.get("data", [])
+            if isinstance(data_content, list):
+                offers = data_content
+            else:
+                offers = data_content.get("offers", []) if isinstance(data_content, dict) else []
+        elif isinstance(data, list):
+            offers = data
+        else:
+            return []
+        
+        listings = []
+        for offer in offers:
+            try:
+                price = None
+                for param in offer.get("params", []):
+                    if param.get("key") == "price":
+                        val = param.get("value", {})
+                        if isinstance(val, dict):
+                            price = float(val.get("value", 0))
+                        break
+                
+                year = None
+                for param in offer.get("params", []):
+                    if param.get("key") == "year":
+                        try:
+                            year = int(param.get("value", {}).get("value", 0))
+                        except:
+                            pass
+                        break
+                
+                km = None
+                for param in offer.get("params", []):
+                    if param.get("key") == "mileage":
+                        try:
+                            km = int(param.get("value", {}).get("value", 0))
+                        except:
+                            pass
+                        break
+                
+                fuel = ""
+                for param in offer.get("params", []):
+                    if param.get("key") == "fuel_type":
+                        fuel = str(param.get("value", {}).get("value", "")).lower()
+                        break
+                
+                loc = offer.get("location", {})
+                location = ""
+                if isinstance(loc, dict):
+                    city = loc.get("city", {}).get("name", "") if isinstance(loc.get("city"), dict) else str(loc.get("city", ""))
+                    region = loc.get("region", {}).get("name", "") if isinstance(loc.get("region"), dict) else str(loc.get("region", ""))
+                    location = f"{city}, {region}".strip(", ")
+                else:
+                    location = str(loc)
+                
+                photos = offer.get("photos", [])
+                images = [p.get("url", "") for p in photos if isinstance(p, dict) and p.get("url")]
+                
+                title = str(offer.get("title", ""))
+                
+                if year is None:
+                    year_match = re.search(r'\b(19[5-9]\d|20[0-3]\d)\b', title)
+                    year = int(year_match.group(1)) if year_match else 2020
+                
+                brand, model = _parse_brand_model(title)
+                
+                listing_url = offer.get("url", "")
+                if listing_url and not listing_url.startswith("http"):
+                    listing_url = "https://www.olx.pt" + listing_url
+                
+                if not listing_url or not price:
+                    continue
+                
+                listings.append({
+                    "source": "olx",
+                    "source_id": str(offer.get("id", "")),
+                    "url": listing_url,
+                    "title": title,
+                    "brand": brand,
+                    "model": model,
+                    "price": price,
+                    "year": year,
+                    "km": km,
+                    "location": location,
+                    "images": images,
+                    "fuel_type": fuel,
+                    "description": str(offer.get("description", ""))[:2000],
+                })
+            except Exception:
+                continue
+        
+        return listings
+    except Exception as e:
+        return []
+
+
+def _parse_brand_model(title: str) -> tuple[str, str]:
+    brands = [
+        "Alfa Romeo", "Aston Martin", "Land Rover", "Mercedes-Benz", "Mercedes Benz",
+        "Volkswagen", "BMW", "Mercedes", "Audi", "Renault", "Peugeot",
+        "Citroën", "Citroen", "Ford", "Toyota", "Honda", "Nissan",
+        "Hyundai", "Kia", "Fiat", "Seat", "Skoda", "Volvo",
+        "Mazda", "Mitsubishi", "Suzuki", "Dacia", "Opel", "Mini",
+        "Smart", "Jeep", "Subaru", "Tesla", "Jaguar", "Lexus",
+        "Porsche", "Ducati", "Yamaha", "Kawasaki", "Triumph", "KTM",
+        "CF Moto", "Royal Enfield", "Harley-Davidson", "Harley Davidson",
+    ]
+    title_lower = title.lower()
+    for brand in brands:
+        if brand.lower() in title_lower:
+            idx = title_lower.index(brand.lower())
+            return brand, title[idx + len(brand):].strip()
+    parts = title.split()
+    if len(parts) >= 2:
+        return parts[0], " ".join(parts[1:])
+    return title, ""
+
+
+async def save_batch(listings: List[Dict[str, Any]], vehicle_type: str) -> tuple[int, int]:
+    from database.db import get_db_context
+    from database.models import Vehicle, Source, VehicleType as VT, FuelType
+    
+    saved = 0
+    updated = 0
+    v_type = VT.carros if vehicle_type == "carros" else VT.motos
+    
+    seen_urls = set()
+    unique_listings = []
+    for listing in listings:
+        url = listing.get("url")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            unique_listings.append(listing)
+    
+    with get_db_context() as db:
+        for listing in unique_listings:
+            try:
+                url = listing.get("url")
+                if not url:
+                    continue
+                
+                existing = db.query(Vehicle).filter(Vehicle.url == url).first()
+                
+                if existing:
+                    existing.price = listing.get("price")
+                    existing.last_seen = datetime.now(timezone.utc)
+                    updated += 1
+                else:
+                    vehicle = Vehicle(
+                        source=Source.OLX,
+                        source_id=listing.get("source_id", "")[:100],
+                        url=url[:500],
+                        vehicle_type=v_type,
+                        brand=listing.get("brand", "Unknown")[:50],
+                        model=listing.get("model", "")[:50],
+                        title=listing.get("title", "")[:200],
+                        price=listing.get("price"),
+                        year=listing.get("year", 2020),
+                        km=listing.get("km"),
+                        location=str(listing.get("location", ""))[:100] if listing.get("location") else None,
+                        images=listing.get("images", [])[:10],
+                        description=listing.get("description", ""),
+                        is_active=True,
+                    )
+                    
+                    fuel = listing.get("fuel_type", "").lower()
+                    if "gasolina" in fuel:
+                        vehicle.fuel_type = FuelType.GASOLINE
+                    elif "diesel" in fuel:
+                        vehicle.fuel_type = FuelType.DIESEL
+                    elif "eletrico" in fuel or "eléctrico" in fuel:
+                        vehicle.fuel_type = FuelType.ELECTRIC
+                    elif "hibrido" in fuel or "híbrido" in fuel:
+                        vehicle.fuel_type = FuelType.HYBRID
+                    elif "gpl" in fuel:
+                        vehicle.fuel_type = FuelType.GPL
+                    
+                    db.add(vehicle)
+                    saved += 1
+            except Exception:
+                continue
+        
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+    
+    return saved, updated
+
+
+async def get_count() -> int:
+    from database.db import get_db_context
+    from database.models import Vehicle
+    with get_db_context() as db:
+        return db.query(Vehicle).count()
+
+
+async def scrape_with_filter(client, vehicle_type: str, sort_by: str, price_from: int = None, price_to: int = None, max_pages: int = 25):
+    """Scrape with specific filter/sort combination."""
+    all_listings = []
+    for page in range(1, max_pages + 1):
+        listings = await fetch_olx_api(client, vehicle_type, page, sort_by, price_from, price_to)
+        if listings:
+            all_listings.extend(listings)
+        else:
+            break
+        await asyncio.sleep(0.2)
+    return all_listings
+
+
+async def main():
+    import httpx
+    
+    target = 5000
+    current = await get_count()
+    logger.info(f"TARGET: {target} | CURRENT: {current}")
+    
+    if current >= target:
+        logger.info("Already reached target!")
+        return
+    
+    async with httpx.AsyncClient() as client:
+        total_new = 0
+        total_updated = 0
+        
+        # Strategy 1: Different sort orders for carros
+        sorts = [
+            "created_at:desc",  # newest first
+            "created_at:asc",   # oldest first
+            "price:asc",        # cheapest first
+            "price:desc",       # most expensive first
+        ]
+        
+        # Strategy 2: Price range filters to get different sets
+        price_ranges = [
+            (None, 5000),
+            (5000, 10000),
+            (10000, 20000),
+            (20000, 50000),
+            (50000, None),
+        ]
+        
+        for sort in sorts:
+            if current >= target:
+                break
+            
+            logger.info(f"\n--- Sort: {sort} ---")
+            listings = await scrape_with_filter(client, "carros", sort, max_pages=25)
+            
+            if listings:
+                s, u = await save_batch(listings, "carros")
+                total_new += s
+                total_updated += u
+                current = await get_count()
+                logger.info(f"Sort '{sort}': {s} new, {u} updated | DB: {current}/{target}")
+            
+            await asyncio.sleep(0.5)
+        
+        # Strategy 3: Price range filters
+        for p_from, p_to in price_ranges:
+            if current >= target:
+                break
+            
+            logger.info(f"\n--- Price range: {p_from}-{p_to} ---")
+            listings = await scrape_with_filter(client, "carros", "created_at:desc", p_from, p_to, max_pages=25)
+            
+            if listings:
+                s, u = await save_batch(listings, "carros")
+                total_new += s
+                total_updated += u
+                current = await get_count()
+                logger.info(f"Price {p_from}-{p_to}: {s} new, {u} updated | DB: {current}/{target}")
+            
+            await asyncio.sleep(0.5)
+        
+        # Strategy 4: Motos with different sorts
+        for sort in sorts[:2]:
+            if current >= target:
+                break
+            
+            logger.info(f"\n--- Motos sort: {sort} ---")
+            listings = await scrape_with_filter(client, "motos", sort, max_pages=20)
+            
+            if listings:
+                s, u = await save_batch(listings, "motos")
+                total_new += s
+                total_updated += u
+                current = await get_count()
+                logger.info(f"Motos '{sort}': {s} new, {u} updated | DB: {current}/{target}")
+            
+            await asyncio.sleep(0.5)
+    
+    logger.info(f"\nFINAL: {current}/{target} | New: {total_new} | Updated: {total_updated}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

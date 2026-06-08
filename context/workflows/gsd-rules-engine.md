@@ -8,6 +8,131 @@ description: GSD Rules Engine - Advanced rule-based automation system with intel
 
 ---
 
+## 0. KNOWLEDGE GRAPH TOPOLOGY FOR PROJECT ORGANIZATION
+
+### 0.1 Visual Goal
+The project must render as a set of **clean clusters** instead of a dense web.
+
+The required topology is:
+
+```text
+ROOT → MEDIUM HUBS → SMALL HUBS → LEAVES
+```
+
+Each cluster should look like a ball with a clear center:
+- one central root note
+- a small number of medium hubs around it
+- smaller hubs attached to each medium hub
+- leaf notes attached only to the closest hub
+
+### 0.2 Mandatory Link Rules
+- **Root links to medium hubs only**
+- **Medium hubs link to smaller hubs only**
+- **Smaller hubs link to leaves only**
+- **Leaves never link to other leaves by default**
+- **Bridge notes are allowed only between hubs**
+- **Automatic links must never flatten the hierarchy into one mesh**
+
+### 0.3 Node Types
+Use explicit note roles so the graph stays readable.
+
+```yaml
+node_types:
+  root:
+    description: "Top-level project center"
+    max_links: 4
+    allowed_targets: ["medium_hub"]
+
+  medium_hub:
+    description: "Main project domain"
+    max_links: 6
+    allowed_targets: ["root", "small_hub"]
+
+  small_hub:
+    description: "Subdomain or technical family"
+    max_links: 5
+    allowed_targets: ["medium_hub", "leaf"]
+
+  leaf:
+    description: "Specific implementation detail or note fragment"
+    max_links: 2
+    allowed_targets: ["small_hub"]
+
+  bridge:
+    description: "Explicit comparison or relation between hubs"
+    max_links: 4
+    allowed_targets: ["medium_hub", "small_hub"]
+```
+
+### 0.4 Example Topology for This Project
+
+```text
+Autodeal (root)
+├─ AI (medium hub)
+│  ├─ LLM Pipeline (small hub)
+│  │  ├─ prompt tuning (leaf)
+│  │  ├─ context window management (leaf)
+│  │  └─ fallback strategy (leaf)
+│  ├─ Vision Analysis (small hub)
+│  │  ├─ image quality (leaf)
+│  │  ├─ damage detection (leaf)
+│  │  └─ condition scoring (leaf)
+│  └─ Deal Scoring (small hub)
+│     ├─ thresholds (leaf)
+│     ├─ ranking logic (leaf)
+│     └─ confidence tuning (leaf)
+├─ Scraping (medium hub)
+│  ├─ Playwright (small hub)
+│  │  ├─ browser flags (leaf)
+│  │  ├─ stealth settings (leaf)
+│  │  └─ selector tuning (leaf)
+│  ├─ Selenium (small hub)
+│  │  ├─ fallback cases (leaf)
+│  │  ├─ driver config (leaf)
+│  │  └─ wait strategy (leaf)
+│  └─ Source Notes (small hub)
+│     ├─ OLX (leaf family)
+│     ├─ Standvirtual (leaf family)
+│     └─ AutoSapo (leaf family)
+├─ Infra (medium hub)
+│  ├─ Redis (small hub)
+│  │  ├─ cache invalidation (leaf)
+│  │  ├─ TTL policy (leaf)
+│  │  └─ deduplication (leaf)
+│  └─ PostgreSQL (small hub)
+│     ├─ schema decisions (leaf)
+│     ├─ indexing (leaf)
+│     └─ migrations (leaf)
+└─ Backend (medium hub)
+   ├─ FastAPI (small hub)
+   │  ├─ endpoints (leaf)
+   │  ├─ auth flow (leaf)
+   │  └─ validation (leaf)
+   └─ Auth (small hub)
+      ├─ JWT (leaf)
+      ├─ RBAC (leaf)
+      └─ sessions (leaf)
+```
+
+### 0.5 Forbidden Behaviors
+Do **not** allow the following patterns:
+- leaf → leaf
+- leaf → random hub from another cluster
+- medium hub → unrelated leaf from another cluster
+- automatic comparison links created only because two notes share a keyword like `architecture`, `system`, `scraping`, or `AI`
+- too many sibling connections inside the same cluster
+
+### 0.6 Practical Editing Rule
+When adding or updating notes:
+1. decide the note type first
+2. link to the immediate parent hub
+3. only create bridges when the relationship is important enough to justify a separate note
+4. keep cross-cluster links rare and explicit
+
+This section is the canonical rule set for keeping the graph visually aligned with the reference image.
+
+---
+
 ## 1. CORE RULES ARCHITECTURE
 
 ### 1.1 Rule Definition Framework

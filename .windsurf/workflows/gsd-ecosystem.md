@@ -67,7 +67,11 @@ description: GSD Ecosystem - Ultimate project management with AI-powered automat
 - **Reinforcement Learning Agent**: Continuous improvement through experience
 - **Natural Language Processing**: Advanced NLP for understanding requirements
 - **Computer Vision**: Visual analysis of UI/UX designs and screenshots
-- **Knowledge Graph**: Semantic understanding of project relationships
+- **Knowledge Graph**: Semantic understanding of project relationships using a strict hierarchy:
+  - root → medium hubs → small hubs → leaves
+  - leaf → hub only by default
+  - bridge notes only between hubs
+  - no automatic mesh across unrelated clusters
 - **Cognitive Computing**: Human-like reasoning and decision making
 
 #### 2. Automation Layer - Smart Tasks

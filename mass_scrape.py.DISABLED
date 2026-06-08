@@ -1,0 +1,352 @@
+"""
+Mass Scraper - AutoDeal IA Hunter
+Executes scrapers aggressively to reach 5000 vehicles in database.
+Uses API-first approach, parallel execution, and multiple pages.
+"""
+from __future__ import annotations
+import sys
+import asyncio
+import logging
+from typing import List, Dict, Any
+from datetime import datetime, timezone
+
+sys.path.insert(0, '.')
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Silence noisy loggers
+for noisy in ['utils.html_change_detector', 'utils.observability', 'utils.captcha_solver']:
+    logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+async def scrape_olx_api_pages(vehicle_type: str = "carros", max_pages: int = 20, per_page: int = 40) -> List[Dict[str, Any]]:
+    """Scrape OLX using their internal API - fastest method."""
+    from scrapers.api_clients import fetch_olx_api
+    
+    all_listings = []
+    logger.info(f"[OLX_API] Fetching {max_pages} pages of {vehicle_type}")
+    
+    # Fetch pages concurrently with semaphore to not overload
+    semaphore = asyncio.Semaphore(5)
+    
+    async def fetch_page(page: int) -> List[Dict[str, Any]]:
+        async with semaphore:
+            try:
+                listings = await fetch_olx_api(vehicle_type=vehicle_type, page=page, limit=per_page)
+                if listings:
+                    logger.info(f"[OLX_API] Page {page}: {len(listings)} listings")
+                return listings or []
+            except Exception as e:
+                logger.warning(f"[OLX_API] Page {page} failed: {e}")
+                return []
+    
+    tasks = [fetch_page(p) for p in range(1, max_pages + 1)]
+    results = await asyncio.gather(*tasks)
+    
+    for listings in results:
+        all_listings.extend(listings)
+    
+    logger.info(f"[OLX_API] Total: {len(all_listings)} listings")
+    return all_listings
+
+
+async def scrape_with_scraper(scraper, name: str, vehicle_type: str, max_listings: int) -> List[Dict[str, Any]]:
+    """Generic scraper wrapper with error handling."""
+    try:
+        logger.info(f"[{name}] Starting {vehicle_type}, max {max_listings}")
+        start = asyncio.get_event_loop().time()
+        listings = await scraper.scrape_listings(vehicle_type, max_listings=max_listings)
+        elapsed = asyncio.get_event_loop().time() - start
+        count = len(listings) if listings else 0
+        logger.info(f"[{name}] Done: {count} listings in {elapsed:.1f}s")
+        return listings or []
+    except Exception as e:
+        logger.error(f"[{name}] FAILED: {e}")
+        return []
+
+
+async def save_listings(listings: List[Dict[str, Any]], source_name: str, vehicle_type: str):
+    """Save listings to database directly."""
+    from database.db import get_db_context
+    from database.models import Vehicle, Source, VehicleType as VT, FuelType, Transmission
+    import re
+    
+    if not listings:
+        return 0, 0
+    
+    saved = 0
+    updated = 0
+    
+    # Map source string to enum
+    source_map = {
+        "olx": Source.OLX,
+        "standvirtual": Source.STANDVIRTUAL,
+        "autosapo": Source.AUTOSAPO,
+        "piscapisca": Source.OLX,  # Using OLX as generic
+        "carplus": Source.OLX,
+    }
+    source_enum = source_map.get(source_name.lower(), Source.OLX)
+    v_type = VT.carros if vehicle_type == "carros" else VT.motos
+    
+    with get_db_context() as db:
+        for listing in listings:
+            try:
+                url = listing.get("url")
+                if not url or not isinstance(url, str) or not url.startswith("http"):
+                    continue
+                
+                # Check existing
+                existing = db.query(Vehicle).filter(Vehicle.url == url).first()
+                
+                title = str(listing.get("title", ""))
+                
+                # Parse brand/model from title
+                brand, model = _parse_brand_model(title)
+                
+                # Extract price
+                price_raw = listing.get("price")
+                price = None
+                if isinstance(price_raw, (int, float)):
+                    price = float(price_raw)
+                elif isinstance(price_raw, str):
+                    digits = re.sub(r"[^\d.,]", "", price_raw)
+                    digits = digits.replace(".", "").replace(",", ".")
+                    try:
+                        price = float(digits) if digits else None
+                    except ValueError:
+                        pass
+                
+                # Extract year (mandatory - try title if not available)
+                year = _safe_int(listing.get("year"))
+                if year is None:
+                    year = _extract_year_from_title(title)
+                if year is None:
+                    year = 2020  # Default fallback to avoid NOT NULL constraint
+                
+                # Extract km
+                km = _safe_int(listing.get("km") or listing.get("mileage"))
+                
+                # Extract location
+                location = str(listing.get("location", ""))
+                if isinstance(location, dict):
+                    location = location.get("city") or location.get("name") or str(location)
+                
+                # Images
+                images = listing.get("images", [])
+                if not isinstance(images, list):
+                    images = []
+                images = [img for img in images if isinstance(img, str) and img.startswith("http")]
+                
+                if existing:
+                    if price:
+                        existing.price = price
+                    existing.last_seen = datetime.now(timezone.utc)
+                    updated += 1
+                else:
+                    vehicle = Vehicle(
+                        source=source_enum,
+                        source_id=str(listing.get("source_id", ""))[:100],
+                        url=url[:500],
+                        vehicle_type=v_type,
+                        brand=brand[:50],
+                        model=model[:50],
+                        title=title[:200],
+                        price=price,
+                        location=str(location)[:100] if location else None,
+                        images=images[:10],
+                        year=year,
+                        km=km,
+                        description=str(listing.get("description", ""))[:2000],
+                        is_active=True,
+                    )
+                    
+                    # Fuel type
+                    fuel = str(listing.get("fuel_type", "")).lower()
+                    if "gasolina" in fuel:
+                        vehicle.fuel_type = FuelType.GASOLINE
+                    elif "diesel" in fuel:
+                        vehicle.fuel_type = FuelType.DIESEL
+                    elif "eletrico" in fuel or "eléctrico" in fuel or "electric" in fuel:
+                        vehicle.fuel_type = FuelType.ELECTRIC
+                    elif "hibrido" in fuel or "híbrido" in fuel or "hybrid" in fuel:
+                        vehicle.fuel_type = FuelType.HYBRID
+                    elif "gpl" in fuel:
+                        vehicle.fuel_type = FuelType.GPL
+                    
+                    db.add(vehicle)
+                    saved += 1
+                
+                # Commit every 100 to avoid memory issues
+                if (saved + updated) % 100 == 0:
+                    try:
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                        logger.warning("Batch commit failed, rolling back")
+                    
+            except Exception as e:
+                logger.debug(f"Save error: {e}")
+                db.rollback()
+                continue
+        
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.warning("Final commit failed, rolling back")
+    
+    logger.info(f"[{source_name}] DB: {saved} new, {updated} updated")
+    return saved, updated
+
+
+def _parse_brand_model(title: str) -> tuple[str, str]:
+    brands = [
+        "Alfa Romeo", "Aston Martin", "Land Rover", "Mercedes-Benz", "Mercedes Benz",
+        "Volkswagen", "BMW", "Mercedes", "Audi", "Renault", "Peugeot",
+        "Citroën", "Citroen", "Ford", "Toyota", "Honda", "Nissan",
+        "Hyundai", "Kia", "Fiat", "Seat", "Skoda", "Volvo",
+        "Mazda", "Mitsubishi", "Suzuki", "Dacia", "Opel", "Mini",
+        "Smart", "Jeep", "Subaru", "Tesla", "Jaguar", "Lexus",
+        "Porsche", "Ferrari", "Lamborghini", "Maserati", "Bentley",
+        "Ducati", "Yamaha", "Kawasaki", "Triumph", "KTM", "Aprilia",
+        "Husqvarna", "Indian", "Moto Guzzi", "MV Agusta", "Benelli",
+        "Beta", "Gas Gas", "GasGas", "SYM", "Kymco", "Piaggio",
+        "Vespa", "Gilera", "Derbi", "SWM", "Voge", "Zontes",
+        "CF Moto", "Royal Enfield", "Harley-Davidson", "Harley Davidson",
+        "NIU", "Super Soco", "Brixton", "Fantic", "Rieju",
+    ]
+    
+    title_lower = title.lower()
+    for brand in brands:
+        if brand.lower() in title_lower:
+            idx = title_lower.index(brand.lower())
+            model = title[idx + len(brand):].strip()
+            return brand, model
+    
+    parts = title.split()
+    if len(parts) >= 2:
+        return parts[0], " ".join(parts[1:])
+    return title, ""
+
+
+def _safe_int(value) -> int | None:
+    if value is None:
+        return None
+    try:
+        import re
+        digits = re.sub(r"\D", "", str(value))
+        return int(digits) if digits else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _extract_year_from_title(title: str) -> int | None:
+    """Extract year from title text."""
+    import re
+    # Look for 4-digit years between 1950 and 2030
+    matches = re.findall(r'\b(19[5-9]\d|20[0-2]\d)\b', title)
+    if matches:
+        return int(matches[0])
+    return None
+
+
+async def get_db_count() -> int:
+    from database.db import get_db_context
+    from database.models import Vehicle
+    with get_db_context() as db:
+        return db.query(Vehicle).count()
+
+
+async def main():
+    target = 5000
+    current = await get_db_count()
+    logger.info(f"=" * 60)
+    logger.info(f"MASS SCRAPER - Target: {target} | Current: {current}")
+    logger.info(f"=" * 60)
+    
+    if current >= target:
+        logger.info("Target already reached!")
+        return
+    
+    # Import scrapers
+    from scrapers import OLXScraper, StandvirtualScraper, AutoSapoScraper
+    from scrapers.piscapisca_scraper import PiscaPiscaScraper
+    from scrapers.carplus_scraper import CarplusScraper
+    from scrapers.browser_pool import get_browser_pool
+    
+    pool = get_browser_pool()
+    
+    round_num = 0
+    while current < target:
+        round_num += 1
+        logger.info(f"\n{'='*60}")
+        logger.info(f"ROUND {round_num} - Current: {current}/{target}")
+        logger.info(f"{'='*60}")
+        
+        # Phase 1: OLX API (fastest - 40 listings per page, 20 pages = 800 listings)
+        olx_listings = await scrape_olx_api_pages("carros", max_pages=25, per_page=40)
+        if olx_listings:
+            s, u = await save_listings(olx_listings, "olx", "carros")
+        
+        current = await get_db_count()
+        logger.info(f"After OLX API: {current}/{target}")
+        if current >= target:
+            break
+        
+        # Phase 2: All scrapers in parallel for carros
+        scrapers = [
+            ("Standvirtual", StandvirtualScraper(), "carros", 100),
+            ("AutoSapo", AutoSapoScraper(), "carros", 100),
+            ("PiscaPisca", PiscaPiscaScraper(), "carros", 100),
+            ("Carplus", CarplusScraper(), "carros", 100),
+        ]
+        
+        tasks = [scrape_with_scraper(s, n, vt, ml) for n, s, vt, ml in scrapers]
+        results = await asyncio.gather(*tasks)
+        
+        for (name, _, vt, _), listings in zip(scrapers, results):
+            if listings:
+                await save_listings(listings, name.lower(), vt)
+        
+        current = await get_db_count()
+        logger.info(f"After round {round_num}: {current}/{target}")
+        
+        if current >= target:
+            break
+        
+        # If not enough, try motos too
+        if current < target:
+            logger.info("Trying motos...")
+            olx_motos = await scrape_olx_api_pages("motos", max_pages=15, per_page=40)
+            if olx_motos:
+                await save_listings(olx_motos, "olx", "motos")
+            
+            moto_tasks = [
+                scrape_with_scraper(StandvirtualScraper(), "Standvirtual", "motos", 50),
+                scrape_with_scraper(AutoSapoScraper(), "AutoSapo", "motos", 50),
+            ]
+            moto_results = await asyncio.gather(*moto_tasks)
+            for listings in moto_results:
+                if listings:
+                    await save_listings(listings, "standvirtual", "motos")
+        
+        current = await get_db_count()
+        logger.info(f"After motos: {current}/{target}")
+        
+        if current < target and round_num >= 3:
+            logger.info(f"Not reaching target after {round_num} rounds. Continuing...")
+    
+    # Cleanup
+    try:
+        await pool.close_all()
+    except Exception:
+        pass
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"FINAL COUNT: {current}/{target}")
+    logger.info(f"{'='*60}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
