@@ -2,10 +2,10 @@
 Valuation package initialization
 """
 from .train_model import train_model
-from .predict import predict_price, calculate_deal_score
+from .predict import estimate_market_value, calculate_deal_score
 
 __all__ = [
     "train_model",
-    "predict_price",
+    "estimate_market_value",
     "calculate_deal_score",
 ]

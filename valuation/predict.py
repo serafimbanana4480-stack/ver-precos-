@@ -1,356 +1,274 @@
 """
-Price prediction and deal scoring using trained XGBoost model
+Vehicle Valuation Prediction Module
+XGBoost model for price prediction and valuation
 """
-from __future__ import annotations
+
 import logging
-import json
-from pathlib import Path
-from typing import Optional, Dict, List
-import numpy as np
+from typing import Optional, Dict, Any
 import pandas as pd
-import xgboost as xgb
-from joblib import load
+import numpy as np
+from pathlib import Path
 
 from config import settings
-from database.models import Vehicle
 
 logger = logging.getLogger(__name__)
 
-
-def load_model() -> Optional[xgb.XGBRegressor]:
-    """
-    Load trained XGBoost model
-
-    Returns:
-        Loaded model or None if not found
-    """
-    if not settings.model_path.exists():
-        logger.warning(f"Model not found at {settings.model_path}")
-        return None
-
-    try:
-        model = xgb.XGBRegressor()
-        model.load_model(str(settings.model_path))
-        logger.info("Model loaded successfully")
-        return model
-    except Exception as e:
-        logger.error(f"Error loading model: {e}")
-        return None
-
-
-def load_feature_names() -> List[str]:
-    """Load feature names from file"""
-    feature_names_path = settings.models_dir / "feature_names.json"
+class VehicleValuationModel:
+    """XGBoost-based vehicle valuation model"""
     
-    if not feature_names_path.exists():
-        logger.warning("Feature names file not found")
-        return []
+    def __init__(self):
+        self.model = None
+        self.model_path = settings.model_path
+        self._booster = None
+        self.feature_columns = [
+            'year', 'km', 'horsepower', 'engine_size', 'fuel_type',
+            'transmission', 'brand', 'model', 'location'
+        ]
     
-    try:
-        with open(feature_names_path, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading feature names: {e}")
-        return []
+    def load_model(self):
+        """Load trained model from disk (JSON via XGBoost or PKL via joblib)."""
+        json_path = settings.models_dir / "xgboost_model.json"
+        pkl_path = settings.models_dir / "xgboost_model.pkl"
+        try:
+            if json_path.exists():
+                import xgboost as xgb
+                self._booster = xgb.Booster()
+                self._booster.load_model(str(json_path))
+                self.model_path = json_path
+                logger.info(f"Model loaded from {json_path}")
+                return True
+            import joblib
+            if pkl_path.exists():
+                self.model = joblib.load(pkl_path)
+                self.model_path = pkl_path
+                logger.info(f"Model loaded from {pkl_path}")
+                return True
+            logger.warning("No model file found at %s or %s", json_path, pkl_path)
+            return False
+        except Exception as e:
+            logger.error(f"Error loading model: {e}")
+            return False
 
+    def predict(self, vehicle_data: Dict[str, Any]) -> Optional[float]:
+        """Alias for predict_price (tests and legacy callers)."""
+        return self.predict_price(vehicle_data)
+    
+    def predict_price(self, vehicle_data: Dict[str, Any]) -> Optional[float]:
+        """
+        Predict vehicle price based on features
+        
+        Args:
+            vehicle_data: Dictionary with vehicle features
+            
+        Returns:
+            Predicted price or None if prediction fails
+        """
+        if self.model is None and self._booster is None:
+            if not self.load_model():
+                logger.error("Model not available for prediction")
+                return None
 
-def predict_price(vehicle: Vehicle, model: Optional[xgb.XGBRegressor] = None) -> Optional[float]:
-    """
-    Predict fair market price for a vehicle
-    
-    Args:
-        vehicle: Vehicle object
-        model: Pre-loaded model (will load if not provided)
-    
-    Returns:
-        Predicted price or None if prediction fails
-    """
-    if model is None:
-        model = load_model()
-        if model is None:
+        try:
+            if self._booster is not None:
+                import xgboost as xgb
+                feature_names_file = settings.models_dir / "feature_names.json"
+                feature_names: list = []
+                if feature_names_file.exists():
+                    import json
+                    with open(feature_names_file) as f:
+                        feature_names = json.load(f)
+                features = []
+                for fname in feature_names or self.feature_columns:
+                    val = vehicle_data.get(fname, 0)
+                    features.append(float(val) if isinstance(val, (int, float)) else 0.0)
+                dmatrix = xgb.DMatrix([features], feature_names=feature_names or None)
+                return float(self._booster.predict(dmatrix)[0])
+
+            df = pd.DataFrame([vehicle_data])
+            for col in self.feature_columns:
+                if col not in df.columns:
+                    df[col] = 0
+            X = df[self.feature_columns]
+            prediction = self.model.predict(X)[0]
+            return float(prediction)
+            
+        except Exception as e:
+            logger.error(f"Error predicting price: {e}")
             return None
     
-    try:
-        # Prepare features
-        features = prepare_features(vehicle)
+    def predict_batch(self, vehicles: list) -> list:
+        """
+        Predict prices for multiple vehicles
         
-        if features is None:
-            return None
-        
-        # Create DataFrame with correct feature order
-        feature_names = load_feature_names()
-        if not feature_names:
-            logger.warning("No feature names available")
-            return None
-        
-        # Ensure all features exist
-        feature_dict = {}
-        for feat in feature_names:
-            feature_dict[feat] = features.get(feat, 0)
-        
-        df = pd.DataFrame([feature_dict])
-        
-        # Predict
-        prediction = model.predict(df)[0]
-        
-        return float(prediction)
-        
-    except Exception as e:
-        logger.error(f"Error predicting price: {e}")
-        return None
+        Args:
+            vehicles: List of vehicle data dictionaries
+            
+        Returns:
+            List of predicted prices
+        """
+        predictions = []
+        for vehicle in vehicles:
+            price = self.predict_price(vehicle)
+            predictions.append(price)
+        return predictions
 
 
-def prepare_features(vehicle: Vehicle) -> Optional[Dict]:
-    """
-    Prepare feature dictionary from vehicle object
-    
-    Args:
-        vehicle: Vehicle object
-    
-    Returns:
-        Feature dictionary or None if critical data missing
-    """
-    try:
-        # Calculate derived features
-        current_year = 2024
-        age = current_year - vehicle.year if vehicle.year else 0
-        km_per_year = vehicle.km / age if age > 0 and vehicle.km else 0
-        
-        # Consistent encoding for categorical variables using seeded hash
-        # Note: In production, should use saved LabelEncoder from training
-        # Using deterministic hash for now to ensure consistency across runs
-        def consistent_hash(s: str, seed: int = 42) -> int:
-            """Consistent hash using a simple algorithm"""
-            if not s:
-                return 0
-            value = seed
-            for char in s.lower():
-                value = (value * 31 + ord(char)) % 1000
-            return value
-        
-        brand_encoded = consistent_hash(vehicle.brand) if vehicle.brand else 0
-        model_encoded = consistent_hash(vehicle.model) if vehicle.model else 0
-        
-        fuel_type_map = {
-            "gasolina": 1,
-            "diesel": 2,
-            "eletrico": 3,
-            "hibrido": 4,
-            "gpl": 5,
-            None: 0
-        }
-        fuel_type_encoded = fuel_type_map.get(
-            vehicle.fuel_type.value if vehicle.fuel_type else None, 0
-        )
-        
-        transmission_map = {
-            "manual": 1,
-            "automatico": 2,
-            "semi-automatico": 3,
-            None: 0
-        }
-        transmission_encoded = transmission_map.get(
-            vehicle.transmission.value if vehicle.transmission else None, 0
-        )
-        
-        location_encoded = hash(vehicle.location.lower()) % 100 if vehicle.location else 0
-        
-        features = {
-            "year": vehicle.year or 2020,
-            "km": vehicle.km or 50000,
-            "horsepower": vehicle.horsepower or 100,
-            "engine_size": vehicle.engine_size or 1500,
-            "doors": vehicle.doors or 5,
-            "seats": vehicle.seats or 5,
-            "brand_encoded": brand_encoded,
-            "model_encoded": model_encoded,
-            "fuel_type_encoded": fuel_type_encoded,
-            "transmission_encoded": transmission_encoded,
-            "age": max(0, age),
-            "km_per_year": km_per_year
-        }
-        
-        return features
-        
-    except Exception as e:
-        logger.error(f"Error preparing features: {e}")
-        return None
+# Legacy compatibility alias.
+Predictor = VehicleValuationModel
 
 
-def calculate_deal_score(
-    asked_price: float,
-    estimated_value: float,
-    km: Optional[int] = None,
-    year: Optional[int] = None,
-    condition_score: Optional[float] = None
-) -> float:
-    """
-    Calculate deal score (0-10) based on price difference and other factors
-    
-    Args:
-        asked_price: Current asking price
-        estimated_value: Estimated fair market value
-        km: Vehicle kilometers
-        year: Vehicle year
-        condition_score: Condition score from vision analysis (0-10)
-    
-    Returns:
-        Deal score from 0 to 10
-    """
-    if estimated_value <= 0:
-        return 0.0
-    
-    # Calculate price difference percentage
-    price_diff_percent = (estimated_value - asked_price) / estimated_value * 100
-    
-    # Base score from price difference
-    if price_diff_percent <= 0:
-        # Price is above or at market value
-        base_score = 0.0
-    elif price_diff_percent < 5:
-        base_score = 3.0
-    elif price_diff_percent < 10:
-        base_score = 5.0
-    elif price_diff_percent < 15:
-        base_score = 7.0
-    elif price_diff_percent < 20:
-        base_score = 8.5
-    else:
-        base_score = 9.5
-    
-    # Adjust for km (lower km is better)
-    if km is not None:
-        if km < 50000:
-            km_adjustment = 0.5
-        elif km < 100000:
-            km_adjustment = 0.0
-        elif km < 150000:
-            km_adjustment = -0.3
-        else:
-            km_adjustment = -0.5
-        base_score += km_adjustment
-    
-    # Adjust for year (newer is better)
-    if year is not None:
-        age = 2024 - year
-        if age < 3:
-            year_adjustment = 0.3
-        elif age < 5:
-            year_adjustment = 0.0
-        elif age < 10:
-            year_adjustment = -0.2
-        else:
-            year_adjustment = -0.4
-        base_score += year_adjustment
-    
-    # Adjust for condition
-    if condition_score is not None:
-        condition_adjustment = (condition_score - 5) / 10  # -0.5 to +0.5
-        base_score += condition_adjustment
-    
-    # Ensure score is between 0 and 10
-    return max(0.0, min(10.0, base_score))
+def estimate_market_value(vehicle: Any) -> Optional[float]:
+    """Legacy compatibility helper that delegates to the valuation model."""
+    model = VehicleValuationModel()
+    if isinstance(vehicle, dict):
+        return model.predict_price(vehicle)
+    return model.predict_price(getattr(vehicle, "__dict__", {}))
 
 
-def calculate_profit_potential(
-    asked_price: float,
-    estimated_value: float,
-    margin_percent: float = 15.0
-) -> Dict[str, float]:
+def calculate_deal_score(listing: Dict[str, Any]) -> Dict[str, Any]:
+    """Calculate realistic deal score for Portuguese used car market.
+    
+    In Portugal, asking prices are typically 15-25% above transaction prices.
+    We apply a market margin to the estimated_value (transaction price) to get
+    a realistic asking price benchmark, then score based on how the actual
+    asking price compares to that benchmark.
     """
-    Calculate potential profit from resale
+    price = float(listing.get("price") or 0)
+    estimated_value = float(listing.get("estimated_value") or price)
+    if estimated_value <= 0 or price <= 0:
+        return {"deal_score": 0.0, "estimated_value": estimated_value, "price": price}
     
-    Args:
-        asked_price: Current asking price
-        estimated_value: Estimated fair market value
-        margin_percent: Expected resale margin (default 15%)
+    # Apply Portuguese market margin: transaction price -> asking price benchmark
+    # Typical margin: 15% (stands) to 20% (particulares)
+    market_margin = 1.18  # 18% margin = typical PT market
+    asking_benchmark = estimated_value * market_margin
     
-    Returns:
-        Dictionary with profit calculations
-    """
-    if estimated_value <= 0:
-        return {
-            "profit_potential": 0.0,
-            "profit_percentage": 0.0,
-            "resale_price": 0.0
-        }
+    # Calculate how much below the market benchmark this listing is
+    # discount > 0 means price is below benchmark (good deal)
+    # discount < 0 means price is above benchmark (overpriced)
+    discount = (asking_benchmark - price) / asking_benchmark
     
-    # Calculate realistic resale price (with margin)
-    resale_price = estimated_value * (1 - margin_percent / 100)
-    
-    # Calculate profit
-    profit = resale_price - asked_price
-    profit_percentage = (profit / asked_price) * 100 if asked_price > 0 else 0
+    # Score: 0-10 scale
+    # discount = 0.20 (20% below benchmark) -> score 10 (exceptional)
+    # discount = 0.10 (10% below benchmark) -> score 8 (excellent)
+    # discount = 0.00 (at benchmark) -> score 6 (fair)
+    # discount = -0.10 (10% above benchmark) -> score 4 (poor)
+    # discount = -0.20 (20% above benchmark) -> score 2 (very poor)
+    raw_score = 6.0 + (discount * 20.0)  # 6 base + 20*discount
+    deal_score = max(0.0, min(10.0, raw_score))
     
     return {
-        "profit_potential": round(profit, 2),
-        "profit_percentage": round(profit_percentage, 2),
-        "resale_price": round(resale_price, 2)
+        "deal_score": round(deal_score, 1),
+        "estimated_value": estimated_value,
+        "asking_benchmark": round(asking_benchmark, 2),
+        "price": price,
+        "price_discount": round(discount, 3),
+    }
+
+
+def calculate_profit_potential(listing: Dict[str, Any]) -> Dict[str, Any]:
+    """Legacy compatibility helper for dashboard imports."""
+    price = float(listing.get("price") or 0)
+    estimated_value = float(listing.get("estimated_value") or price)
+    profit_potential = max(0.0, estimated_value - price)
+    profit_percentage = (profit_potential / price * 100.0) if price > 0 else 0.0
+    return {
+        "profit_potential": profit_potential,
+        "profit_percentage": profit_percentage,
+        "estimated_value": estimated_value,
+        "price": price,
     }
 
 
 def update_vehicle_valuations(batch_size: int = 100):
     """
-    Update valuations for all vehicles in database
+    Update valuations for vehicles in database using the hybrid pricing engine.
+    """
+    from database.db import SessionLocal
+    from database.models import Vehicle
+    from intelligence.pricing.engine import pricing_engine
+
+    logger.info(f"Starting valuation update with batch size {batch_size}")
+
+    db = SessionLocal()
+    try:
+        vehicles = db.query(Vehicle).filter(
+            Vehicle.is_active == True,
+            ~Vehicle.source_id.like("demo_%"),
+        ).limit(batch_size).all()
+
+        logger.info(f"Found {len(vehicles)} vehicles to valuate")
+        updated_count = 0
+        skipped_count = 0
+
+        for vehicle in vehicles:
+            vehicle_data = {
+                'source': vehicle.source.value if hasattr(vehicle.source, 'value') else str(vehicle.source),
+                'brand': vehicle.brand or '',
+                'model': vehicle.model or '',
+                'year': vehicle.year,
+                'km': vehicle.km,
+                'price': vehicle.price,
+                'vehicle_type': vehicle.vehicle_type.value if hasattr(vehicle.vehicle_type, 'value') else vehicle.vehicle_type,
+                'ai_risk_score': getattr(vehicle, 'ai_risk_score', 5.0),
+                'condition_score': getattr(vehicle, 'condition_score', 6.0),
+            }
+            pricing = pricing_engine.calculate_price(vehicle_data)
+            if pricing.get('insufficient_data') or pricing.get('final_price') is None:
+                skipped_count += 1
+                continue
+
+            estimated_price = pricing['final_price']
+            vehicle.estimated_value = estimated_price
+            updated_count += 1
+
+            if vehicle.price:
+                profit_potential = estimated_price - vehicle.price
+                profit_percentage = (profit_potential / vehicle.price) * 100 if vehicle.price > 0 else 0
+                vehicle.profit_potential = max(0, profit_potential)
+                vehicle.profit_percentage = profit_percentage
+
+        db.commit()
+        logger.info(f"Updated {updated_count} valuations, skipped {skipped_count} (insufficient data)")
+
+    except Exception as e:
+        logger.error(f"Error updating valuations: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def get_vehicle_valuation(vehicle_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Get complete valuation for a vehicle
     
     Args:
-        batch_size: Number of vehicles to process at once
+        vehicle_data: Vehicle data dictionary
+        
+    Returns:
+        Dictionary with valuation information
     """
-    logger.info("Updating vehicle valuations")
+    model = VehicleValuationModel()
+    if not model.load_model():
+        return {'error': 'Model not available'}
     
-    model = load_model()
-    if model is None:
-        logger.error("Cannot update valuations: model not loaded")
-        return
+    estimated_price = model.predict_price(vehicle_data)
     
-    from database.db import get_db_context
+    if estimated_price and vehicle_data.get('price'):
+        current_price = vehicle_data['price']
+        profit_potential = estimated_price - current_price
+        profit_percentage = (profit_potential / current_price) * 100 if current_price > 0 else 0
+        
+        # Calculate deal score
+        deal_score = min(10, max(0, (profit_percentage / 20) * 10))
+        
+        return {
+            'estimated_price': estimated_price,
+            'current_price': current_price,
+            'profit_potential': max(0, profit_potential),
+            'profit_percentage': profit_percentage,
+            'deal_score': deal_score,
+            'is_good_deal': deal_score >= 7.0
+        }
     
-    with get_db_context() as db:
-        # Get vehicles without estimated value
-        vehicles = db.query(Vehicle).filter(
-            Vehicle.estimated_value.is_(None)
-        ).limit(batch_size).all()
-        
-        logger.info(f"Updating {len(vehicles)} vehicles")
-        
-        for vehicle in vehicles:
-            try:
-                # Predict price
-                estimated = predict_price(vehicle, model)
-                
-                if estimated:
-                    vehicle.estimated_value = estimated
-                    
-                    # Calculate deal score
-                    vehicle.deal_score = calculate_deal_score(
-                        vehicle.price,
-                        estimated,
-                        vehicle.km,
-                        vehicle.year,
-                        vehicle.condition_score
-                    )
-                    
-                    # Calculate profit potential
-                    profit_calc = calculate_profit_potential(
-                        vehicle.price,
-                        estimated
-                    )
-                    vehicle.profit_potential = profit_calc["profit_potential"]
-                    vehicle.profit_percentage = profit_calc["profit_percentage"]
-                    
-            except Exception as e:
-                logger.warning(f"Error updating vehicle {vehicle.id}: {e}")
-                continue
-        
-        db.commit()
-        logger.info("Valuations updated successfully")
-
-
-if __name__ == "__main__":
-    # Test prediction
-    model = load_model()
-    if model:
-        print("Model loaded successfully")
-        update_vehicle_valuations()
-    else:
-        print("No model found")
+    return {'error': 'Could not calculate valuation'}
