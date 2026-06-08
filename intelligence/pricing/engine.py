@@ -170,18 +170,27 @@ class HybridPricingEngine:
         with get_db_context() as db:
             # Level 1: Same brand + model word + year ±2
             model_word = model.split()[0] if model else ''
-            query1 = text(f"""
-                SELECT price, km FROM vehicles
-                WHERE brand = :brand AND model LIKE :model_pattern AND year BETWEEN :y_start AND :y_end
-                AND is_active = 1 AND price > 0 {bike_clause}
-            """)
-            result1 = db.execute(query1, {
-                "brand": brand, 
-                "model_pattern": f"{model_word}%", 
-                "y_start": year - 2, 
-                "y_end": year + 2
-            })
-            rows = result1.fetchall()
+            from sqlalchemy import and_, or_
+            from database.models import Vehicle as VehicleModel
+            
+            # Build conditions dynamically (NO SQL injection)
+            conditions = [
+                VehicleModel.brand == brand,
+                VehicleModel.model.like(f"{model_word}%"),
+                VehicleModel.year.between(year - 2, year + 2),
+                VehicleModel.is_active == True,
+                VehicleModel.price > 0,
+            ]
+            if vehicle_type and vehicle_type.lower() in ["moto", "scooter", "quad"]:
+                conditions.append(VehicleModel.vehicle_type.in_(["moto", "scooter", "quad"]))
+            else:
+                conditions.append(
+                    or_(VehicleModel.vehicle_type.is_(None), 
+                        VehicleModel.vehicle_type.notin_(["moto", "scooter", "quad"]))
+                )
+            
+            query1 = db.query(VehicleModel.price, VehicleModel.km).filter(and_(*conditions))
+            rows = query1.all()
             
             level = "none"
             median_price = None
@@ -192,29 +201,41 @@ class HybridPricingEngine:
                 level = "model_year"
             else:
                 # Level 2: Same brand + year ±3
-                query2 = text(f"""
-                    SELECT price, km FROM vehicles
-                    WHERE brand = :brand AND year BETWEEN :y_start AND :y_end
-                    AND is_active = 1 AND price > 0 {bike_clause}
-                """)
-                result2 = db.execute(query2, {
-                    "brand": brand,
-                    "y_start": year - 3,
-                    "y_end": year + 3
-                })
-                rows = result2.fetchall()
+                conditions2 = [
+                    VehicleModel.brand == brand,
+                    VehicleModel.year.between(year - 3, year + 3),
+                    VehicleModel.is_active == True,
+                    VehicleModel.price > 0,
+                ]
+                if vehicle_type and vehicle_type.lower() in ["moto", "scooter", "quad"]:
+                    conditions2.append(VehicleModel.vehicle_type.in_(["moto", "scooter", "quad"]))
+                else:
+                    conditions2.append(
+                        or_(VehicleModel.vehicle_type.is_(None), 
+                            VehicleModel.vehicle_type.notin_(["moto", "scooter", "quad"]))
+                    )
+                query2 = db.query(VehicleModel.price, VehicleModel.km).filter(and_(*conditions2))
+                rows = query2.all()
                 
                 if len(rows) >= 3:
                     median_price = float(np.median([r[0] for r in rows]))
                     level = "brand_year"
                 else:
                     # Level 3: Same brand (any year)
-                    query3 = text(f"""
-                        SELECT price, km FROM vehicles
-                        WHERE brand = :brand AND is_active = 1 AND price > 0 {bike_clause}
-                    """)
-                    result3 = db.execute(query3, {"brand": brand})
-                    rows = result3.fetchall()
+                    conditions3 = [
+                        VehicleModel.brand == brand,
+                        VehicleModel.is_active == True,
+                        VehicleModel.price > 0,
+                    ]
+                    if vehicle_type and vehicle_type.lower() in ["moto", "scooter", "quad"]:
+                        conditions3.append(VehicleModel.vehicle_type.in_(["moto", "scooter", "quad"]))
+                    else:
+                        conditions3.append(
+                            or_(VehicleModel.vehicle_type.is_(None), 
+                                VehicleModel.vehicle_type.notin_(["moto", "scooter", "quad"]))
+                        )
+                    query3 = db.query(VehicleModel.price, VehicleModel.km).filter(and_(*conditions3))
+                    rows = query3.all()
                     
                     if len(rows) >= 3:
                         median_price = float(np.median([r[0] for r in rows]))
@@ -408,35 +429,57 @@ class HybridPricingEngine:
         self, brand: str, model: str, year: int, bike_clause: str
     ) -> tuple[float, int, str]:
         """
-        Calculate auction-based calibration factor.
+        Calculate auction-based calibration factor using SQLAlchemy ORM (no SQL injection).
         """
         from database.db import get_db_context
-        from sqlalchemy import text
+        from database.models import Vehicle as VehicleModel, AuctionTransaction as AuctionModel
+        from sqlalchemy import and_, or_
+        import numpy as np
+        
         model_word = model.split()[0] if model else ''
         
-        def _query_factor(db, match_sql: str, params: dict, min_auction_count: int = 2):
-            """Helper to compute factor for a given match level."""
-            query_auction = text(f"""
-                SELECT adjudication_price FROM auction_transactions
-                WHERE is_active = 1 AND adjudication_price > 0
-                {match_sql}
-            """)
-            auction_result = db.execute(query_auction, params)
-            auction_rows = auction_result.fetchall()
+        def _build_vehicle_conditions():
+            """Build safe query conditions for vehicles."""
+            conditions = [
+                VehicleModel.is_active == True,
+                VehicleModel.price > 0,
+            ]
+            return conditions
+        
+        def _build_auction_conditions():
+            """Build safe query conditions for auction transactions."""
+            conditions = [
+                AuctionModel.is_active == True,
+                AuctionModel.adjudication_price > 0,
+            ]
+            return conditions
+        
+        def _query_factor(db, brand_val: str, model_pattern: Optional[str], year_start: int, year_end: int, 
+                         min_auction_count: int = 2):
+            """Helper to compute factor for a given match level using ORM."""
+            # Auction query
+            auction_conditions = _build_auction_conditions()
+            auction_conditions.append(AuctionModel.brand == brand_val)
+            if model_pattern:
+                auction_conditions.append(AuctionModel.model.like(model_pattern))
+            auction_conditions.append(AuctionModel.year.between(year_start, year_end))
+            
+            auction_rows = db.query(AuctionModel.adjudication_price).filter(and_(*auction_conditions)).all()
+            
             if len(auction_rows) < min_auction_count:
                 return None, 0
             
             auction_prices = [r[0] for r in auction_rows]
             auction_median = float(np.median(auction_prices))
             
-            # Get asking-price median for same criteria
-            query_asking = text(f"""
-                SELECT price FROM vehicles
-                WHERE is_active = 1 AND price > 0
-                {match_sql}
-            """)
-            asking_result = db.execute(query_asking, params)
-            asking_rows = asking_result.fetchall()
+            # Asking-price query
+            asking_conditions = _build_vehicle_conditions()
+            asking_conditions.append(VehicleModel.brand == brand_val)
+            if model_pattern:
+                asking_conditions.append(VehicleModel.model.like(model_pattern))
+            asking_conditions.append(VehicleModel.year.between(year_start, year_end))
+            
+            asking_rows = db.query(VehicleModel.price).filter(and_(*asking_conditions)).all()
             if len(asking_rows) < 1:
                 return None, len(auction_rows)
             
@@ -447,35 +490,22 @@ class HybridPricingEngine:
                 return None, len(auction_rows)
             
             factor = auction_median / asking_median
-            # Clamp to realistic bounds for Portugal market
             factor = max(0.55, min(0.95, factor))
             return factor, len(auction_rows)
         
         with get_db_context() as db:
             # Level 1: Same brand + model word + year ±2
-            level1_sql = f" AND brand = :brand AND model LIKE :model_pattern AND year BETWEEN :y_start AND :y_end {bike_clause}"
-            factor, count = _query_factor(db, level1_sql, {
-                "brand": brand, 
-                "model_pattern": f"{model_word}%", 
-                "y_start": year - 2, 
-                "y_end": year + 2
-            })
+            factor, count = _query_factor(db, brand, f"{model_word}%", year - 2, year + 2)
             if factor is not None:
                 return factor, count, "auction_model_year"
             
             # Level 2: Same brand + year ±3
-            level2_sql = f" AND brand = :brand AND year BETWEEN :y_start AND :y_end {bike_clause}"
-            factor, count = _query_factor(db, level2_sql, {
-                "brand": brand,
-                "y_start": year - 3,
-                "y_end": year + 3
-            })
+            factor, count = _query_factor(db, brand, None, year - 3, year + 3)
             if factor is not None:
                 return factor, count, "auction_brand_year"
             
             # Level 3: Same brand (any year)
-            level3_sql = f" AND brand = :brand {bike_clause}"
-            factor, count = _query_factor(db, level3_sql, {"brand": brand})
+            factor, count = _query_factor(db, brand, None, 1900, 2100)
             if factor is not None:
                 return factor, count, "auction_brand"
         

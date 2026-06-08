@@ -16,6 +16,17 @@ _SOURCE_ALIASES = {
     "piscapisca": Source.PISCAPISCA,
     "pisca pisca": Source.PISCAPISCA,
     "carplus": Source.CARPLUS,
+    "vpauto": Source.VPAUTO,
+    "vpauto.pt": Source.VPAUTO,
+    "leilosoc": Source.LEILOSOC,
+    "leilosoc.pt": Source.LEILOSOC,
+    "bca": Source.BCA,
+    "bcamarketplace": Source.BCA,
+    "bca.pt": Source.BCA,
+    "manheim": Source.MANHEIM,
+    "manheim.pt": Source.MANHEIM,
+    "autorola": Source.AUTOROLA,
+    "autorola.pt": Source.AUTOROLA,
 }
 
 

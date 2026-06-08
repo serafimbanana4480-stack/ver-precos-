@@ -54,6 +54,68 @@ class ProductionPipeline:
         logger.info(f"Pipeline initialized with db_path: {self.db_path}")
         logger.info(f"Ollama available: {self.ollama_available}")
     
+    def _check_rejection_rules(self, vehicle_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Hard rejection rules for data quality gate.
+        Rejects vehicles with absurd data that would poison the ML model and pricing.
+        
+        Returns:
+            Rejection reason string if rejected, None if passes
+        """
+        from valuation.deal_scorer_unified import validate_vehicle_data
+        
+        is_valid, reason = validate_vehicle_data(vehicle_data)
+        if not is_valid:
+            return reason
+        
+        # Additional pipeline-specific checks
+        price = float(vehicle_data.get('price') or 0)
+        year = vehicle_data.get('year')
+        km = vehicle_data.get('km')
+        brand = str(vehicle_data.get('brand', '')).strip()
+        title = str(vehicle_data.get('title', '')).lower()
+        
+        # Price sanity checks
+        if price < 50 and (year is None or year > 1990):
+            return "price_too_low: likely deposit or reservation, not real price"
+        if price > 500000 and brand not in ['Ferrari', 'Lamborghini', 'Porsche', 'McLaren', 'Aston Martin', 'Bugatti', 'Rolls-Royce', 'Bentley']:
+            return "fantasy_price: exceeds segment maximum"
+        
+        # Year sanity
+        if year is not None:
+            current_year = datetime.now().year
+            if year < 1950 or year > current_year + 1:
+                return f"invalid_year: {year} outside realistic range"
+        
+        # KM sanity
+        if km is not None and km > 0:
+            if km > 800000 and (year is None or year > 1980):
+                return "unrealistic_km: exceeds 800,000km"
+            # Expected KM check: if year is known, KM should be roughly plausible
+            if year is not None and year < current_year:
+                age = current_year - year
+                expected_max_km = age * 50000  # Very generous upper bound (50k/year)
+                if km > expected_max_km and age >= 2:
+                    return f"implausible_km: {km}km for {age} year old vehicle (max expected ~{expected_max_km}km)"
+        
+        # Brand sanity
+        if not brand or brand.lower() in ('unknown', 'venda', 'vendo', 'mota', 'moto'):
+            return "invalid_brand: missing or generic brand"
+        if brand.replace('.', '').replace(',', '').isdigit():
+            return "invalid_brand: numeric brand"
+        
+        # Title/content checks for non-vehicle listings
+        non_vehicle_keywords = ['pneu', 'vinil', 'spray', 'capa', 'jante', 'volante', 'banco', 'farol']
+        if any(kw in title for kw in non_vehicle_keywords):
+            # Only reject if price is very low (indicating parts, not vehicle)
+            if price < 500:
+                return "not_vehicle: appears to be parts/accessories, not complete vehicle"
+        
+        # Duplicate check: same URL already processed in this batch
+        # (Deduplication across batches is handled by database unique constraints)
+        
+        return None
+    
     @track_pipeline()
     def process_vehicle(self, vehicle_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -66,7 +128,19 @@ class ProductionPipeline:
             Processed vehicle with AI analysis, pricing, and scoring
         """
         try:
-            logger.info(f"Processing vehicle {vehicle_data.get('source_id')}")
+            source_id = vehicle_data.get('source_id', 'unknown')
+            logger.info(f"Processing vehicle {source_id}")
+            
+            # === STAGE 0: HARD REJECTION RULES (Data Quality Gate) ===
+            rejection_reason = self._check_rejection_rules(vehicle_data)
+            if rejection_reason:
+                logger.warning(f"Vehicle {source_id} REJECTED: {rejection_reason}")
+                return {
+                    'vehicle_id': source_id,
+                    'status': 'rejected',
+                    'error': rejection_reason,
+                    'rejection_stage': 'data_quality_gate'
+                }
             
             # Pre-validation: normalize/extract year if missing
             if vehicle_data.get('year') is None:
