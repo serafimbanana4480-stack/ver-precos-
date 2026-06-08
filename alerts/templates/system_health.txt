@@ -1,0 +1,8 @@
+🏥 System Health
+
+Status: {{ status }}
+CPU Usage: {{ cpu_usage }}%
+Memory Usage: {{ memory_usage }}%
+Disk Usage: {{ disk_usage }}%
+Uptime: {{ uptime }}
+Timestamp: {{ timestamp }}

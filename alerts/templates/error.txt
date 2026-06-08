@@ -1,0 +1,6 @@
+❌ Error Occurred
+
+Type: {{ type }}
+Message: {{ message }}
+Component: {{ component }}
+Timestamp: {{ timestamp }}

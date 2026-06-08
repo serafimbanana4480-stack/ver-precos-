@@ -1,0 +1,7 @@
+✅ Scraping Complete
+
+Source: {{ source }}
+Listings Found: {{ listings_count }}
+Success Rate: {{ success_rate }}%
+Duration: {{ duration }}s
+Timestamp: {{ timestamp }}

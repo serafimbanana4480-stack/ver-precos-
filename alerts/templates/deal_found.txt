@@ -1,0 +1,10 @@
+🚗 New Deal Found!
+
+Vehicle: {{ brand }} {{ model }}
+Price: €{{ price }}
+Deal Score: {{ deal_score }}/10
+Profit Potential: €{{ profit_potential }}
+Location: {{ location }}
+Source: {{ source }}
+
+URL: {{ url }}

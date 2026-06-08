@@ -1,0 +1,8 @@
+🤖 Model Trained
+
+Model Type: {{ model_type }}
+Model Version: {{ model_version }}
+Training Samples: {{ training_samples }}
+R² Score: {{ r2_score }}
+MAE: €{{ mae }}
+Timestamp: {{ timestamp }}

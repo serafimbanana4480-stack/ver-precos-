@@ -42,10 +42,28 @@ class LLMReviewResponse(BaseModel):
 
 class VisionAnalysisResponse(BaseModel):
     """Validation model for vision analysis responses"""
-    condition_score: int = Field(ge=0, le=10, description="Condition score must be between 0 and 10")
+    condition_score: float = Field(ge=0, le=10, description="Condition score must be between 0 and 10")
     damage_detected: List[str] = Field(default_factory=list, description="List of detected damages")
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Confidence must be between 0.0 and 1.0")
-    
+
+    @field_validator('condition_score', mode='before')
+    @classmethod
+    def normalize_condition_score(cls, v: Any) -> float:
+        if isinstance(v, str):
+            mapping = {
+                "excelente": 9.0, "muito bom": 8.0, "bom": 7.0,
+                "razoável": 6.0, "razoavel": 6.0, "aceitável": 5.0,
+                "aceitavel": 5.0, "mau": 3.0, "péssimo": 2.0, "pessimo": 2.0,
+            }
+            key = v.strip().lower()
+            if key in mapping:
+                return mapping[key]
+            try:
+                return float(v)
+            except ValueError:
+                return 6.0
+        return float(v)
+
     @field_validator('damage_detected')
     @classmethod
     def validate_damage_detected(cls, v: list) -> list:
