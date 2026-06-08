@@ -10,6 +10,62 @@ from sqlalchemy import text
 from database.db import get_db_context
 from config import settings
 from utils.logging_config import get_validation_health
+import httpx
+
+
+def check_ollama_health() -> Dict[str, Any]:
+    """
+    Check Ollama API health and verify required models
+    
+    Returns:
+        Dictionary with Ollama status and details
+    """
+    if not settings.use_ollama:
+        return {
+            "status": "healthy",
+            "message": "Ollama is disabled in configuration",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": None
+        }
+        
+    try:
+        url = f"{settings.ollama_url}/api/tags"
+        with httpx.Client(timeout=3.0) as client:
+            response = client.get(url)
+            
+        if response.status_code == 200:
+            models_data = response.json().get("models", [])
+            model_names = [m.get("name") for m in models_data]
+            
+            if len(model_names) > 0:
+                return {
+                    "status": "healthy",
+                    "models_available": model_names,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "error": None
+                }
+            else:
+                return {
+                    "status": "degraded",
+                    "message": "Ollama is running but no models are pulled. Run: ollama pull qwen2.5-coder:7b",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "error": "No models found"
+                }
+        else:
+            return {
+                "status": "unhealthy",
+                "message": f"Ollama returned HTTP {response.status_code}",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "error": f"HTTP {response.status_code}"
+            }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "message": "Ollama is not responding. Ensure the Ollama service is running.",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": str(e)
+        }
+
 
 
 def check_database_connection() -> Dict[str, Any]:
@@ -89,7 +145,7 @@ def check_log_file_writability() -> Dict[str, Any]:
         settings.logs_dir.mkdir(parents=True, exist_ok=True)
         
         # Try to write to log file
-        log_file = settings.log_file
+        log_file = Path(settings.log_file)
         test_file = log_file.parent / f".test_write_{os.getpid()}"
         
         with open(test_file, 'w') as f:
@@ -127,12 +183,14 @@ def get_system_health() -> Dict[str, Any]:
     config_health = check_configuration()
     log_health = check_log_file_writability()
     validation_health = get_validation_health()
+    ollama_health = check_ollama_health()
     
     # Determine overall status
     component_statuses = [
         db_health["status"],
         config_health["status"],
-        log_health["status"]
+        log_health["status"],
+        ollama_health["status"]
     ]
     
     if "unhealthy" in component_statuses:
@@ -149,7 +207,8 @@ def get_system_health() -> Dict[str, Any]:
             "database": db_health,
             "configuration": config_health,
             "logging": log_health,
-            "validation": validation_health
+            "validation": validation_health,
+            "ollama": ollama_health
         }
     }
 

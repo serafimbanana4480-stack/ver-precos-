@@ -20,10 +20,11 @@ class LLMReviewer:
     
     def __init__(self) -> None:
         self.api_key = settings.grok_api_key
-        self.api_url = settings.grok_api_url
+        # Check if grok_api_url is available in settings (package config) or fallback to root config alias
+        self.api_url = getattr(settings, 'grok_api_url', 'https://api.x.ai/v1')
         self.use_ollama = settings.use_ollama
         self.ollama_url = settings.ollama_url
-        self.model = settings.llm_model
+        self.model = settings.ai_model
         
         self.system_prompt = """You are an expert automotive analyst specializing in the Portuguese used car market. Your task is to analyze vehicle listings and identify:
 
@@ -53,6 +54,26 @@ class LLMReviewer:
 
 Provide your analysis in Portuguese with specific evidence from the description."""
     
+    async def analyze(self, description: str) -> Optional[Dict[str, object]]:
+        """Analyze free-text listing description (legacy/test API)."""
+        prompt = f"Analyze this vehicle listing description:\n\n{description}"
+        response = self._call_llm(prompt)
+        if not response:
+            return {
+                "recommendation": "Neutral",
+                "confidence": 0.0,
+                "issues": [],
+                "reasoning": "AI unavailable",
+            }
+        try:
+            import json
+            data = json.loads(response) if isinstance(response, str) else response
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+        return {"recommendation": "Neutral", "confidence": 0.5, "analysis": response}
+
     def review_vehicle(self, vehicle: Vehicle) -> Optional[AIReview]:
         """
         Review a vehicle using LLM

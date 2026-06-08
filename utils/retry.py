@@ -3,14 +3,14 @@ Retry utility decorators using tenacity
 """
 from __future__ import annotations
 from tenacity import (
-    retry,
+    retry as tenacity_retry,
     stop_after_attempt,
     wait_exponential,
     retry_if_exception_type,
     before_sleep_log
 )
 import logging
-from typing import Type, Tuple, Any
+from typing import Type, Tuple, Any, Callable
 from utils.logging_config import log_retry_attempt
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def retry_network(max_attempts: int = 3, min_wait: float = 2, max_wait: float = 
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         if inspect.iscoroutinefunction(func):
-            @retry(
+            @tenacity_retry(
                 stop=stop_after_attempt(max_attempts),
                 wait=wait_exponential(multiplier=1, min=min_wait, max=max_wait),
                 retry=retry_if_exception_type((TimeoutError, ConnectionError)),
@@ -52,7 +52,7 @@ def retry_network(max_attempts: int = 3, min_wait: float = 2, max_wait: float = 
                 return await func(*args, **kwargs)
             return async_wrapper
         else:
-            @retry(
+            @tenacity_retry(
                 stop=stop_after_attempt(max_attempts),
                 wait=wait_exponential(multiplier=1, min=min_wait, max=max_wait),
                 retry=retry_if_exception_type((TimeoutError, ConnectionError)),
@@ -75,10 +75,9 @@ def retry_ai_api(max_attempts: int = 3, min_wait: float = 2, max_wait: float = 1
         min_wait: Minimum wait time in seconds (default: 2)
         max_wait: Maximum wait time in seconds (default: 10)
     """
-    from typing import Callable
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @retry(
+        @tenacity_retry(
             stop=stop_after_attempt(max_attempts),
             wait=wait_exponential(multiplier=1, min=min_wait, max=max_wait),
             retry=retry_if_exception_type((TimeoutError, ConnectionError)),
@@ -100,10 +99,9 @@ def retry_database(max_attempts: int = 3, min_wait: float = 2, max_wait: float =
         min_wait: Minimum wait time in seconds (default: 2)
         max_wait: Maximum wait time in seconds (default: 10)
     """
-    from typing import Callable
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @retry(
+        @tenacity_retry(
             stop=stop_after_attempt(max_attempts),
             wait=wait_exponential(multiplier=1, min=min_wait, max=max_wait),
             retry=retry_if_exception_type((ConnectionError, TimeoutError)),
@@ -131,10 +129,9 @@ def retry_with_custom_exceptions(
         min_wait: Minimum wait time in seconds (default: 2)
         max_wait: Maximum wait time in seconds (default: 10)
     """
-    from typing import Callable
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @retry(
+        @tenacity_retry(
             stop=stop_after_attempt(max_attempts),
             wait=wait_exponential(multiplier=1, min=min_wait, max=max_wait),
             retry=retry_if_exception_type(exceptions),
@@ -145,3 +142,7 @@ def retry_with_custom_exceptions(
             return func(*args, **kwargs)
         return wrapper
     return decorator
+
+
+# Legacy/test alias
+retry = retry_network

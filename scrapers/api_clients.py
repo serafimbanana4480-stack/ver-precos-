@@ -92,6 +92,7 @@ async def fetch_olx_api(
                         "price": _extract_price_from_params(offer.get("params", [])),
                         "location": _extract_location_olx(offer.get("location", {})),
                         "images": _extract_images_olx(offer.get("photos", [])),
+                        "description": offer.get("description", ""),  # CRITICAL: Extract description for AI LLM
                         "params": offer.get("params", {}),  # km, year, fuel, etc.
                         "created_at": offer.get("created_at") or offer.get("created_time"),
                     }
@@ -102,14 +103,30 @@ async def fetch_olx_api(
                     
                     logger.debug(f"[OLX_API] Params dict: {params_dict}")
                     
-                    listing["year"] = _parse_int(params_dict.get("year"))
-                    listing["km"] = _parse_int(params_dict.get("mileage"))
-                    listing["fuel_type"] = params_dict.get("fuel_type", "")
-                    listing["transmission"] = params_dict.get("gearbox", "")
-                    
-                    if not listing["year"]:
-                         # Tentar outros nomes comuns para ano
-                         listing["year"] = _parse_int(params_dict.get("ano"))
+                    listing["year"] = _parse_int(
+                        params_dict.get("year")
+                        or params_dict.get("ano")
+                    )
+                    listing["km"] = _parse_int(
+                        params_dict.get("mileage")
+                        or params_dict.get("quilometros")
+                        or params_dict.get("quilometragem")
+                        or params_dict.get("km")
+                    )
+
+                    fuel_raw = (
+                        params_dict.get("fuel_type")
+                        or params_dict.get("combustivel")
+                        or params_dict.get("combustível")
+                    )
+                    transmission_raw = params_dict.get("gearbox") or params_dict.get("transmission")
+
+                    listing["fuel_type"] = _extract_label_value(fuel_raw)
+                    listing["transmission"] = _extract_label_value(transmission_raw)
+
+                    brand, model = _extract_brand_model_from_title(listing.get("title", ""))
+                    listing["brand"] = brand
+                    listing["model"] = model
                     
                     logger.debug(f"[OLX_API] Extracted listing: {listing.get('title')} - Year: {listing.get('year')}, Price: {listing.get('price')}")
                     
@@ -158,6 +175,47 @@ def _extract_price_olx(price_data: Dict) -> Optional[float]:
         return float(amount) if amount else None
     except (ValueError, TypeError):
         return None
+
+
+class APIClient:
+    """Legacy compatibility wrapper for API helper functions."""
+
+    async def fetch_olx_api(self, *args, **kwargs):
+        return await fetch_olx_api(*args, **kwargs)
+
+    async def fetch_standvirtual_api(self, *args, **kwargs):
+        return await fetch_standvirtual_api(*args, **kwargs)
+
+
+def _extract_label_value(value: Any) -> str:
+    """Extract text from OLX API value objects."""
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        label = value.get("label")
+        key = value.get("key")
+        if isinstance(label, str) and label.strip():
+            return label.strip().lower()
+        if isinstance(key, str) and key.strip():
+            return key.strip().lower()
+        return ""
+    if isinstance(value, str):
+        return value.strip().lower()
+    return str(value).strip().lower()
+
+
+def _extract_brand_model_from_title(title: Any) -> tuple[str, str]:
+    """Best-effort brand/model parser from title for initial coverage."""
+    if not isinstance(title, str):
+        return "", ""
+    cleaned = title.strip()
+    if not cleaned:
+        return "", ""
+
+    parts = cleaned.split()
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], " ".join(parts[1:])
 
 
 def _extract_location_olx(location_data: Dict) -> str:

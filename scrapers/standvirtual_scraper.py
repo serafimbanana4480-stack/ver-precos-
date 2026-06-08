@@ -7,6 +7,7 @@ import random
 import time
 import asyncio
 import re
+import json
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone
 from urllib.parse import urljoin, quote
@@ -22,6 +23,7 @@ from utils.production_safeguards import with_circuit_breaker, _standvirtual_circ
 from utils.captcha_solver import CaptchaDetector, get_captcha_solver
 from utils.proxy_manager import get_proxy_pool
 from utils.selector_manager import get_selector_manager
+from utils.observability import track_scrape
 
 # Optional imports
 try:
@@ -89,13 +91,15 @@ class StandvirtualScraper:
             logger.error(f"[MANAGED] Apify scrape failed: {e}")
             return []
     
+    @track_scrape(source='standvirtual')
     @with_circuit_breaker(_standvirtual_circuit_breaker, "Standvirtual scraping")
     @retry_network(max_attempts=3, min_wait=2, max_wait=10)  # type: ignore[misc]
     async def scrape_listings(
         self,
         vehicle_type: str = "carros",
         max_listings: int = 100,
-        filters: Optional[Dict[str, object]] = None
+        filters: Optional[Dict[str, object]] = None,
+        scrape_details: bool = False
     ) -> List[Dict[str, object]]:
         """
         Scrape listings from Standvirtual.com using AI-first or Playwright-first approach based on priority
@@ -111,7 +115,7 @@ class StandvirtualScraper:
         logger.info(f"[PROGRESS] Starting Standvirtual scrape for {vehicle_type}, max {max_listings} listings")
         logger.info(f"[PROGRESS] AI scraping priority: {settings.ai_scraper_priority}")
         
-        url = self._build_url(vehicle_type, filters)
+        url = self._build_url(vehicle_type, page=1, filters=filters)
         
         # AI-First Approach (if configured as primary)
         if settings.ai_scraping_enabled and settings.ai_scraper_priority == "primary" and get_ai_scraper:
@@ -129,7 +133,7 @@ class StandvirtualScraper:
         
         # Playwright-First Approach (fallback or if AI disabled)
         logger.info(f"[PROGRESS] Phase 1/5: Building URL with filters")
-        listings = await self._scrape_with_resilient_flow(vehicle_type, max_listings, filters)
+        listings = await self._scrape_with_resilient_flow(vehicle_type, max_listings, filters, scrape_details)
         
         # If still no results, try original Apify fallback if enabled
         if not listings and settings.apify_enabled:
@@ -137,134 +141,240 @@ class StandvirtualScraper:
         
         return listings
 
-    async def _scrape_with_simple_playwright(
-        self,
-        vehicle_type: str,
-        max_listings: int,
-        filters: Optional[Dict[str, object]] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Simple Playwright fallback when managed_client is not available
-        """
-        try:
-            from playwright.async_api import async_playwright
-            from bs4 import BeautifulSoup
-            from playwright_stealth import stealth_async
-        except ImportError as e:
-            logger.error(f"[STANDVIRTUAL_SIMPLE] Missing dependencies: {e}")
-            return []
-        
-        url = self._build_url(vehicle_type, filters)
-        
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(
-                    headless=self.headless,
-                    args=['--disable-blink-features=AutomationControlled']
-                )
-                
-                context = await browser.new_context(
-                    user_agent=random.choice(settings.user_agents),
-                    viewport={'width': 1920, 'height': 1080},
-                    locale='pt-PT'
-                )
-                
-                page = await context.new_page()
-                # Apply stealth
-                await stealth_async(page)
-                
-                logger.info(f"[STANDVIRTUAL_SIMPLE] Navigating to {url}")
-                await page.goto(url, timeout=self.timeout, wait_until='networkidle')
-                
-                # Wait for content to load
-                await asyncio.sleep(3)
-                
-                # Scroll to load lazy content
-                for _ in range(3):
-                    await page.mouse.wheel(0, 500)
-                    await asyncio.sleep(0.5)
-                
-                html = await page.content()
-                await browser.close()
-                
-                if not html or len(html) < 500:
-                    logger.warning("[STANDVIRTUAL_SIMPLE] HTML too short, likely blocked")
-                    return []
-                
-                # Check for blocking
-                from utils.error_classifier import ErrorClassifier
-                if ErrorClassifier.detect_blocking_in_html(html):
-                    logger.warning("[STANDVIRTUAL_SIMPLE] Blocked page detected")
-                    return []
-                
-                # Parse listings
-                soup = BeautifulSoup(html, 'lxml')
-                from standvirtual_extractor import StandvirtualExtractor
-                extractor = StandvirtualExtractor()
-                listings = extractor.extract_listings(soup, max_listings)
-                
-                logger.info(f"[STANDVIRTUAL_SIMPLE] Extracted {len(listings)} listings")
-                return listings
-                
-        except Exception as e:
-            logger.error(f"[STANDVIRTUAL_SIMPLE] Failed: {e}")
-            return []
 
     async def _scrape_with_resilient_flow(
         self,
         vehicle_type: str,
         max_listings: int,
-        filters: Optional[Dict[str, object]] = None
+        filters: Optional[Dict[str, object]] = None,
+        scrape_details: bool = False
     ) -> List[Dict[str, object]]:
-        from bs4 import BeautifulSoup
-        url = self._build_url(vehicle_type, filters)
+        all_listings = []
+        page = 1
         
-        # Fallback to simple Playwright if managed_client is not available
-        if not self.managed_client:
-            logger.warning("[STANDVIRTUAL_RESILIENT] Managed client not available, using simple Playwright fallback")
-            return await self._scrape_with_simple_playwright(vehicle_type, max_listings, filters)
+        while len(all_listings) < max_listings:
+            url = self._build_url(vehicle_type, page, filters)
+            logger.info(f"[STANDVIRTUAL] Scraping page {page}: {url}")
             
-        html = await self.managed_client.get_html(url, source="standvirtual")
-        
-        if not html:
-            return []
-        
-        # Prioritize AI extraction since CSS selectors are unreliable for Standvirtual
-        if get_ai_extractor:
-            logger.info("[AI_EXTRACT] Using AI extraction as primary method for Standvirtual")
-            ai_extractor = get_ai_extractor()
-            ai_results = await ai_extractor.extract_from_html(html, "standvirtual", max_listings)
-            if ai_results:
-                logger.info(f"[AI_EXTRACT] AI extracted {len(ai_results)} Standvirtual listings")
-                return ai_results
-        
-        # Fallback to custom Standvirtual extractor if AI fails
-        logger.info(f"[CSS_FALLBACK] AI extraction failed, trying custom Standvirtual extractor")
-        from bs4 import BeautifulSoup
-        from standvirtual_extractor import StandvirtualExtractor
-        
-        soup = BeautifulSoup(html, 'lxml')
-        
-        # Try internal _parse_soup_to_listings as intermediate fallback
-        listings = self._parse_soup_to_listings(soup, max_listings)
-        if listings:
-            logger.info(f"[INTERNAL_PARSER] Internal parser found {len(listings)} listings")
-            return listings
+            # Use simple Playwright first (fast and reliable)
+            page_listings = await self._scrape_page_with_playwright(url, vehicle_type, max_listings - len(all_listings))
+            
+            if not page_listings and self.managed_client:
+                # Fallback to managed_client
+                html = await self.managed_client.get_html(url, source="standvirtual")
+                if html:
+                    page_listings = self._extract_listings_from_next_data(html, max_listings - len(all_listings))
+                    if not page_listings and get_ai_extractor:
+                        ai_extractor = get_ai_extractor()
+                        page_listings = await ai_extractor.extract_from_html(html, "standvirtual", max_listings - len(all_listings))
+            
+            if not page_listings:
+                logger.info(f"[STANDVIRTUAL] No more listings found at page {page}")
+                break
+                
+            all_listings.extend(page_listings)
+            logger.info(f"[STANDVIRTUAL] Total listings so far: {len(all_listings)}")
+            
+            if len(page_listings) < 10: # Likely last page
+                break
+                
+            page += 1
+            if page > 10: # Safety break
+                break
 
-        extractor = StandvirtualExtractor()
-        listings = extractor.extract_listings(soup, max_listings)
-        
-        if listings:
-            logger.info(f"[CUSTOM_EXTRACTOR] Custom extractor found {len(listings)} listings")
+        if scrape_details and all_listings:
+            # (Enrichment logic here if needed, but simple_playwright already tries to get some details)
+            pass
+
+        return all_listings[:max_listings]
+
+    async def _scrape_page_with_playwright(self, url: str, vehicle_type: str, limit: int) -> List[Dict[str, Any]]:
+        try:
+            from bs4 import BeautifulSoup
+            from utils.playwright_stealth import apply_stealth_async
+            from scrapers.browser_pool import get_browser_pool
+            
+            pool = get_browser_pool()
+            page = await pool.new_page("standvirtual")
+            
+            try:
+                await apply_stealth_async(page)
+            except Exception:
+                pass
+            
+            await page.goto(url, timeout=self.timeout, wait_until='networkidle')
+            try:
+                await page.wait_for_selector('article, [data-testid]', timeout=5000)
+            except Exception:
+                pass
+            
+            for _ in range(2):
+                await page.mouse.wheel(0, 1000)
+                await asyncio.sleep(0.2)
+            
+            html = await page.content()
+            await page.close()
+            
+            if not html or len(html) < 500:
+                return []
+            
+            # Check for blocking
+            from utils.error_classifier import ErrorClassifier
+            if ErrorClassifier.detect_blocking_in_html(html):
+                return []
+            
+            listings = self._extract_listings_from_next_data(html, limit)
+            if not listings:
+                soup = BeautifulSoup(html, 'lxml')
+                listings = self._parse_soup_to_listings(soup, limit)
+                
             return listings
-        
-        logger.warning("[CSS_FALLBACK] Both AI and custom extractor failed")
-        return []
+        except Exception as e:
+            logger.error(f"[STANDVIRTUAL_PAGE] Failed: {e}")
+            return []
+
+    def _extract_listings_from_next_data(self, html: str, max_listings: int) -> List[Dict[str, object]]:
+        """Extract listings from Standvirtual Next.js payload (__NEXT_DATA__)."""
+        try:
+            script_match = re.search(
+                r'<script[^>]*id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
+                html,
+                re.DOTALL | re.IGNORECASE,
+            )
+            if not script_match:
+                return []
+
+            payload = json.loads(script_match.group(1))
+            candidates: List[Dict[str, Any]] = []
+            self._collect_vehicle_candidates(payload, candidates)
+
+            listings: List[Dict[str, object]] = []
+            for candidate in candidates:
+                listing = self._candidate_to_listing(candidate)
+                if listing:
+                    listings.append(listing)
+                if len(listings) >= max_listings:
+                    break
+
+            return listings
+        except Exception as e:
+            logger.debug(f"[NEXT_DATA] Failed parsing __NEXT_DATA__: {e}")
+            return []
+
+    def _collect_vehicle_candidates(self, node: Any, out: List[Dict[str, Any]]) -> None:
+        """Recursively collect listing-like nodes from nested Next.js JSON."""
+        if isinstance(node, dict):
+            has_url = any(k in node for k in ("url", "slug", "seoSlug", "href"))
+            has_title = any(k in node for k in ("title", "name"))
+            has_price = any(k in node for k in ("price", "priceValue", "priceAmount", "amount"))
+            if has_url and has_title and has_price:
+                out.append(node)
+
+            for value in node.values():
+                self._collect_vehicle_candidates(value, out)
+        elif isinstance(node, list):
+            for item in node:
+                self._collect_vehicle_candidates(item, out)
+
+    def _candidate_to_listing(self, candidate: Dict[str, Any]) -> Optional[Dict[str, object]]:
+        """Normalize a listing candidate from Next.js payload into scraper schema."""
+        raw_url = candidate.get("url") or candidate.get("href") or candidate.get("slug") or candidate.get("seoSlug")
+        if not isinstance(raw_url, str) or not raw_url.strip():
+            return None
+
+        url = raw_url.strip()
+        if url.startswith("/"):
+            url = urljoin(self.base_url, url)
+        if not url.startswith("http"):
+            return None
+
+        title = candidate.get("title") or candidate.get("name") or ""
+        if not isinstance(title, str) or not title.strip():
+            return None
+
+        price_value = candidate.get("price")
+        if isinstance(price_value, dict):
+            price_value = (
+                price_value.get("amount")
+                or price_value.get("value")
+                or price_value.get("gross")
+                or price_value.get("net")
+            )
+
+        if price_value is None:
+            price_value = candidate.get("priceValue") or candidate.get("priceAmount") or candidate.get("amount")
+
+        price = self._safe_float(price_value)
+        if price is None:
+            return None
+
+        location_raw = candidate.get("location")
+        if isinstance(location_raw, dict):
+            location = ", ".join(
+                [str(v) for v in [location_raw.get("city"), location_raw.get("region")] if v]
+            )
+        else:
+            location = str(location_raw or "")
+
+        year = self._safe_int(candidate.get("year") or candidate.get("productionYear") or candidate.get("firstRegistrationYear"))
+        km = self._safe_int(candidate.get("mileage") or candidate.get("km") or candidate.get("odometer"))
+
+        images_raw = candidate.get("images") or candidate.get("photos") or candidate.get("imageUrls") or []
+        images: List[str] = []
+        if isinstance(images_raw, list):
+            for item in images_raw:
+                if isinstance(item, str) and item.startswith("http"):
+                    images.append(item)
+                elif isinstance(item, dict):
+                    maybe = item.get("url") or item.get("large") or item.get("src")
+                    if isinstance(maybe, str) and maybe.startswith("http"):
+                        images.append(maybe)
+
+        source_id = str(candidate.get("id") or candidate.get("adId") or candidate.get("offerId") or url)
+        brand, model = self._parse_brand_model(title)
+
+        return {
+            "source": "standvirtual",
+            "source_id": source_id,
+            "url": url,
+            "title": title.strip(),
+            "brand": brand,
+            "model": model,
+            "price": price,
+            "year": year,
+            "km": km,
+            "location": location,
+            "images": images,
+            "fuel_type": (candidate.get("fuel") or candidate.get("fuelType") or "") or "",
+            "description": candidate.get("description") or "",
+            "raw_data": str(candidate),
+        }
+
+    def _safe_int(self, value: Any) -> Optional[int]:
+        try:
+            if value is None:
+                return None
+            digits = re.sub(r"\D", "", str(value))
+            return int(digits) if digits else None
+        except Exception:
+            return None
+
+    def _safe_float(self, value: Any) -> Optional[float]:
+        try:
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            normalized = re.sub(r"[^\d.,]", "", str(value))
+            normalized = normalized.replace(".", "").replace(",", ".")
+            return float(normalized) if normalized else None
+        except Exception:
+            return None
 
     def _parse_soup_to_listings(self, soup: Any, max_listings: int) -> List[Dict[str, object]]:
         listings = []
         # Modern Standvirtual structure uses specific article classes
-        listing_elements = soup.find_all('article', class_=re.compile(r'ooa-1pixign|e1srzcph1'))
+        listing_elements = soup.find_all('article', class_=re.compile(r'ooa-1pixign|e1srzcph1|ooa-ciiovr'))
         
         if not listing_elements:
              # Fallback to general article searching
@@ -277,47 +387,55 @@ class StandvirtualScraper:
         return listings
         
     async def scrape_listing_details(self, url: str) -> Optional[Dict[str, object]]:
-        """Scrape detailed information from a single listing page - Async Resilient"""
+        """Scrape detailed information from a single listing page using browser pool."""
         from bs4 import BeautifulSoup
+        from scrapers.browser_pool import get_browser_pool
+        from utils.playwright_stealth import apply_stealth_async
         
-        # Simple Playwright fallback if managed_client is not available
-        if not self.managed_client:
-            logger.warning("[STANDVIRTUAL_DETAILS] Managed client not available, using simple Playwright fallback")
+        try:
+            pool = get_browser_pool()
+            page = await pool.new_page("standvirtual_details")
+            
             try:
-                from playwright.async_api import async_playwright
-                from playwright_stealth import stealth_async
-                
-                async with async_playwright() as p:
-                    browser = await p.chromium.launch(headless=self.headless)
-                    context = await browser.new_context(user_agent=random.choice(settings.user_agents))
-                    page = await context.new_page()
-                    await stealth_async(page)
-                    await page.goto(url, timeout=self.timeout, wait_until='networkidle')
-                    html = await page.content()
-                    await browser.close()
+                await apply_stealth_async(page)
             except Exception as e:
-                logger.error(f"[STANDVIRTUAL_DETAILS] Playwright fallback failed: {e}")
-                return None
-        else:
-            html = await self.managed_client.get_html(url, source="standvirtual_details")
+                logger.warning(f"Stealth failed: {e}")
+            
+            await page.goto(url, timeout=self.timeout, wait_until='networkidle')
+            # Use wait_for instead of sleep
+            try:
+                await page.wait_for_selector('.offer-description, .offer-params__item', timeout=5000)
+            except Exception:
+                pass
+            
+            html = await page.content()
+            await page.close()
+            
+        except Exception as e:
+            logger.error(f"[STANDVIRTUAL_DETAILS] Browser pool failed: {e}")
+            return None
             
         if not html:
             return None
             
         soup = BeautifulSoup(html, 'lxml')
-        # Logic to extract details from soup using selector_manager
-        return {"raw_html": html}
+        return self._fetch_details_from_soup(soup)
     
-    def _build_url(self, vehicle_type: str, filters: Optional[Dict[str, object]] = None) -> str:
+    def _build_url(self, vehicle_type: str, page: int = 1, filters: Optional[Dict[str, object]] = None) -> str:
         """Build URL with filters for Standvirtual"""
         # Navigate to Lisbon page which has actual listings instead of navigation
         base_url = f"{self.base_url}/{vehicle_type}/lisboa"
         
-        if not filters:
-            return base_url
-        
         # Build query string
         query_params = []
+        
+        if page > 1:
+            query_params.append(f"page={page}")
+        
+        if not filters:
+            if query_params:
+                return f"{base_url}?{'&'.join(query_params)}"
+            return base_url
         
         # Add brand filter
         if filters.get("brand"):
@@ -356,8 +474,8 @@ class StandvirtualScraper:
             if accept_button:
                 accept_button.click()
                 time.sleep(1)
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Cookie consent handling failed: {e}")
 
     @retry_network(max_attempts=3, min_wait=2, max_wait=10)  # type: ignore[misc]
     def _scroll_to_load(self, page: Any) -> None:
@@ -391,49 +509,86 @@ class StandvirtualScraper:
         return listings
 
     def _parse_listing_element(self, element: Any) -> Optional[Dict[str, object]]:
-        """Parse a single Standvirtual listing element"""
+        """Parse a single Standvirtual listing element from current DOM"""
         try:
-            # Extract using SelectorManager fallback system
-            url, _ = self.selector_manager.extract_with_fallback(element, 'standvirtual', 'url')
-            if not url:
-                link_elem = element.find('a', class_='offer-title__link')
-                if not link_elem: return None
-                url = link_elem.get('href', '')
-                
+            # Find link with /anuncio/
+            link_elem = element.find('a', href=re.compile(r'/anuncio/'))
+            if not link_elem:
+                return None
+            url = link_elem.get('href', '')
             if isinstance(url, str) and url.startswith('/'):
                 url = urljoin(self.base_url, url)
-                
-            title, _ = self.selector_manager.extract_with_fallback(element, 'standvirtual', 'title')
-            title = title or ""
-            
-            price, _ = self.selector_manager.extract_with_fallback(element, 'standvirtual', 'price')
-            location, _ = self.selector_manager.extract_with_fallback(element, 'standvirtual', 'location')
-            location = location or ""
-            
-            year, _ = self.selector_manager.extract_with_fallback(element, 'standvirtual', 'year')
-            km, _ = self.selector_manager.extract_with_fallback(element, 'standvirtual', 'km')
-            
-            # Extract image manually
-            img_elem = element.find('img', class_='offer-item__photo')
-            image_url = img_elem.get('data-src', '') if img_elem else ''
-            
-            # Extract source ID stably
+            if not url.startswith('http'):
+                return None
+
+            # Title from h2
+            title_elem = element.find('h2')
+            title = title_elem.get_text(strip=True) if title_elem else link_elem.get_text(strip=True)
+            if not title:
+                return None
+
+            # Price from h3
+            price = None
+            price_elem = element.find('h3')
+            if price_elem:
+                price = self._safe_float(price_elem.get_text(strip=True))
+
+            # Details from dl/dt/dd
+            year = None
+            km = None
+            fuel_type = None
+            transmission = None
+            location = None
+
+            dl = element.find('dl')
+            if dl:
+                dts = dl.find_all('dt')
+                dds = dl.find_all('dd')
+                for dt, dd in zip(dts, dds):
+                    dt_text = dt.get_text(strip=True).lower()
+                    dd_text = dd.get_text(strip=True)
+                    if dt_text == 'first_registration_year':
+                        year = self._safe_int(dd_text)
+                    elif dt_text == 'mileage':
+                        km = self._safe_int(dd_text)
+                    elif dt_text == 'fuel_type':
+                        fuel_type = dd_text
+                    elif dt_text == 'gearbox':
+                        transmission = dd_text
+
+            # Try to find location from text
+            full_text = element.get_text(strip=True)
+            loc_match = re.search(r'([A-Za-zÀ-ÿ\s\-]+)\s*\([A-Za-zÀ-ÿ\s]+\)', full_text)
+            if loc_match:
+                location = loc_match.group(1).strip()
+
+            # Image
+            img_elem = element.find('img')
+            image_url = ''
+            if img_elem:
+                image_url = img_elem.get('data-src') or img_elem.get('src') or ''
+
             import hashlib
             source_id = hashlib.md5(str(url).encode()).hexdigest()
-            
+            brand, model = self._parse_brand_model(title)
+
             return {
+                "source": "standvirtual",
                 "source_id": source_id,
                 "url": url,
                 "title": title,
+                "brand": brand,
+                "model": model,
                 "price": price,
                 "year": year,
                 "km": km,
-                "location": location,
+                "location": location or "",
                 "images": [image_url] if image_url else [],
-                "seller_type": "", # Filled later in details
+                "fuel_type": fuel_type or "",
+                "transmission": transmission or "",
                 "raw_data": str(element)
             }
-            
+
         except Exception as e:
             logger.warning(f"Error parsing element: {e}")
             return None
@@ -464,26 +619,26 @@ class StandvirtualScraper:
                     
                     if "ano" in label_text:
                         try: details["year"] = int(value_text)
-                        except ValueError: pass
+                        except ValueError: logger.warning(f"[DETAILS] Error parsing year from '{value_text}'")
                     elif "quilómetros" in label_text or "km" in label_text:
                         try: details["km"] = int(value_text.replace(' ', '').replace('km', ''))
-                        except ValueError: pass
+                        except ValueError: logger.warning(f"[DETAILS] Error parsing km from '{value_text}'")
                     elif "combustível" in label_text:
                         details["fuel_type"] = value_text.lower()
                     elif "caixa" in label_text:
                         details["transmission"] = value_text.lower()
                     elif "potência" in label_text:
                         try: details["horsepower"] = int(value_text.split()[0])
-                        except (ValueError, IndexError): pass
+                        except (ValueError, IndexError): logger.warning(f"[DETAILS] Error parsing horsepower from '{value_text}'")
                     elif "cilindrada" in label_text:
                         try: details["engine_size"] = int(value_text.split()[0])
-                        except (ValueError, IndexError): pass
+                        except (ValueError, IndexError): logger.warning(f"[DETAILS] Error parsing engine size from '{value_text}'")
                     elif "portas" in label_text:
                         try: details["doors"] = int(value_text)
-                        except ValueError: pass
+                        except ValueError: logger.warning(f"[DETAILS] Error parsing doors from '{value_text}'")
                     elif "lugares" in label_text:
                         try: details["seats"] = int(value_text)
-                        except ValueError: pass
+                        except ValueError: logger.warning(f"[DETAILS] Error parsing seats from '{value_text}'")
                     elif "cor" in label_text:
                         details["color"] = value_text
             
@@ -562,7 +717,7 @@ class StandvirtualScraper:
                         # === ENRICH DATA before validation ===
                         # Add source if missing
                         if not listing_data.get("source"):
-                            listing_data["source"] = "standvirtual"
+                            listing_data["source"] = "STANDVIRTUAL"
                         
                         # Add vehicle_type if missing
                         if not listing_data.get("vehicle_type"):
@@ -605,7 +760,7 @@ class StandvirtualScraper:
                             brand, model = "Unknown", "Unknown"
                         
                         # Determine vehicle type enum
-                        v_type = VehicleType.CAR if vehicle_type == "carros" else VehicleType.MOTO
+                        v_type = VehicleType.carros if vehicle_type == "carros" else VehicleType.motos
                         
                         # Check if listing already exists in database
                         existing = db.query(Vehicle).filter(
@@ -703,11 +858,32 @@ class StandvirtualScraper:
     
     def _parse_brand_model(self, title: str) -> tuple[str, str]:
         """Parse brand and model from title"""
+        # Sorted longest-first to prevent partial matches
+        # (e.g. "Alfa Romeo" must match before "Alfa")
         brands = [
-            "Volkswagen", "BMW", "Mercedes", "Audi", "Renault", "Peugeot", 
-            "Citroën", "Ford", "Toyota", "Honda", "Nissan", "Hyundai", 
-            "Kia", "Fiat", "Seat", "Skoda", "Volvo", "Mazda", "Mitsubishi",
-            "Suzuki", "Dacia", "Opel", "Alfa Romeo", "Mini", "Smart"
+            # Multi-word brands first
+            "Alfa Romeo", "Aston Martin", "Land Rover", "Rolls-Royce",
+            "CF Moto", "Royal Enfield", "Harley-Davidson", "Harley Davidson",
+            "Mercedes-Benz", "Mercedes Benz",
+            # Premium cars
+            "Porsche", "Ferrari", "Lamborghini", "Maserati", "Bentley",
+            "McLaren", "Bugatti", "Tesla", "Jaguar", "Lexus", "Infiniti",
+            "Lincoln", "Genesis", "Polestar", "Cupra",
+            # Mass market cars
+            "Volkswagen", "BMW", "Mercedes", "Audi", "Renault", "Peugeot",
+            "Citroën", "Citroen", "Ford", "Toyota", "Honda", "Nissan",
+            "Hyundai", "Kia", "Fiat", "Seat", "Skoda", "Škoda", "Volvo",
+            "Mazda", "Mitsubishi", "Suzuki", "Dacia", "Opel", "Mini",
+            "Smart", "Chevrolet", "Jeep", "Dodge", "Chrysler", "Subaru",
+            "Lancia", "Saab", "DS", "MG", "BYD", "Caterham",
+            # Commercial vehicles
+            "Iveco", "Isuzu", "DAF", "MAN", "Scania",
+            # Motorcycles
+            "Ducati", "Yamaha", "Kawasaki", "Triumph", "KTM", "Aprilia",
+            "Husqvarna", "Indian", "Moto Guzzi", "MV Agusta", "Benelli",
+            "Beta", "Gas Gas", "GasGas", "SYM", "Kymco", "Piaggio",
+            "Vespa", "Gilera", "Derbi", "SWM", "Voge", "Zontes",
+            "NIU", "Super Soco", "Brixton", "Fantic", "Rieju",
         ]
         
         title_lower = title.lower()

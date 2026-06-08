@@ -329,7 +329,7 @@ class MLParser:
             try:
                 data['price'] = float(price_str)
             except ValueError:
-                pass
+                logger.debug(f"Could not parse price from ML string: {price_str}")
         
         # Extract location (look for common location keywords)
         location_keywords = ['lisboa', 'porto', 'braga', 'coimbra', 'faro', 'aveiro']

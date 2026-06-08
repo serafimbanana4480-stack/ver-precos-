@@ -28,9 +28,18 @@ class DataValidator:
     ]
     
     # Realistic price ranges for Portuguese market (EUR)
+    # Min prices set to filter out deposit/reservation listings
     PRICE_RANGES = {
-        'car': {'min': 100, 'max': 500000},
-        'moto': {'min': 50, 'max': 100000}
+        'car': {'min': 500, 'max': 500000},
+        'moto': {'min': 200, 'max': 100000}
+    }
+    
+    # Premium brands where suspiciously low prices indicate deposits
+    PREMIUM_BRANDS = {
+        "porsche", "ferrari", "lamborghini", "maserati", "bentley",
+        "rolls-royce", "aston martin", "mclaren", "tesla", "bmw",
+        "mercedes", "mercedes-benz", "audi", "land rover", "jaguar",
+        "lexus", "ducati", "harley-davidson", "triumph"
     }
     
     # Realistic year ranges
@@ -327,3 +336,9 @@ def validate_scraped_data(listing_data: Dict[str, Any]) -> tuple[bool, Optional[
     if not result['is_valid']:
         return False, '; '.join(result['errors'])
     return True, None
+
+
+def validate_listing(listing_data: Dict[str, Any]) -> bool:
+    """Legacy compatibility wrapper returning only the validity flag."""
+    result = DataValidator.validate_listing(listing_data)
+    return bool(result['is_valid'])

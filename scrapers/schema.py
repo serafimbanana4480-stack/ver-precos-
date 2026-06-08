@@ -24,6 +24,19 @@ class VehicleListing(BaseModel):
     seller_name: Optional[str] = None
     seller_type: Optional[str] = None
     extras: List[str] = Field(default_factory=list)
+    is_national: Optional[bool] = None
+    num_owners: Optional[int] = None
+    warranty_months: Optional[int] = None
+    condition_status: Optional[str] = None
+    # Motorcycle-specific fields
+    engine_type: Optional[str] = None  # single, twin, triple, four-cylinder
+    riding_style: Optional[str] = None  # sport, touring, adventure, cruiser, naked
+    has_abs: Optional[bool] = None
+    has_traction_control: Optional[bool] = None
+    aftermarket_mods: List[str] = Field(default_factory=list)
+    seat_height: Optional[int] = None  # in mm
+    wet_weight: Optional[int] = None  # in kg
+    license_category: Optional[str] = None  # A1, A2, A
 
     @field_validator("price", mode="before")
     @classmethod
@@ -117,7 +130,7 @@ class VehicleListing(BaseModel):
                     return None
         return None
 
-    @field_validator("horsepower", "engine_size", "doors", "seats", mode="before")
+    @field_validator("horsepower", "engine_size", "doors", "seats", "num_owners", "warranty_months", mode="before")
     @classmethod
     def parse_int_fields(cls, v: Any) -> Optional[int]:
         if v is None or v == "":
@@ -137,3 +150,13 @@ class VehicleListing(BaseModel):
                 except ValueError:
                     return None
         return None
+
+
+class ListingSchema(VehicleListing):
+    """Legacy compatibility wrapper with permissive defaults."""
+
+    title: str = ""
+
+
+# Legacy compatibility alias expected by historical tests.
+ScrapedVehicle = VehicleListing

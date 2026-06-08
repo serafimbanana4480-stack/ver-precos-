@@ -48,15 +48,19 @@ class DealFinder:
             query = db.query(Vehicle).filter(
                 Vehicle.is_active == True,
                 Vehicle.deal_score.isnot(None),
-                Vehicle.deal_score >= settings.deal_score_threshold
+                Vehicle.deal_score >= settings.deal_score_threshold,
+                ~Vehicle.source_id.like("demo_%"),
+                ~Vehicle.url.ilike("%IDE123%"),
+                ~Vehicle.url.ilike("%IDE456%"),
+                ~Vehicle.url.ilike("%IDE789%"),
             )
             
             if vehicle_type:
                 from database.models import VehicleType
                 if vehicle_type == "carros":
-                    query = query.filter(Vehicle.vehicle_type == VehicleType.CAR)
+                    query = query.filter(Vehicle.vehicle_type == VehicleType.carros)
                 elif vehicle_type == "motos":
-                    query = query.filter(Vehicle.vehicle_type == VehicleType.MOTO)
+                    query = query.filter(Vehicle.vehicle_type == VehicleType.motos)
             
             if min_profit:
                 query = query.filter(Vehicle.profit_potential >= min_profit)
@@ -71,8 +75,20 @@ class DealFinder:
             deals = query.limit(limit * 2).all()  # Get more to filter
             
             # Filter by recency (last 7 days)
+            # Ensure naive vs aware compatibility for SQLite
             recent_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
-            deals = [v for v in deals if v.first_seen >= recent_cutoff]
+            
+            filtered_deals = []
+            for v in deals:
+                if v.first_seen:
+                    # Handle both naive and aware datetimes
+                    first_seen = v.first_seen
+                    if first_seen.tzinfo is None:
+                        first_seen = first_seen.replace(tzinfo=timezone.utc)
+                    if first_seen >= recent_cutoff:
+                        filtered_deals.append(v)
+            
+            deals = filtered_deals
             
             # Sort and limit
             deals.sort(key=lambda x: (x.deal_score or 0, x.profit_potential or 0), reverse=True)

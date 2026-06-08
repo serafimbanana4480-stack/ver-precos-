@@ -21,10 +21,11 @@ class VisionAnalyzer:
     
     def __init__(self) -> None:
         self.api_key = settings.grok_api_key
-        self.api_url = settings.grok_api_url
+        # Check if grok_api_url is available in settings (package config) or fallback to root config alias
+        self.api_url = getattr(settings, 'grok_api_url', 'https://api.x.ai/v1')
         self.use_ollama = settings.use_ollama
         self.ollama_url = settings.ollama_url
-        self.model = settings.vision_model
+        self.model = getattr(settings, 'vision_model', settings.ai_model)
         
         self.system_prompt = """You are an expert automotive visual analyst. Analyze vehicle images to identify:
 
@@ -215,10 +216,10 @@ Please examine the images carefully and provide a detailed condition assessment 
                 try:
                     import json
                     response_dict = json.loads(response_content) if isinstance(response_content, str) else response_content
-                    VisionAnalysisResponse(**response_dict)
+                    if isinstance(response_dict, dict):
+                        VisionAnalysisResponse(**response_dict)
                 except Exception as e:
-                    logger.warning(f"Vision response validation failed: {e}")
-                    return None
+                    logger.warning(f"Vision response validation failed: {e}, using text parse fallback")
                 
                 return response_content
             else:
@@ -266,10 +267,10 @@ Please examine the images carefully and provide a detailed condition assessment 
                 try:
                     import json
                     response_dict = json.loads(response_content) if isinstance(response_content, str) else response_content
-                    VisionAnalysisResponse(**response_dict)
+                    if isinstance(response_dict, dict):
+                        VisionAnalysisResponse(**response_dict)
                 except Exception as e:
-                    logger.warning(f"Vision response validation failed: {e}")
-                    return None
+                    logger.warning(f"Vision response validation failed: {e}, using text parse fallback")
                 
                 return response_content
             else:

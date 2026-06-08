@@ -7,6 +7,7 @@ import logging
 import random
 import asyncio
 import subprocess
+import re
 import time
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
@@ -18,6 +19,7 @@ from database.db import get_db_context
 from validation.scraped_models import ScrapedVehicle
 from utils.data_validation import DataValidator, validate_scraped_data
 from utils.selector_manager import get_selector_manager, initialize_default_selectors
+from utils.observability import track_scrape
 from utils.ml_parser import get_ml_parser
 from utils.html_change_detector import get_html_change_detector
 from utils.production_safeguards import with_circuit_breaker, _olx_circuit_breaker
@@ -115,12 +117,28 @@ class OLXScraper:
         logger.info("[OLX_COMMERCIAL] No commercial APIs available or all failed")
         return []
 
+    async def scrape(
+        self,
+        vehicle_type: str = "carros",
+        max_listings: int = 100,
+        **kwargs: object,
+    ) -> List[Dict[str, object]]:
+        """Legacy alias for scrape_listings (tests and older callers)."""
+        return await self.scrape_listings(
+            vehicle_type=vehicle_type,
+            max_listings=max_listings,
+            filters=kwargs.get("filters"),
+            scrape_details=bool(kwargs.get("scrape_details", False)),
+        )
+
+    @track_scrape(source='olx')
     @retry_network(max_attempts=3, min_wait=2, max_wait=10)  # type: ignore[misc]
     async def scrape_listings(
         self,
         vehicle_type: str = "carros",
         max_listings: int = 100,
-        filters: Optional[Dict[str, object]] = None
+        filters: Optional[Dict[str, object]] = None,
+        scrape_details: bool = False
     ) -> List[Dict[str, object]]:
         """
         Scrape listings from OLX.pt using Commercial API-first approach (since OLX is heavily blocked)
@@ -129,6 +147,7 @@ class OLXScraper:
             vehicle_type: 'carros' or 'motos'
             max_listings: Maximum number of listings to scrape
             filters: Optional filters (brand, model, min_price, max_price, etc.)
+            scrape_details: Whether to scrape detailed information from each listing page (slower but more complete)
 
         Returns:
             List of vehicle dictionaries
@@ -142,6 +161,9 @@ class OLXScraper:
             api_listings = await fetch_olx_api(vehicle_type=vehicle_type, limit=max_listings, filters=filters)
             if api_listings:
                 logger.info(f"[OLX_SUCCESS] Internal API returned {len(api_listings)} listings")
+                # Enrich with details if requested
+                if scrape_details:
+                    api_listings = await self._enrich_listings_with_details(api_listings)
                 return api_listings
         except Exception as e:
             logger.warning(f"[OLX_API] Internal API failed: {e}")
@@ -150,6 +172,9 @@ class OLXScraper:
         listings = await self._try_commercial_apis(vehicle_type, max_listings, filters)
         if listings:
             logger.info(f"[OLX_SUCCESS] Commercial APIs returned {len(listings)} listings")
+            # Enrich with details if requested
+            if scrape_details:
+                listings = await self._enrich_listings_with_details(listings)
             return listings
         
         # PHASE 2: Try AI scraper if enabled and commercial APIs failed
@@ -161,6 +186,9 @@ class OLXScraper:
                 listings = await ai_scraper.scrape_listings("olx", url, max_listings)
                 if listings:
                     logger.info(f"[AI_SUCCESS] AI scraper retrieved {len(listings)} listings")
+                    # Enrich with details if requested
+                    if scrape_details:
+                        listings = await self._enrich_listings_with_details(listings)
                     return listings
                 else:
                     logger.warning("[AI_FAIL] AI scraper returned no results")
@@ -170,6 +198,10 @@ class OLXScraper:
         # PHASE 3: Last resort - try local Playwright with enhanced stealth
         logger.info("[PROGRESS] Trying local Playwright with enhanced stealth (last resort)")
         listings = await self._scrape_with_resilient_flow(vehicle_type, max_listings, filters)
+        
+        # Enrich with details if requested
+        if scrape_details and listings:
+            listings = await self._enrich_listings_with_details(listings)
         
         return listings
     
@@ -204,6 +236,7 @@ class OLXScraper:
         try:
             from playwright.async_api import async_playwright
             from bs4 import BeautifulSoup
+            from utils.playwright_stealth import apply_stealth_async
         except ImportError as e:
             logger.error(f"[OLX_SIMPLE] Missing dependencies: {e}")
             return []
@@ -224,6 +257,11 @@ class OLXScraper:
                 )
                 
                 page = await context.new_page()
+                try:
+                    await apply_stealth_async(page)
+                except Exception as e:
+                    logger.warning(f"Failed to apply stealth: {e}")
+                
                 logger.info(f"[OLX_SIMPLE] Navigating to {url}")
                 await page.goto(url, timeout=self.timeout, wait_until='networkidle')
                 
@@ -259,42 +297,71 @@ class OLXScraper:
         Resilient flow: Playwright -> CSS Selectors -> AI Extraction
         """
         from bs4 import BeautifulSoup
-        
-        # If managed_client is not available, use simple Playwright fallback
-        if not self.managed_client:
-            logger.warning("[OLX_RESILIENT] Managed client not available, using simple Playwright fallback")
-            return await self._scrape_with_simple_playwright(vehicle_type, max_listings, filters)
-            
-        items_per_page = 40
-        pages_to_scan = (max_listings // items_per_page) + 1
-        pages_to_scan = min(pages_to_scan, 3)
-        
-        tasks = []
-        for p in range(1, pages_to_scan + 1):
-            url = self._build_url(vehicle_type, p, filters)
-            tasks.append(self.managed_client.get_html(url, source="olx"))
-            
-        html_responses = await asyncio.gather(*tasks)
-        
         all_listings = []
-        for html in html_responses:
-            if html:
-                # Try CSS selectors first
-                soup = BeautifulSoup(html, 'lxml')
-                parsed = self._parse_soup_to_listings(soup, items_per_page)
+        page = 1
+        
+        while len(all_listings) < max_listings:
+            url = self._build_url(vehicle_type, page, filters)
+            logger.info(f"[OLX] Scraping page {page}: {url}")
+            
+            html = await self._fetch_html_with_playwright(url)
+            
+            if not html:
+                break
                 
-                if parsed:
-                    all_listings.extend(parsed)
-                elif get_ai_extractor:
-                    # CSS selectors failed -> Use AI extraction
-                    logger.info("[AI_EXTRACT] CSS selectors returned 0 results, switching to AI extraction")
-                    ai_extractor = get_ai_extractor()
-                    ai_results = await ai_extractor.extract_from_html(html, "olx", items_per_page)
-                    if ai_results:
-                        logger.info(f"[AI_EXTRACT] AI extracted {len(ai_results)} OLX listings")
-                        all_listings.extend(ai_results)
+            soup = BeautifulSoup(html, 'lxml')
+            page_listings = self._parse_soup_to_listings(soup, max_listings - len(all_listings))
+            
+            if not page_listings and get_ai_extractor:
+                logger.info("[OLX] CSS selectors failed, trying AI extraction")
+                ai_extractor = get_ai_extractor()
+                page_listings = await ai_extractor.extract_from_html(html, "olx", max_listings - len(all_listings))
+                
+            if not page_listings:
+                logger.info(f"[OLX] No more listings found at page {page}")
+                break
+                
+            all_listings.extend(page_listings)
+            logger.info(f"[OLX] Total listings so far: {len(all_listings)}")
+            
+            if len(page_listings) < 20:
+                break
+                
+            page += 1
+            if page > 10:
+                break
                 
         return all_listings[:max_listings]
+
+    async def _fetch_html_with_playwright(self, url: str) -> Optional[str]:
+        from utils.playwright_stealth import apply_stealth_async
+        from scrapers.browser_pool import get_browser_pool
+        try:
+            pool = get_browser_pool()
+            page = await pool.new_page("olx")
+            
+            try:
+                await apply_stealth_async(page)
+            except Exception:
+                pass
+            
+            await page.goto(url, timeout=self.timeout, wait_until='networkidle')
+            try:
+                await page.wait_for_selector('[data-cy="l-card"]', timeout=5000)
+            except Exception:
+                pass
+            
+            # Scroll
+            for _ in range(3):
+                await page.mouse.wheel(0, 1000)
+                await asyncio.sleep(0.3)
+                
+            html = await page.content()
+            await page.close()
+            return html
+        except Exception as e:
+            logger.error(f"[OLX_PLAYWRIGHT] Fetch failed: {e}")
+            return None
 
     async def _extract_from_html(self, html: str, vehicle_type: str, max_listings: int) -> List[Dict[str, Any]]:
         """
@@ -348,162 +415,229 @@ class OLXScraper:
     
 
     def _parse_olx_element(self, element: Any) -> Optional[Dict[str, object]]:
-        """Parse a single OLX listing element"""
+        """Parse a single OLX listing element with robust fallbacks"""
         try:
-            from bs4 import BeautifulSoup
-        except ImportError:
-            return None
-        
-        # Extract using SelectorManager fallback system
-        url, _ = self.selector_manager.extract_with_fallback(element, 'olx', 'url')
-        if not url:
-            # Manual fallback for URL if selector manager fails
+            # URL Extraction
+            url = None
             link_elem = element.find('a', href=True)
-            if not link_elem: return None
-            url = link_elem['href']
-        
-        if isinstance(url, str) and url.startswith('/'):
-            url = self.base_url + url
+            if link_elem:
+                url = link_elem['href']
+                if url.startswith('/'):
+                    url = self.base_url + url
             
-        title, _ = self.selector_manager.extract_with_fallback(element, 'olx', 'title')
-        title = title or ""
+            if not url:
+                return None
+
+            # Data Extraction from specific selectors (high precision)
+            title, _ = self.selector_manager.extract_with_fallback(element, 'olx', 'title')
+            price, _ = self.selector_manager.extract_with_fallback(element, 'olx', 'price')
+            location, _ = self.selector_manager.extract_with_fallback(element, 'olx', 'location')
+            year, _ = self.selector_manager.extract_with_fallback(element, 'olx', 'year')
+            km, _ = self.selector_manager.extract_with_fallback(element, 'olx', 'km')
+
+            # --- ROBUST FALLBACKS from text block (high recall) ---
+            full_text = element.get_text(" | ", strip=True)
+            
+            # Title fallback: first part of text or h6
+            if not title:
+                h6 = element.find('h6')
+                title = h6.get_text(strip=True) if h6 else full_text.split('|')[0].strip()
+
+            # Price fallback: regex search
+            if not price:
+                price_match = re.search(r'(\d{1,3}(?:\.\d{3})*(?:,\d+)?)\s*€', full_text)
+                if price_match:
+                    price = price_match.group(1)
+
+            # Year/KM fallback: regex search
+            if not year:
+                year_match = re.search(r'\b(19|20)\d{2}\b', full_text)
+                if year_match:
+                    year = year_match.group(0)
+            
+            if not km:
+                km_match = re.search(r'(\d+(?:\.\d+)*)\s*km', full_text, re.IGNORECASE)
+                if km_match:
+                    km = km_match.group(1)
+
+            # Location fallback
+            if not location:
+                # Usually after price or date
+                parts = [p.strip() for p in full_text.split('|')]
+                if len(parts) > 2:
+                    location = parts[2]
+
+            # Image
+            img_elem = element.find('img')
+            image_url = img_elem.get('src', '') if img_elem else ''
+            
+            # Generate stable source_id
+            import hashlib
+            source_id = hashlib.md5(str(url).encode()).hexdigest()
+            
+            return {
+                "source": "olx",
+                "source_id": source_id,
+                "url": url,
+                "title": title,
+                "price": price,
+                "year": year,
+                "km": km,
+                "location": location,
+                "images": [image_url] if image_url else [],
+                "raw_data": str(element)
+            }
+        except Exception as e:
+            logger.warning(f"Error parsing element: {e}")
+            return None
+    
+    async def _enrich_listings_with_details(self, listings: List[Dict[str, object]], max_concurrent: int = 5) -> List[Dict[str, object]]:
+        """
+        Enrich listings with detailed information from their individual pages.
+        Uses concurrent scraping with semaphore for massive speedup.
+        """
+        logger.info(f"[DETAILS] Enriching {len(listings)} listings with detailed information (max_concurrent={max_concurrent})")
         
-        price, _ = self.selector_manager.extract_with_fallback(element, 'olx', 'price')
-        location, _ = self.selector_manager.extract_with_fallback(element, 'olx', 'location')
-        location = location or ""
+        semaphore = asyncio.Semaphore(max_concurrent)
         
-        year, _ = self.selector_manager.extract_with_fallback(element, 'olx', 'year')
-        km, _ = self.selector_manager.extract_with_fallback(element, 'olx', 'km')
+        async def enrich_one(listing: Dict[str, object]) -> Dict[str, object]:
+            url = listing.get("url")
+            if not url:
+                return listing
+            
+            async with semaphore:
+                try:
+                    details = await self.scrape_listing_details(url)
+                    if details:
+                        listing.update(details)
+                        logger.debug(f"[DETAILS] Enriched {url}")
+                    else:
+                        logger.warning(f"[DETAILS] Failed to get details for {url}")
+                    # Small delay between requests
+                    await asyncio.sleep(random.uniform(0.3, 0.7))
+                except Exception as e:
+                    logger.error(f"[DETAILS] Error enriching listing {url}: {e}")
+            
+            return listing
         
-        # Extract image manually (usually more complex)
-        img_elem = element.find('img')
-        image_url = img_elem.get('src', '') if img_elem else ''
+        tasks = [enrich_one(listing.copy()) for listing in listings]
+        enriched = await asyncio.gather(*tasks)
         
-        # Generate stable source_id
-        import hashlib
-        source_id = hashlib.md5(str(url).encode()).hexdigest()
-        
-        return {
-            "source_id": source_id,
-            "url": url,
-            "title": title,
-            "price": price,
-            "year": year,
-            "km": km,
-            "location": location,
-            "images": [image_url] if image_url else [],
-            "raw_data": str(element)
-        }
+        logger.info(f"[DETAILS] Enrichment completed for {len(enriched)} listings")
+        return enriched
     
     async def scrape_listing_details(self, url: str) -> Optional[Dict[str, object]]:
-        """Scrape detailed information from a single listing page"""
+        """Scrape detailed information from a single listing page using browser pool."""
         try:
-            from playwright.async_api import async_playwright
             from bs4 import BeautifulSoup
+            from utils.playwright_stealth import apply_stealth_async
+            from scrapers.browser_pool import get_browser_pool
         except ImportError:
-            logger.error("Playwright not installed")
+            logger.error("Dependencies not installed")
             return None
         
-        import asyncio
         try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(
-                    headless=True,
-                    channel="chrome",
-                    args=['--disable-blink-features=AutomationControlled']
-                )
-                import random
-                context = await browser.new_context(user_agent=random.choice(settings.user_agents))
-                page = await context.new_page()
-                
-                await page.goto(url, timeout=30000)
-                await asyncio.sleep(random.uniform(2, 3))
-                
-                html = await page.content()
-                await browser.close()
-                
-                soup = BeautifulSoup(html, 'lxml')
+            # Use browser pool for fast context reuse
+            pool = get_browser_pool()
+            page = await pool.new_page("olx_details")
+            
+            try:
+                await apply_stealth_async(page)
+            except Exception as e:
+                logger.warning(f"Failed to apply stealth: {e}")
+            
+            await page.goto(url, timeout=30000)
+            # Use wait_for instead of fixed sleep
+            try:
+                await page.wait_for_selector('[data-cy="description_content"], [data-testid="ad-parameters-item"]', timeout=5000)
+            except Exception:
+                pass  # Continue even if selector not found
+            
+            html = await page.content()
+            await page.close()
+            
+            soup = BeautifulSoup(html, 'lxml')
 
-                # Parse detailed information
-                details: Dict[str, object] = {
-                    "description": "",
-                    "year": None,
-                    "km": None,
-                    "fuel_type": None,
-                    "transmission": None,
-                    "horsepower": None,
-                    "engine_size": None,
-                    "doors": None,
-                    "seats": None,
-                    "color": None,
-                    "seller_name": "",
-                    "seller_type": "",
-                    "images": [],
-                    "extras": []
-                }
-                
-                # Description
-                desc_elem = soup.find('div', {'data-cy': 'description_content'})
-                if desc_elem:
-                    details["description"] = desc_elem.text.strip()
-                
-                # Specifications
-                spec_items = soup.find_all('li', {'data-testid': 'ad-parameters-item'})
-                for item in spec_items:
-                    label = item.find('p', class_='css-6s1iq5')
-                    value = item.find('p', class_='css-1ks2pr4')
-                    if label and value:
-                        label_text = label.text.strip().lower()
-                        value_text = value.text.strip()
-                        
-                        if "ano" in label_text:
-                            try:
-                                details["year"] = int(value_text)
-                            except ValueError:
-                                pass
-                        elif "quilómetros" in label_text or "km" in label_text:
-                            try:
-                                details["km"] = int(value_text.replace(' ', '').replace('km', ''))
-                            except ValueError:
-                                pass
-                        elif "combustível" in label_text:
-                            details["fuel_type"] = value_text.lower()
-                        elif "caixa" in label_text:
-                            details["transmission"] = value_text.lower()
-                        elif "potência" in label_text:
-                            try:
-                                details["horsepower"] = int(value_text.split()[0])
-                            except (ValueError, IndexError):
-                                pass
-                        elif "cilindrada" in label_text:
-                            try:
-                                details["engine_size"] = int(value_text.split()[0])
-                            except (ValueError, IndexError):
-                                pass
-                        elif "portas" in label_text:
-                            try:
-                                details["doors"] = int(value_text)
-                            except ValueError:
-                                pass
-                        elif "lugares" in label_text or "assentos" in label_text:
-                            try:
-                                details["seats"] = int(value_text)
-                            except ValueError:
-                                pass
-                        elif "cor" in label_text:
-                            details["color"] = value_text
-                
-                # Images
-                img_elems = soup.find_all('img', {'data-testid': 'ad-gallery-image'})
-                details["images"] = [img.get('src', '') for img in img_elems if img.get('src')]
-                
-                # Seller info
-                seller_elem = soup.find('div', {'data-testid': 'seller-info'})
-                if seller_elem:
-                    details["seller_name"] = seller_elem.text.strip()
-                
-                return details
-                
+            # Parse detailed information
+            details: Dict[str, object] = {
+                "description": "",
+                "year": None,
+                "km": None,
+                "fuel_type": None,
+                "transmission": None,
+                "horsepower": None,
+                "engine_size": None,
+                "doors": None,
+                "seats": None,
+                "color": None,
+                "seller_name": "",
+                "seller_type": "",
+                "images": [],
+                "extras": []
+            }
+            
+            # Description
+            desc_elem = soup.find('div', {'data-cy': 'description_content'})
+            if desc_elem:
+                details["description"] = desc_elem.text.strip()
+            
+            # Specifications
+            spec_items = soup.find_all('li', {'data-testid': 'ad-parameters-item'})
+            for item in spec_items:
+                label = item.find('p', class_='css-6s1iq5')
+                value = item.find('p', class_='css-1ks2pr4')
+                if label and value:
+                    label_text = label.text.strip().lower()
+                    value_text = value.text.strip()
+                    
+                    if "ano" in label_text:
+                        try:
+                            details["year"] = int(value_text)
+                        except ValueError:
+                            logger.warning(f"[DETAILS] Error parsing year from '{value_text}'")
+                    elif "quilómetros" in label_text or "km" in label_text:
+                        try:
+                            details["km"] = int(value_text.replace(' ', '').replace('km', ''))
+                        except ValueError:
+                            logger.warning(f"[DETAILS] Error parsing km from '{value_text}'")
+                    elif "combustível" in label_text:
+                        details["fuel_type"] = value_text.lower()
+                    elif "caixa" in label_text:
+                        details["transmission"] = value_text.lower()
+                    elif "potência" in label_text:
+                        try:
+                            details["horsepower"] = int(value_text.split()[0])
+                        except (ValueError, IndexError):
+                            logger.warning(f"[DETAILS] Error parsing horsepower from '{value_text}'")
+                    elif "cilindrada" in label_text:
+                        try:
+                            details["engine_size"] = int(value_text.split()[0])
+                        except (ValueError, IndexError):
+                            logger.warning(f"[DETAILS] Error parsing engine size from '{value_text}'")
+                    elif "portas" in label_text:
+                        try:
+                            details["doors"] = int(value_text)
+                        except ValueError:
+                            logger.warning(f"[DETAILS] Error parsing doors from '{value_text}'")
+                    elif "lugares" in label_text or "assentos" in label_text:
+                        try:
+                            details["seats"] = int(value_text)
+                        except ValueError:
+                            logger.warning(f"[DETAILS] Error parsing seats from '{value_text}'")
+                    elif "cor" in label_text:
+                        details["color"] = value_text
+            
+            # Images
+            img_elems = soup.find_all('img', {'data-testid': 'ad-gallery-image'})
+            details["images"] = [img.get('src', '') for img in img_elems if img.get('src')]
+            
+            # Seller info
+            seller_elem = soup.find('div', {'data-testid': 'seller-info'})
+            if seller_elem:
+                details["seller_name"] = seller_elem.text.strip()
+            
+            return details
+            
         except Exception as e:
             logger.error(f"Error scraping listing details: {e}")
             return None
@@ -540,9 +674,9 @@ class OLXScraper:
                         
                         # === ENRICH DATA before validation ===
                         if not listing_data.get("source"):
-                            listing_data["source"] = "olx"
+                            listing_data["source"] = "OLX"
                         if not listing_data.get("vehicle_type"):
-                            listing_data["vehicle_type"] = "car" if vehicle_type == "carros" else "moto"
+                            listing_data["vehicle_type"] = vehicle_type
                         
                         title = listing_data.get("title", "")
                         if isinstance(title, str) and (not listing_data.get("brand") or not listing_data.get("model")):
@@ -584,7 +718,7 @@ class OLXScraper:
                             brand, model = "Unknown", "Unknown"
 
                         # Determine vehicle type enum
-                        v_type = VehicleType.CAR if vehicle_type == "carros" else VehicleType.MOTO
+                        v_type = VehicleType.carros if vehicle_type == "carros" else VehicleType.motos
 
                         if existing:
                             # Update existing listing

@@ -4,6 +4,8 @@ Essential configuration only - ~100 lines
 """
 from __future__ import annotations
 import os
+import requests
+import logging
 from pathlib import Path
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
@@ -11,6 +13,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Base paths
 BASE_DIR = Path(__file__).parent.absolute()
@@ -31,7 +35,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="ignore"
+        extra="ignore"  # TODO: usar "forbid" em produção após validar todas as env vars
     )
     
     # Database Configuration
@@ -41,21 +45,32 @@ class Settings(BaseSettings):
     # Scraping URLs
     olx_base_url: str = "https://www.olx.pt"
     standvirtual_base_url: str = "https://www.standvirtual.com"
-    autosapo_base_url: str = "https://autos.sapo.pt"
+    autosapo_base_url: str = "https://auto.sapo.pt"
     
     # AI Configuration (100% free local with Ollama)
     use_ollama: bool = True
     ollama_url: str = "http://localhost:11434"
     grok_api_key: str = ""  # Optional: for Grok API fallback
-    ai_model: str = "glm-5:latest"
-    ai_scraper_model: str = "glm-5:latest"
+    ai_model: str = "qwen2.5:7b"
+    ai_scraper_model: str = "qwen2.5:7b"
     ai_scraping_enabled: bool = True
     ai_scraper_fallback_enabled: bool = True
     ai_scraper_priority: str = "primary"  # "fallback" or "primary"
+    enable_pipeline_llm: bool = True
+    enable_pipeline_vision: bool = True
+    fast_scrape_mode: bool = False  # Skip LLM/vision in pipeline for faster dev scrapes
     
     # Scraping Configuration
     max_listings: int = 50
     scraper_timeout: int = 30
+    scraping_interval_hours: int = 6
+    daily_scraping_time: str = "08:00"
+    
+    @property
+    def daily_scraping_time_valid(self) -> bool:
+        """Validate scraping time format"""
+        import re
+        return bool(re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$", self.daily_scraping_time))
     request_delay_seconds: float = 2.0
     max_retries: int = 3
     user_agents: list = [
@@ -118,6 +133,14 @@ class Settings(BaseSettings):
     email_smtp_user: str = ""
     email_smtp_password: str = ""
     
+    # Environment
+    env: str = "development"
+
+    # API / security (set JWT_SECRET in production)
+    jwt_secret: str = ""
+    jwt_algorithm: str = "HS256"
+    cors_origins: str = "http://localhost:8501,http://127.0.0.1:8501"
+
     # Sentry Configuration (optional)
     sentry_dsn: str = ""
     sentry_environment: str = "development"
@@ -127,14 +150,25 @@ class Settings(BaseSettings):
     dashboard_port: int = 8501
     
     # ML Configuration
-    min_training_samples: int = 10
+    min_training_samples: int = 500
+    
+    # Validation Health Settings
+    validation_strict_mode: bool = False
+    validation_failure_threshold: int = 100
+    validation_alert_enabled: bool = False
     
     @property
     def models_dir(self) -> Path:
         return MODELS_DIR
     
+    @property
+    def logs_dir(self) -> Path:
+        return LOGS_DIR
+    
     # AI Agent Settings
     top_deals_count: int = 20
+    ai_review_count: int = 50
+    deal_score_threshold: float = 7.0
     
     # Logging patterns for sensitive data filtering
     sensitive_patterns: List[str] = [
@@ -148,6 +182,30 @@ class Settings(BaseSettings):
     @property
     def export_dir(self) -> Path:
         return DATA_DIR / "exports"
+
+    @property
+    def is_production(self) -> bool:
+        return self.env.lower() == "production" or self.sentry_environment.lower() == "production"
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        if not self.cors_origins.strip():
+            return ["http://localhost:8501"]
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    def resolve_jwt_secret(self) -> str:
+        """Return JWT signing secret; fail in production if unset.
+        Em desenvolvimento, gera um secret aleatório se não estiver definido."""
+        import secrets
+        secret = (self.jwt_secret or os.getenv("JWT_SECRET", "")).strip()
+        if secret:
+            return secret
+        if self.is_production:
+            raise RuntimeError(
+                "JWT_SECRET (or settings.jwt_secret) must be set when ENV=production"
+            )
+        # Em dev, gerar secret efémero aleatório para não ser previsível
+        return "dev-" + secrets.token_urlsafe(32)
     
     @property
     def vehicle_types(self) -> List[str]:
@@ -160,6 +218,25 @@ class Settings(BaseSettings):
             return False
         return True
 
+    def check_ollama_available(self) -> bool:
+        """Check if Ollama is available and running"""
+        if not self.use_ollama:
+            logger.info("Ollama disabled in config")
+            return False
+        
+        try:
+            response = requests.get(f"{self.ollama_url}/api/tags", timeout=5)
+            if response.status_code == 200:
+                logger.info("[OK] Ollama is available and running")
+                return True
+        except Exception as e:
+            logger.warning(f"[WARN] Ollama not available: {e}")
+            logger.info("Run 'python scripts/setup_ollama_auto.py' to auto-setup Ollama")
+        return False
+
+
+# Resolve forward/typing annotations eagerly for Pydantic v2 import-time instantiation.
+Settings.model_rebuild()
 
 # Create settings instance
 settings = Settings()
@@ -167,32 +244,18 @@ settings = Settings()
 # Create directories that depend on settings
 settings.export_dir.mkdir(exist_ok=True)
 
-# Backward compatibility aliases
+# Backward compatibility aliases — USE WITH CAUTION
+# Preferir sempre settings.xxx em vez destes aliases globais
 use_sqlite = "sqlite" in settings.database_url
-postgres_user = "autodeal"
-postgres_password = "autodeal_password"
-postgres_db = "autodeal"
-postgres_host = "localhost"
-postgres_port = 5432
 
-# AI aliases
+# AI aliases (deprecated — use settings directly)
 grok_api_key = ""
 grok_api_url = "https://api.x.ai/v1"
 llm_model = settings.ai_model
 vision_model = settings.ai_model
-ai_scraper_model = settings.ai_model
-ai_scraper_fallback_enabled = True
-use_ollama = True
 
-# Scraping aliases
-scraping_interval_hours = 6
-max_listings_per_source = settings.max_listings
-
-# API aliases
-scraperapi_key = ""
-apify_api_key = ""
+# API aliases (deprecated)
 zenrows_key = settings.zenrows_api_key
-use_hybrid_scraper = True
 
-# Dashboard aliases
+# Dashboard aliases (deprecated)
 streamlit_port = settings.dashboard_port

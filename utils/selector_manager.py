@@ -66,6 +66,22 @@ class SelectorConfig:
             self.status = SelectorStatus.DEGRADED
 
 
+def _send_discord_notification(message: str) -> None:
+    """Send a notification to Discord webhook if configured. Fails silently."""
+    from config import settings
+    if not settings.discord_webhook:
+        return
+    try:
+        import httpx
+        httpx.post(
+            settings.discord_webhook,
+            json={"content": message},
+            timeout=5.0
+        )
+    except Exception as exc:
+        logger.debug(f"Discord notification failed (non-critical): {exc}")
+
+
 class SelectorManager:
     """Manages fallback selectors with automatic testing and performance tracking"""
     
@@ -107,6 +123,18 @@ class SelectorManager:
         """Get all selectors for a source and field, sorted by priority"""
         key = f"{source}_{field}"
         return self.selectors.get(key, [])
+
+    def get_selector(self, source: str, field: str = "title") -> Optional[str]:
+        """Return highest-priority selector string (legacy/test API)."""
+        selectors = self.get_selectors(source, field)
+        if selectors:
+            return selectors[0].selector
+        defaults = {
+            "olx": "a[data-cy='listing-ad-title']",
+            "standvirtual": "article.offer-item",
+            "autosapo": ".list-item",
+        }
+        return defaults.get(source)
     
     def extract_with_fallback(
         self,
@@ -225,7 +253,12 @@ class SelectorManager:
             f"Failed: {len([s for s in selectors if s.status == SelectorStatus.FAILED])}"
         )
         
-        # TODO: Integrate with notification channels (Discord, Email, etc.)
+        # Notify via Discord/Telegram if configured
+        _send_discord_notification(
+            f"🚨 **Selector Alert** — Todos os selectors falharam para `{source}_{field}`\n"
+            f"Selectors: {len(selectors)} total, "
+            f"{len([s for s in selectors if s.status == SelectorStatus.FAILED])} falhados."
+        )
     
     def test_selector(
         self,
@@ -361,32 +394,31 @@ def initialize_default_selectors() -> None:
     manager.add_selector('standvirtual', 'location', 'p[class*="ooa-nxfgg7"]', priority=1)
     
     manager.add_selector('standvirtual', 'year', 'dd[data-parameter="first_registration_year"]', priority=1)
-    manager.add_selector('standvirtual', 'year', 'dd:contains("20")', priority=2) # Fallback for year-like text
+    manager.add_selector('standvirtual', 'year', 'dd:-soup-contains("20")', priority=2) # Fallback for year-like text
     
     manager.add_selector('standvirtual', 'km', 'dd[data-parameter="mileage"]', priority=1)
-    manager.add_selector('standvirtual', 'km', 'dd:contains("km")', priority=2)
+    manager.add_selector('standvirtual', 'km', 'dd:-soup-contains("km")', priority=2)
     
-    # AutoSapo Selectors
-    manager.add_selector('autosapo', 'title', 'h2.anuncio-titulo', priority=1)
-    manager.add_selector('autosapo', 'title', 'h2.listing-title', priority=2)
-    manager.add_selector('autosapo', 'title', 'h2', priority=3)
+    # AutoSapo Selectors (Updated for 2026 site structure - more generic)
+    manager.add_selector('autosapo', 'title', 'h2', priority=1)
+    manager.add_selector('autosapo', 'title', 'h3', priority=2)
+    manager.add_selector('autosapo', 'title', 'a[href*="/anuncio"]', priority=3)
     
-    manager.add_selector('autosapo', 'price', 'span.preco', priority=1)
-    manager.add_selector('autosapo', 'price', 'div.price', priority=2)
-    manager.add_selector('autosapo', 'price', 'span.price', priority=3)
+    manager.add_selector('autosapo', 'price', 'span[class*="price"]', priority=1)
+    manager.add_selector('autosapo', 'price', 'div[class*="price"]', priority=2)
+    manager.add_selector('autosapo', 'price', 'span', priority=3)
     
-    manager.add_selector('autosapo', 'url', 'a.anuncio-link', priority=1, extraction_type='href')
-    manager.add_selector('autosapo', 'url', 'a[href*="/anuncio"]', priority=2, extraction_type='href')
-    manager.add_selector('autosapo', 'url', 'a', priority=3, extraction_type='href')
+    manager.add_selector('autosapo', 'url', 'a[href*="/anuncio"]', priority=1, extraction_type='href')
+    manager.add_selector('autosapo', 'url', 'a', priority=2, extraction_type='href')
     
-    manager.add_selector('autosapo', 'location', 'div.localizacao', priority=1)
-    manager.add_selector('autosapo', 'location', 'span.location', priority=2)
-    manager.add_selector('autosapo', 'location', 'div', priority=3)
+    manager.add_selector('autosapo', 'location', 'span[class*="location"]', priority=1)
+    manager.add_selector('autosapo', 'location', 'div[class*="location"]', priority=2)
+    manager.add_selector('autosapo', 'location', 'p', priority=3)
     
-    manager.add_selector('autosapo', 'year', 'span.ano', priority=1)
-    manager.add_selector('autosapo', 'year', 'span', priority=2)
+    manager.add_selector('autosapo', 'year', 'span[class*="year"]', priority=1)
+    manager.add_selector('autosapo', 'year', 'span:-soup-contains("202")', priority=2)
     
-    manager.add_selector('autosapo', 'km', 'span.km', priority=1)
-    manager.add_selector('autosapo', 'km', 'span', priority=2)
+    manager.add_selector('autosapo', 'km', 'span[class*="km"]', priority=1)
+    manager.add_selector('autosapo', 'km', 'span:-soup-contains("km")', priority=2)
     
     logger.info("Initialized default selectors for all sources and fields")

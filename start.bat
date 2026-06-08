@@ -55,28 +55,17 @@ if errorlevel 1 (
     if exist "venv\Lib\site-packages\~*" FOR /D %%p IN ("venv\Lib\site-packages\~*") DO rmdir "%%p" /s /q
     
     echo Installing dependencies...
-    echo Installing minimal dependencies first...
-    pip install --prefer-binary -r requirements-minimal.txt
-    if errorlevel 1 (
-        echo ERROR: Failed to install minimal dependencies.
-        pause
-        exit /b 1
-    )
-
-    echo.
-    echo Installing full dependencies ^(this may take 10-30 minutes^)...
-    echo Press Ctrl+C to skip ML/AI dependencies if not needed.
     pip install --prefer-binary -r requirements.txt
     if errorlevel 1 (
         echo.
         echo WARNING: Some dependencies failed to install ^(likely due to Python 3.14 compatibility^).
-        echo The project will run with minimal dependencies.
+        echo The project will run with available dependencies.
         echo ML/AI features may not work without full dependencies.
         echo Consider using Python 3.12 or 3.13 for full compatibility.
         echo.
     ) else (
         echo Installing Playwright browsers...
-        python -m playwright install
+        "%~dp0venv\Scripts\python.exe" -m playwright install
     )
 ) else (
     echo Dependencies already installed. Skipping reinstall.
@@ -100,7 +89,7 @@ if not exist ".env" (
 REM Check if arguments were passed (quick start mode)
 if not "%1"=="" (
     echo Running with arguments: %*
-    python main.py %*
+    "%~dp0venv\Scripts\python.exe" main.py %*
     pause
     exit /b 0
 )
@@ -131,22 +120,22 @@ set /p choice="Enter your choice (1-5): "
 if "%choice%"=="1" (
     echo.
     echo Initializing database...
-    python main.py init
+    "%~dp0venv\Scripts\python.exe" main.py init
 ) else if "%choice%"=="2" (
     echo.
     echo Starting dashboard...
     echo Dashboard will open at http://localhost:8501
     echo Press Ctrl+C to stop the dashboard.
     echo.
-    python main.py dashboard
+    "%~dp0venv\Scripts\python.exe" main.py dashboard
 ) else if "%choice%"=="3" (
     echo.
     echo Running scrapers...
-    python main.py scrape --source all --vehicle-type all --max-listings 50
+    "%~dp0venv\Scripts\python.exe" main.py scrape --source all --vehicle-type all --max-listings 50
 ) else if "%choice%"=="4" (
     echo.
     echo Finding best deals...
-    python main.py find-deals --limit 20
+    "%~dp0venv\Scripts\python.exe" main.py find-deals --limit 20
 ) else if "%choice%"=="5" (
     echo.
     echo Opening command prompt...

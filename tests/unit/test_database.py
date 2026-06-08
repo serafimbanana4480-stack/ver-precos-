@@ -18,7 +18,7 @@ class TestVehicleModel:
             source=Source.OLX,
             source_id="12345",
             url="https://example.com/car/12345",
-            vehicle_type=VehicleType.CAR,
+            vehicle_type=VehicleType.carros,
             brand="Volkswagen",
             model="Golf",
             year=2020,
@@ -28,7 +28,7 @@ class TestVehicleModel:
         assert vehicle.source == Source.OLX
         assert vehicle.source_id == "12345"
         assert vehicle.url == "https://example.com/car/12345"
-        assert vehicle.vehicle_type == VehicleType.CAR
+        assert vehicle.vehicle_type == VehicleType.carros
         assert vehicle.brand == "Volkswagen"
         assert vehicle.model == "Golf"
         assert vehicle.year == 2020
@@ -41,7 +41,7 @@ class TestVehicleModel:
             source=Source.STANDVIRTUAL,
             source_id="67890",
             url="https://example.com/car/67890",
-            vehicle_type=VehicleType.CAR,
+            vehicle_type=VehicleType.carros,
             brand="Renault",
             model="Clio",
             year=2019,
@@ -71,7 +71,7 @@ class TestVehicleModel:
             source=Source.AUTOSAPO,
             source_id="11111",
             url="https://example.com/car/11111",
-            vehicle_type=VehicleType.MOTO,
+            vehicle_type=VehicleType.motos,
             brand="Yamaha",
             model="MT-07",
             year=2021,
@@ -80,7 +80,7 @@ class TestVehicleModel:
             fuel_type=FuelType.GASOLINE
         )
         assert vehicle.source == Source.AUTOSAPO
-        assert vehicle.vehicle_type == VehicleType.MOTO
+        assert vehicle.vehicle_type == VehicleType.motos
         assert vehicle.fuel_type == FuelType.GASOLINE
     
     def test_vehicle_to_dict(self):
@@ -89,7 +89,7 @@ class TestVehicleModel:
             source=Source.OLX,
             source_id="12345",
             url="https://example.com/car/12345",
-            vehicle_type=VehicleType.CAR,
+            vehicle_type=VehicleType.carros,
             brand="Volkswagen",
             model="Golf",
             year=2020,
@@ -97,10 +97,10 @@ class TestVehicleModel:
             title="Volkswagen Golf 2020"
         )
         vehicle_dict = vehicle.to_dict()
-        assert vehicle_dict["source"] == "olx"
+        assert vehicle_dict["source"] == "OLX"  # Source.OLX.value == "OLX"
         assert vehicle_dict["source_id"] == "12345"
         assert vehicle_dict["url"] == "https://example.com/car/12345"
-        assert vehicle_dict["vehicle_type"] == "car"
+        assert vehicle_dict["vehicle_type"] == "carros"  # VehicleType.carros.value == "carros"
         assert vehicle_dict["brand"] == "Volkswagen"
         assert vehicle_dict["model"] == "Golf"
         assert vehicle_dict["year"] == 2020
@@ -114,11 +114,11 @@ class TestVehicleModel:
             source=Source.OLX,
             source_id="12345",
             url="https://example.com/car/12345",
-            vehicle_type=VehicleType.CAR,
+            vehicle_type=VehicleType.carros,
             brand="Volkswagen",
             model="Golf",
             year=2020,
-            # price is missing
+            # price is missing - SQLAlchemy does not enforce nullable in constructor
             title="Volkswagen Golf 2020"
         )
         assert vehicle.price is None
@@ -232,12 +232,12 @@ class TestWatchlist:
         """Test Watchlist with full criteria"""
         watchlist = Watchlist(
             name="Diesel cars 2018+",
-            vehicle_type=VehicleType.CAR,
+            vehicle_type=VehicleType.carros,
             min_year=2018,
             fuel_type=FuelType.DIESEL,
             min_profit=1000.0
         )
-        assert watchlist.vehicle_type == VehicleType.CAR
+        assert watchlist.vehicle_type == VehicleType.carros
         assert watchlist.min_year == 2018
         assert watchlist.fuel_type == FuelType.DIESEL
         assert watchlist.min_profit == 1000.0

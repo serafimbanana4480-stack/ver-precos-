@@ -158,3 +158,29 @@ def get_deduplication_stats() -> dict[str, object]:
         "last_reset": _last_reset.isoformat() if _last_reset else None,
         **redis_stats
     }
+
+
+class Deduplicator:
+    """Legacy compatibility wrapper for deduplication helpers."""
+
+    def __init__(self) -> None:
+        self._seen: set[str] = set()
+
+    def is_duplicate(self, key: str, value: str) -> bool:
+        token = f"{key}:{value}"
+        if token in self._seen:
+            return True
+        self._seen.add(token)
+        return False
+
+    def is_url_processed(self, url: str) -> bool:
+        return is_url_processed(url)
+
+    def mark_url_processed(self, url: str) -> None:
+        mark_url_processed(url)
+
+    def is_vehicle_processed(self, vehicle_id: int) -> bool:
+        return is_vehicle_processed(vehicle_id)
+
+    def mark_vehicle_processed(self, vehicle_id: int) -> None:
+        mark_vehicle_processed(vehicle_id)

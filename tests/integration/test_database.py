@@ -2,10 +2,12 @@
 Integration tests for database operations
 """
 import pytest
+
+pytestmark = pytest.mark.integration
 from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-from database.models import Base, Vehicle, PriceHistory, AIReview
+from database.models import Base, Vehicle, PriceHistory, AIReview, Source, VehicleType
 
 
 class TestDatabaseConnection:
@@ -28,10 +30,10 @@ class TestVehicleCRUD:
     def test_create_vehicle(self, session):
         """Test creating a vehicle in database"""
         vehicle = Vehicle(
-            source="olx",
+            source=Source.OLX,
             source_id="12345",
             url="https://example.com/car/12345",
-            vehicle_type="car",
+            vehicle_type=VehicleType.carros,
             brand="Volkswagen",
             model="Golf",
             year=2020,
@@ -49,10 +51,10 @@ class TestVehicleCRUD:
     def test_read_vehicle(self, session):
         """Test reading a vehicle from database"""
         vehicle = Vehicle(
-            source="standvirtual",
+            source=Source.STANDVIRTUAL,
             source_id="67890",
             url="https://example.com/car/67890",
-            vehicle_type="car",
+            vehicle_type=VehicleType.carros,
             brand="Renault",
             model="Clio",
             year=2019,
@@ -64,16 +66,16 @@ class TestVehicleCRUD:
         
         retrieved = session.query(Vehicle).filter_by(source_id="67890").first()
         assert retrieved is not None
-        assert retrieved.source == "standvirtual"
+        assert retrieved.source == Source.STANDVIRTUAL
         assert retrieved.price == 12000.0
     
     def test_update_vehicle(self, session):
         """Test updating a vehicle in database"""
         vehicle = Vehicle(
-            source="autosapo",
+            source=Source.AUTOSAPO,
             source_id="11111",
             url="https://example.com/car/11111",
-            vehicle_type="car",
+            vehicle_type=VehicleType.carros,
             brand="Peugeot",
             model="308",
             year=2021,
@@ -93,10 +95,10 @@ class TestVehicleCRUD:
     def test_delete_vehicle(self, session):
         """Test deleting a vehicle from database"""
         vehicle = Vehicle(
-            source="olx",
+            source=Source.OLX,
             source_id="22222",
             url="https://example.com/car/22222",
-            vehicle_type="car",
+            vehicle_type=VehicleType.carros,
             brand="Toyota",
             model="Corolla",
             year=2020,
@@ -120,10 +122,10 @@ class TestVehicleRelationships:
     def test_vehicle_price_history_relationship(self, session):
         """Test Vehicle-PriceHistory relationship"""
         vehicle = Vehicle(
-            source="olx",
+            source=Source.OLX,
             source_id="33333",
             url="https://example.com/car/33333",
-            vehicle_type="car",
+            vehicle_type=VehicleType.carros,
             brand="BMW",
             model="320",
             year=2019,
@@ -147,10 +149,10 @@ class TestVehicleRelationships:
     def test_vehicle_ai_review_relationship(self, session):
         """Test Vehicle-AIReview relationship"""
         vehicle = Vehicle(
-            source="standvirtual",
+            source=Source.STANDVIRTUAL,
             source_id="44444",
             url="https://example.com/car/44444",
-            vehicle_type="car",
+            vehicle_type=VehicleType.carros,
             brand="Mercedes",
             model="C-Class",
             year=2020,
@@ -181,10 +183,10 @@ class TestDatabaseConstraints:
     def test_unique_url_constraint(self, session):
         """Test that URL is unique"""
         vehicle1 = Vehicle(
-            source="olx",
+            source=Source.OLX,
             source_id="55555",
             url="https://example.com/car/55555",
-            vehicle_type="car",
+            vehicle_type=VehicleType.carros,
             brand="Audi",
             model="A4",
             year=2019,
@@ -195,10 +197,10 @@ class TestDatabaseConstraints:
         session.commit()
         
         vehicle2 = Vehicle(
-            source="standvirtual",
+            source=Source.STANDVIRTUAL,
             source_id="66666",
             url="https://example.com/car/55555",  # Same URL
-            vehicle_type="car",
+            vehicle_type=VehicleType.carros,
             brand="Audi",
             model="A4",
             year=2019,
@@ -218,10 +220,10 @@ class TestSessionLifecycle:
     def test_session_rollback_on_error(self, session):
         """Test that session rolls back on error"""
         vehicle = Vehicle(
-            source="olx",
+            source=Source.OLX,
             source_id="77777",
             url="https://example.com/car/77777",
-            vehicle_type="car",
+            vehicle_type=VehicleType.carros,
             brand="Honda",
             model="Civic",
             year=2020,

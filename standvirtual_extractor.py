@@ -2,10 +2,14 @@
 """
 Custom Standvirtual extractor for complex HTML structure
 """
+import os
 import re
 from typing import Optional, Dict, Any, List
 from bs4 import BeautifulSoup
 import logging
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.proxy_manager import ProxyManager
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +17,7 @@ class StandvirtualExtractor:
     """Custom extractor for Standvirtual's complex HTML structure"""
     
     def __init__(self):
+        self.proxy_manager = ProxyManager()
         self.price_patterns = [
             r'€?\s*[\d.,]+',
             r'[\d.,]+\s*€',

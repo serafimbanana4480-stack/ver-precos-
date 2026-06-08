@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 def parse_price(price_str: Optional[Union[str, float]]) -> Optional[float]:
     """
     Robustly parse price strings like '1.234,56 €', '1234.56', or 'Sob consulta'.
+    Also handles 'desde X' or 'a partir de X' formats.
     
     Returns:
         float: The parsed price
@@ -23,6 +24,9 @@ def parse_price(price_str: Optional[Union[str, float]]) -> Optional[float]:
     # Handle 'Sob consulta' or empty
     if not price_str or "consulta" in price_str.lower():
         return None
+    
+    # Strip "desde", "a partir de", and similar prefixes
+    price_str = re.sub(r'^(desde|a partir de|from|starting at)\s*', '', price_str, flags=re.IGNORECASE)
         
     try:
         # Remove currency symbols and spaces

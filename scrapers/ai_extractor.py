@@ -12,7 +12,7 @@ class AIExtractor:
     def __init__(self):
         self.ollama_url = f"{settings.ollama_url}/api/generate"
         self.model = settings.ai_scraper_model
-        self.timeout = 60.0
+        self.timeout = 120.0  # Increased timeout for larger models
 
     async def extract_from_html(self, html: str, source: str, max_listings: int = 10) -> List[Dict[str, Any]]:
         """
@@ -20,40 +20,46 @@ class AIExtractor:
         """
         logger.info(f"[AI_EXTRACT] Extracting up to {max_listings} listings from {source}")
         
-        # Clean HTML to reduce tokens
-        # In a real scenario, we might use BeautifulSoup to extract only relevant parts
-        # For now, let's assume we send a simplified version
+        # Clean HTML to reduce tokens - extract only relevant parts
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, 'lxml')
         
-        prompt = f"""
-        Extract the vehicle listings from the following HTML from {source}.
-        Return a JSON list of objects. Each object should represent a vehicle listing.
+        # Remove scripts, styles, and non-essential elements
+        for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside']):
+            tag.decompose()
         
-        Fields to extract:
-        - title
-        - price (extract numeric value if possible, e.g. 10500)
-        - url
-        - year
-        - km (mileage)
-        - fuel_type
-        - transmission
-        - location
-        - images (list of URLs)
+        # Get text content with structure preserved
+        clean_html = str(soup)[:25000]  # Increased limit for better extraction
         
-        HTML content:
-        {html[:10000]}  # Truncate for now to avoid token limits
-        
-        Return ONLY a JSON block like this:
-        ```json
-        [
-          {{
-            "title": "...",
-            "price": "...",
-            "url": "...",
-            ...
-          }}
-        ]
-        ```
-        """
+        prompt = f"""You are a web scraping assistant. Extract vehicle listings from this HTML from {source}.
+
+IMPORTANT: Return ONLY valid JSON. No explanations, no markdown code blocks.
+
+Extract these fields for each listing:
+- source: The website source (e.g. "standvirtual", "olx", "autosapo", "custojusto")
+- brand: Vehicle brand (e.g. "BMW", "Mercedes-Benz", "Volkswagen")
+- model: Vehicle model (e.g. "Série 3", "Classe C", "Golf")
+- vehicle_type: string ("carros", "motos")
+- seller_type: string ("particular", "profissional")
+- title: Full listing title
+- price: Numeric price value only (e.g. 12500)
+- url: Full URL to the listing
+- year: Year as integer (e.g. 2020)
+- km: Kilometers as integer (e.g. 50000)
+- fuel_type: Fuel type if available
+- transmission: Transmission type if available
+- location: City/location if available
+- images: List of image URLs if available
+- is_national: true if "nacional", false if "importado" or None
+- num_owners: integer representing number of previous owners if mentioned (e.g. 1 para "único dono")
+- warranty_months: integer representing months of warranty if mentioned (e.g. 18)
+- condition_status: string ("novo", "usado", "danificado")
+
+HTML content:
+{clean_html}
+
+Return a JSON array with up to {max_listings} listings:
+[{{"source": "...", "brand": "...", "model": "...", "vehicle_type": "...", "seller_type": "...", "title": "...", "price": 0, "url": "...", "year": 0, "km": 0, "fuel_type": "...", "transmission": "...", "location": "...", "images": [], "is_national": null, "num_owners": null, "warranty_months": null, "condition_status": null}}]"""
         
         payload = {
             "model": self.model,

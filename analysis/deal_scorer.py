@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from database.models import Vehicle, PriceHistory
 from datetime import datetime, timezone
+import statistics
 
 logger = logging.getLogger(__name__)
 
@@ -13,47 +14,79 @@ class DealScorer:
     def __init__(self, session: Session):
         self.session = session
 
-    def calculate_market_average(self, brand: str, model: str, year: int) -> Optional[float]:
-        """Calculate average market price for similar vehicles"""
-        avg_price = self.session.query(func.avg(Vehicle.price)).filter(
+    def calculate_market_median(self, brand: str, model: str, year: int) -> Optional[float]:
+        """
+        Calculate MEDIAN market price for similar vehicles (±2 years).
+        Uses median to be robust against outlier listings.
+        Applies IQR filtering to remove extreme outliers before computing.
+        """
+        rows = self.session.query(Vehicle.price).filter(
             Vehicle.brand == brand,
             Vehicle.model == model,
-            Vehicle.year == year
-        ).scalar()
-        
-        return float(avg_price) if avg_price else None
+            Vehicle.year.between(year - 2, year + 2),
+            Vehicle.is_active == True,
+            Vehicle.price.isnot(None),
+            Vehicle.price > 0,
+        ).all()
+
+        prices = [r[0] for r in rows if r[0] and r[0] > 0]
+        if len(prices) < 3:
+            return None
+
+        # IQR filter: remove extreme outliers that skew the estimate
+        q1 = statistics.quantiles(prices, n=4)[0]   # 25th percentile
+        q3 = statistics.quantiles(prices, n=4)[2]   # 75th percentile
+        iqr = q3 - q1
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+        filtered = [p for p in prices if lower <= p <= upper]
+
+        if not filtered:
+            filtered = prices  # fallback: use all if IQR removes everything
+
+        return statistics.median(filtered)
+
+    # Keep old name as alias for backward compatibility
+    def calculate_market_average(self, brand: str, model: str, year: int) -> Optional[float]:
+        return self.calculate_market_median(brand, model, year)
 
     def score_vehicle(self, vehicle: Vehicle) -> Dict[str, Any]:
         """
-        Assign a score from 0-100 based on price vs market.
-        100 = Incredible deal (well below average)
-        50 = Market average
-        0 = Overpriced
+        Assign a score from 0-10 based on price vs market median.
+        10 = Incredible deal (well below median)
+        5  = Market median price
+        0  = Very overpriced
         """
-        avg = self.calculate_market_average(vehicle.brand, vehicle.model, vehicle.year)
+        median = self.calculate_market_median(vehicle.brand, vehicle.model, vehicle.year or 0)
         
-        if not avg:
-            return {"score": 50, "reason": "Insufficient market data"}
+        if median is None:
+            return {"score": 5.0, "reason": "Insufficient market data (< 3 comparables)"}
             
-        diff_percent = ((avg - vehicle.price) / avg) * 100
+        diff_percent = ((median - vehicle.price) / median) * 100
         
-        # Base score (50 is neutral)
-        score = 50 + (diff_percent * 2) 
-        
-        # Adjustments
-        if vehicle.km and vehicle.km < 50000:
-             score += 10 # Low mileage bonus
-        elif vehicle.km and vehicle.km > 200000:
-             score -= 15 # High mileage penalty
+        # Base score: 5.0 = neutral (at market median)
+        # +15 per 100% below median (≈ +1.5 per 10% discount)
+        score = 5.0 + (diff_percent * 0.15)
+
+        # KM adjustments (tiered)
+        km = vehicle.km or 0
+        if km < 30000:
+            score += 1.0   # Very low mileage premium
+        elif km < 80000:
+            score += 0.3   # Below-average mileage bonus
+        elif km > 200000:
+            score -= 2.0   # Very high mileage penalty
+        elif km > 130000:
+            score -= 1.0   # High mileage penalty
              
-        # Cap score
-        score = max(0, min(100, score))
+        # Cap score to 0-10
+        score = max(0.0, min(10.0, score))
         
         return {
             "score": round(score, 2),
-            "market_avg": round(avg, 2),
+            "market_median": round(median, 2),
             "diff_percent": round(diff_percent, 2),
-            "is_good_deal": score > 75
+            "is_good_deal": score >= 7.5
         }
 
     def process_pending_deals(self):

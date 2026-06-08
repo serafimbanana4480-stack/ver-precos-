@@ -45,46 +45,50 @@ class ManagedClient:
             HTML content or None if failed
         """
         self.session_stats['requests_count'] += 1
-        
+
+        return await asyncio.to_thread(self._get_html_sync, url, source)
+
+    def _get_html_sync(self, url: str, source: str = "generic") -> Optional[str]:
+        """Run the blocking SeleniumBase fetch in a worker thread."""
         # Try proxy rotation first if available
         proxy = None
         if settings.use_proxy and not self.proxy_pool.is_empty():
             proxy = self.proxy_pool.get_proxy()
             logger.info(f"[PROXY] Using proxy: {proxy.proxy_url if proxy else 'None'}")
-        
+
         try:
             # Use SeleniumBase UC mode for advanced Cloudflare bypass
             max_retries = 3
             for attempt in range(max_retries):
                 try:
                     logger.info(f"[FETCH] Attempt {attempt + 1}/{max_retries} for {source}: {url}")
-                    
+
                     # Add random delay to avoid rate limiting
                     if attempt > 0:
                         delay = settings.request_delay_seconds + random.uniform(0, settings.request_delay_jitter)
                         logger.info(f"[DELAY] Waiting {delay:.1f}s before retry")
                         time.sleep(delay)
-                    
+
                     # Use SeleniumBase with UC (Undetected Chrome) mode
-                    with SB(uc=True, 
+                    with SB(uc=True,
                            headless=settings.playwright_headless,
                            proxy=proxy.proxy_url if proxy else None) as sb:
-                        
+
                         # Set realistic browser configuration
                         sb.driver.set_window_size(1920, 1080)
                         sb.driver.set_page_load_timeout(settings.playwright_timeout)
-                        
+
                         # Navigate with UC mode which handles Cloudflare automatically
                         sb.uc_open_with_reconnect(url, reconnect_time=4)
-                        
+
                         # Wait for Cloudflare challenge resolution
                         time.sleep(random.uniform(3, 6))
-                        
+
                         # Check if still on Cloudflare challenge page
                         if "cloudflare" in sb.get_page_source().lower() or "ray id" in sb.get_page_source().lower():
                             logger.info(f"[CLOUDFLARE] Challenge detected, attempting auto-solve...")
                             time.sleep(random.uniform(8, 12))
-                            
+
                             # Try to click CAPTCHA if present
                             try:
                                 sb.uc_gui_click_captcha()
@@ -92,49 +96,57 @@ class ManagedClient:
                                 time.sleep(random.uniform(5, 8))
                             except Exception as captcha_error:
                                 logger.warning(f"[CAPTCHA] Auto-click failed: {captcha_error}")
-                        
+
                         # Additional wait for dynamic content
                         time.sleep(random.uniform(2, 4))
                         html = sb.get_page_source()
-                        
+
                         # Check for blocking
                         if ErrorClassifier.detect_blocking_in_html(html):
                             self.session_stats['blocked_count'] += 1
                             logger.warning(f"[BLOCK] Blocking detected for {source} on attempt {attempt + 1}")
-                            
+
                             # Check for CAPTCHA
                             captcha_info = CaptchaDetector.detect_captcha(html)
                             if captcha_info:
                                 self.session_stats['captcha_detected'] += 1
                                 logger.warning(f"[CAPTCHA] CAPTCHA detected: {captcha_info['type']}")
-                                
+
                                 # Try to solve CAPTCHA if solver is available
                                 if self.captcha_solver and settings.captcha_solver_enabled:
                                     site_key = CaptchaDetector.extract_site_key(html, captcha_info['type'])
                                     if site_key:
                                         logger.info(f"[CAPTCHA] Attempting to solve {captcha_info['type']}")
-                                        solution = await self.captcha_solver.solve_recaptcha_v2(
-                                            site_key, url, timeout=60
-                                        )
+                                        try:
+                                            _loop = asyncio.new_event_loop()
+                                            solution = _loop.run_until_complete(
+                                                self.captcha_solver.solve_recaptcha_v2(
+                                                    site_key, url, timeout=60
+                                                )
+                                            )
+                                            _loop.close()
+                                        except Exception as _ce:
+                                            logger.warning(f"[CAPTCHA] Solver error: {_ce}")
+                                            solution = None
                                         if solution:
                                             logger.info(f"[CAPTCHA] Solved successfully, retrying...")
                                             continue
-                        
+
                             if attempt == max_retries - 1:
                                 # Last attempt failed, record proxy failure if used
                                 if proxy:
                                     self.proxy_pool.record_proxy_result(proxy, False)
                                 return None
                             continue
-                        
+
                         # Success!
                         self.session_stats['success_count'] += 1
                         if proxy:
                             self.proxy_pool.record_proxy_result(proxy, True, latency_ms=1000)
-                        
+
                         logger.info(f"[SUCCESS] Retrieved {len(html)} characters from {source}")
                         return html
-                
+
                 except Exception as e:
                     logger.error(f"[ERROR] Attempt {attempt + 1} failed for {source}: {e}")
                     if attempt == max_retries - 1:
@@ -142,7 +154,7 @@ class ManagedClient:
                             self.proxy_pool.record_proxy_result(proxy, False)
                         return None
                     continue
-                
+
         except Exception as e:
             logger.error(f"[CRITICAL] Managed client failed for {source}: {e}")
             if proxy:

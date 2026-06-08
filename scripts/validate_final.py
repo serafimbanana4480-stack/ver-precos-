@@ -205,7 +205,9 @@ async def validate_no_duplicates() -> ValidationResult:
         ]
         
         for file in files:
-            path = Path(f"d:/VER PRECOS/{file}")
+            # Use relative path from script location
+            script_dir = Path(__file__).parent.parent
+            path = script_dir / file
             if not path.exists():
                 raise FileNotFoundError(f"Missing: {file}")
             

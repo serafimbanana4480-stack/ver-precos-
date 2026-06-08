@@ -34,7 +34,7 @@ class SensitiveDataFilter(logging.Filter):
         return True
 
 
-def setup_logging() -> None:
+def setup_logging() -> logging.Logger:
     """
     Setup logging configuration with log rotation
     """
@@ -100,6 +100,7 @@ def setup_logging() -> None:
     # Create retry logger
     retry_logger = logging.getLogger("retry")
     retry_logger.setLevel(logging.INFO)
+    return logging.getLogger()
 
 
 def log_validation_error(
@@ -201,7 +202,16 @@ def send_validation_alert(count: int, rate: float, top_fields: list[tuple[str, i
     logger.warning(
         f"VALIDATION ALERT: {count} failures detected (rate: {rate:.2f}/sec). Top fields: {top_fields}"
     )
-    # TODO: Integrate with Discord/Email/Telegram notifications
+    if settings.discord_webhook:
+        try:
+            import httpx
+            httpx.post(
+                settings.discord_webhook,
+                json={"content": f"⚠️ **Validation Alert** — {count} falhas de validação (taxa: {rate:.2f}/s)\nCampos mais afetados: {[f[0] for f in top_fields]}"},
+                timeout=5.0
+            )
+        except Exception as exc:
+            logger.debug(f"Discord alert falhou (não crítico): {exc}")
 
 
 def get_validation_health() -> Dict[str, Any]:

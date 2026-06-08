@@ -214,8 +214,8 @@ class ProxyPool:
             available_proxies = [p for p in self.proxies if p.is_available]
             
             if not available_proxies:
-                logger.warning("No available proxies in pool")
-                return None
+                logger.debug("No configured proxies; using direct connection")
+                return ProxyConfig(host="direct", port=0, protocol="direct")
             
             if self.rotation_strategy == ProxyRotationStrategy.ROUND_ROBIN:
                 proxy = self._get_round_robin(available_proxies)
@@ -344,3 +344,8 @@ def initialize_proxy_pool(rotation_strategy: ProxyRotationStrategy = ProxyRotati
     global _proxy_pool
     _proxy_pool = ProxyPool(rotation_strategy)
     return _proxy_pool
+
+
+class ProxyManager(ProxyPool):
+    """Legacy compatibility alias for ProxyPool."""
+    pass

@@ -164,6 +164,12 @@ class HTMLChangeDetector:
                 tag_counts[element.name] += 1
         return dict(tag_counts)
     
+    def has_changed(self, html_a: str, html_b: str, source: str = "unknown") -> bool:
+        """Return True if two HTML blobs differ structurally (legacy/test API)."""
+        fp_a = self.generate_fingerprint(html_a, source)
+        fp_b = self.generate_fingerprint(html_b, source)
+        return fp_a.hash != fp_b.hash
+
     def detect_change(
         self,
         html: str,

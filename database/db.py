@@ -2,9 +2,9 @@
 Database connection and session management
 """
 from __future__ import annotations
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import QueuePool
+from sqlalchemy.pool import QueuePool, NullPool
 from contextlib import contextmanager
 from utils.retry import retry_database
 from typing import Generator
@@ -23,16 +23,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Create engine with connection pooling
-engine = create_engine(
-    settings.database_url,
-    poolclass=QueuePool,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-    echo=False  # Set to True for SQL debugging
-)
+# SQLite needs WAL mode + no connection pool to avoid "database is locked"
+_is_sqlite = settings.database_url.startswith("sqlite")
+
+if _is_sqlite:
+    engine = create_engine(
+        settings.database_url,
+        poolclass=NullPool,
+        connect_args={"check_same_thread": False, "timeout": 15},
+        echo=False,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _set_wal_mode(dbapi_conn, _record):
+        dbapi_conn.execute("PRAGMA journal_mode=WAL")
+        dbapi_conn.execute("PRAGMA busy_timeout=15000")
+else:
+    engine = create_engine(
+        settings.database_url,
+        poolclass=QueuePool,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+        echo=False,
+    )
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

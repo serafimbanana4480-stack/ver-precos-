@@ -278,8 +278,20 @@ def validate_environment() -> Dict[str, Any]:
                 issues.append(f"Cannot create directory {dir_path}: {e}")
     
     # Check Sentry configuration for production
-    if settings.sentry_environment == "production" and not settings.sentry_dsn:
+    if settings.is_production and not settings.sentry_dsn:
         warnings.append("Production environment without Sentry DSN configured")
+
+    # JWT secret required in production
+    if settings.is_production:
+        jwt_secret = (settings.jwt_secret or "").strip()
+        if not jwt_secret:
+            issues.append("JWT_SECRET (or jwt_secret in .env) must be set in production")
+        elif jwt_secret in (
+            "your-secret-key-change-in-production",
+            "your-secret-key-here",
+            "dev-only-ephemeral-jwt-secret",
+        ):
+            issues.append("JWT secret must not use a default/placeholder value in production")
     
     return {
         'is_valid': len(issues) == 0,

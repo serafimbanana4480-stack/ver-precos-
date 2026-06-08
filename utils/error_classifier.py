@@ -166,27 +166,25 @@ class ErrorClassifier:
         if not html:
             return False
             
+        # Only definitive anti-bot indicators — avoid generic terms that appear in normal pages
+        # (e.g. 'nginx', 'service unavailable', 'forbidden', 'server error', 'maintenance mode'
+        #  all appear in normal site footers / error pages that are NOT bot-blocks)
         block_patterns = [
-            'cloudflare', 'turnstile',
-            'access denied', '403 forbidden',
+            'cf-challenge-running',
+            'cf-ray',
+            'turnstile',
+            'access denied',
+            '403 forbidden',
             'houston, temos um problema',
             'checking your browser',
             'verify you are a human',
             'security challenge',
-            'just a moment',
+            'just a moment...',
             'ddos protection',
-            'ray id',
-            'cf-ray',
             'challenge platform',
-            'attention required',
             'error 403',
-            'forbidden',
             'you have been blocked',
-            'nginx',
-            'server error',
-            'maintenance mode',
-            'service unavailable',
-            'temporarily unavailable'
+            'blocked by cloudflare',
         ]
         
         html_lower = html.lower()
@@ -196,7 +194,7 @@ class ErrorClassifier:
                 return True
         
         # Check for extremely short HTML (likely blocked page)
-        if len(html) < 100:
+        if len(html) < 500:
             logger.warning(f"[BLOCK] HTML too short ({len(html)} chars), likely blocked")
             return True
                 
