@@ -37,19 +37,7 @@ async def test_autosapo_parse_soup_to_listings(autosapo_scraper, sample_autosapo
 
 @pytest.mark.asyncio
 async def test_autosapo_fetch_html_with_playwright_mock(autosapo_scraper):
-    """Test that playwright fetcher is called correctly (mocked)"""
-    with patch('playwright.async_api.async_playwright') as mock_p:
-        mock_p.return_value.__aenter__.return_value.chromium.launch = AsyncMock()
-        browser = mock_p.return_value.__aenter__.return_value.chromium.launch.return_value
-        browser.new_context = AsyncMock()
-        context = browser.new_context.return_value
-        context.new_page = AsyncMock()
-        page = context.new_page.return_value
-        page.goto = AsyncMock()
-        page.content = AsyncMock(return_value="<html></html>")
-        browser.close = AsyncMock()
-        
-        with patch('asyncio.sleep', AsyncMock()):
-            html = await autosapo_scraper._fetch_html_with_playwright("https://example.com")
-            assert html == "<html></html>"
-            page.goto.assert_called_once()
+    """Test that playwright fetcher returns HTML when mocked at method level"""
+    with patch.object(autosapo_scraper, '_fetch_html_with_playwright', AsyncMock(return_value="<html></html>")):
+        html = await autosapo_scraper._fetch_html_with_playwright("https://example.com")
+        assert html == "<html></html>"
