@@ -150,7 +150,7 @@ class Settings(BaseSettings):
     dashboard_port: int = 8501
     
     # ML Configuration
-    min_training_samples: int = 500
+    min_training_samples: int = 300
     
     # Validation Health Settings
     validation_strict_mode: bool = False
