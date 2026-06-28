@@ -176,3 +176,12 @@ requirements-minimal.txt
 requirements_original_backup.txt
 requirements_simplified.txt
 requirements_v2.txt
+
+# Dados pesados (não versionar)
+data/
+*.db
+*.sqlite
+*.sqlite3
+.catboost_info/
+mlruns/
+
