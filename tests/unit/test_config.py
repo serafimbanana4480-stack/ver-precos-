@@ -4,7 +4,7 @@ Unit tests for configuration
 import pytest
 import os
 from pathlib import Path
-from config import Settings, BASE_DIR, DATA_DIR, MODELS_DIR, LOGS_DIR
+from core.settings import Settings, settings, BASE_DIR, DATA_DIR, MODELS_DIR, LOGS_DIR
 
 
 class TestSettingsInitialization:
@@ -14,7 +14,7 @@ class TestSettingsInitialization:
         """Test Settings with default values"""
         settings = Settings()
         assert settings.use_sqlite is True
-        assert settings.database_url == "sqlite:///autodeal.db"
+        assert settings.database_url == "sqlite:///data/autodeal.db"  # resolved via model_post_init
         assert settings.max_listings == 50
         assert settings.dashboard_port == 8501
         assert settings.log_level == "INFO"
@@ -54,7 +54,7 @@ class TestSettingsProperties:
     def test_log_file_property(self):
         """Test log_file property"""
         settings = Settings()
-        assert str(settings.log_file) == "logs/autodeal.log"
+        assert str(settings.log_file_path).endswith("logs/autodeal.log") or str(settings.log_file_path).endswith("logs\\autodeal.log")
     
     def test_export_dir_property(self):
         """Test export_dir property"""
@@ -87,7 +87,7 @@ class TestSettingsProperties:
     def test_autosapo_base_url_property(self):
         """Test autosapo_base_url property"""
         settings = Settings()
-        assert settings.autosapo_base_url == "https://auto.sapo.pt"
+        assert settings.autosapo_base_url == "https://www.autosapo.pt"
     
     def test_vehicle_types_property(self):
         """Test vehicle_types property"""

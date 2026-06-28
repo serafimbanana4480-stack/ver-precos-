@@ -62,7 +62,7 @@ class ScrapersConfig(BaseModel):
     standvirtual: StandvirtualConfig = StandvirtualConfig()
     autosapo: AutoSapoConfig = AutoSapoConfig()
     custojusto: ScraperConfig = ScraperConfig(enabled=True)
-    imovirtual: ScraperConfig = ScraperConfig(enabled=False)
+    imovirtual: ScraperConfig = ScraperConfig(enabled=True)
     piscapisca: PiscaPiscaConfig = PiscaPiscaConfig()
     carplus: CarplusConfig = CarplusConfig()
     

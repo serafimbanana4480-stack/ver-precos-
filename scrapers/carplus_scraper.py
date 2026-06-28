@@ -318,7 +318,7 @@ class CarplusScraper:
         """Extract details from page."""
         details: Dict[str, object] = {}
         
-        desc = soup.find(['.description', '.vehicle-description'])
+        desc = soup.select_one('.description, .vehicle-description')
         if desc:
             details["description"] = desc.get_text(strip=True)
         

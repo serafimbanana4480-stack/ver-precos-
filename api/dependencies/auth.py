@@ -6,12 +6,12 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, Dict, Any
 import logging
 
-from config import settings
+from core.settings import settings
 from ..middleware.auth import AuthMiddleware
 
 logger = logging.getLogger(__name__)
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 # Global auth middleware instance (secret from env/settings)
 auth_middleware = AuthMiddleware(
@@ -20,8 +20,15 @@ auth_middleware = AuthMiddleware(
 )
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
-    """Get current authenticated user."""
+async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Dict[str, Any]:
+    """Get current authenticated user. Raises 401 if not authenticated."""
+    
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
     try:
         # Verify JWT token
@@ -49,9 +56,19 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
 
 async def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Optional[Dict[str, Any]]:
-    """Get current user if authenticated, otherwise return None."""
+    """Get current user if authenticated, otherwise return None.
+    Never raises on missing credentials (unlike get_current_user)."""
     
-    if not credentials:
+    if credentials is None:
+        return None
+    
+    try:
+        # Verify JWT token
+        payload = auth_middleware.verify_token(credentials.credentials)
+        return payload
+        
+    except Exception as e:
+        logger.warning(f"Optional auth failed (non-fatal): {e}")
         return None
     
     try:

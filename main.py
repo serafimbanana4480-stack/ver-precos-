@@ -15,7 +15,7 @@ from typing import Union
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import settings
+from core.settings import settings
 from utils.logging_config import setup_logging
 from utils.health_check import get_system_health
 from utils.production_safeguards import setup_signal_handlers, validate_environment, get_health_check_summary
@@ -89,7 +89,7 @@ def main():
     
     # Scrape command
     scrape_parser = subparsers.add_parser("scrape", help="Run scrapers")
-    scrape_parser.add_argument("--source", choices=["olx", "standvirtual", "autosapo", "custojusto", "piscapisca", "carplus", "autopt", "all"], 
+    scrape_parser.add_argument("--source", choices=["olx", "standvirtual", "autosapo", "custojusto", "piscapisca", "carplus", "autopt", "autoscout24", "all"], 
                               default="all", help="Source to scrape")
     scrape_parser.add_argument("--vehicle-type", choices=["carros", "motos", "all"],
                               default="all", help="Vehicle type to scrape")
@@ -117,7 +117,7 @@ def main():
     
     # Auction scrape command - for collecting REAL transaction prices
     auction_parser = subparsers.add_parser("auction", help="Scrape auction sites for real transaction prices")
-    auction_parser.add_argument("--source", choices=["vpauto", "leilosoc", "all"],
+    auction_parser.add_argument("--source", choices=["vpauto", "leilosoc", "manheim", "autorola", "bca", "all"],
                                default="all", help="Auction source to scrape")
     auction_parser.add_argument("--max-listings", type=int, default=50,
                                help="Maximum listings per source")
@@ -287,10 +287,10 @@ def main():
             from scrapers.custojusto_scraper import CustoJustoScraper
             from scrapers.piscapisca_scraper import PiscaPiscaScraper
             from scrapers.carplus_scraper import CarplusScraper
+            from scrapers.autoscout24_scraper import AutoScout24Scraper
             from scrapers.browser_pool import get_browser_pool
             from processing.pipeline import production_pipeline
 
-            # Initialize browser pool for reuse across all scrapers
             pool = get_browser_pool()
             logger.info(f"[BROWSER_POOL] Initialized: {pool.get_stats()}")
 
@@ -301,22 +301,19 @@ def main():
             pp_scraper = PiscaPiscaScraper()
             cp_scraper = CarplusScraper()
             apt_scraper = AutoPtScraper()
+            as24_scraper = AutoScout24Scraper()
 
             sources_to_scrape = []
-            if args.source in ["olx", "all"]:
-                sources_to_scrape.append(("OLX", olx_scraper))
-            if args.source in ["standvirtual", "all"]:
-                sources_to_scrape.append(("Standvirtual", sv_scraper))
-            if args.source in ["autosapo", "all"]:
-                sources_to_scrape.append(("AutoSapo", as_scraper))
-            if args.source in ["custojusto", "all"]:
-                sources_to_scrape.append(("CustoJusto", cj_scraper))
-            if args.source in ["piscapisca", "all"]:
-                sources_to_scrape.append(("PiscaPisca", pp_scraper))
-            if args.source in ["carplus", "all"]:
-                sources_to_scrape.append(("Carplus", cp_scraper))
-            if args.source in ["autopt", "all"]:
-                sources_to_scrape.append(("AutoPt", apt_scraper))
+            scraper_map = {
+                "olx": ("OLX", olx_scraper), "standvirtual": ("Standvirtual", sv_scraper),
+                "autosapo": ("AutoSapo", as_scraper), "custojusto": ("CustoJusto", cj_scraper),
+                "piscapisca": ("PiscaPisca", pp_scraper), "carplus": ("Carplus", cp_scraper),
+                "autopt": ("AutoPt", apt_scraper), "autoscout24": ("AutoScout24", as24_scraper),
+            }
+            if args.source == "all":
+                sources_to_scrape = list(scraper_map.values())
+            elif args.source in scraper_map:
+                sources_to_scrape = [scraper_map[args.source]]
             
             vehicle_types = ["carros", "motos"] if args.vehicle_type == "all" else [args.vehicle_type]
             
@@ -375,8 +372,8 @@ def main():
                 logger.warning(f"[BROWSER_POOL] Close error: {e}")
             
             # Process listings through production pipeline
-            if settings.fast_scrape_mode or (
-                not settings.enable_pipeline_llm and not settings.enable_pipeline_vision
+            if getattr(settings, 'fast_scrape_mode', False) or (
+                not getattr(settings, 'enable_pipeline_llm', True) and not getattr(settings, 'enable_pipeline_vision', True)
             ):
                 logger.info("Fast scrape: skipping LLM/vision in pipeline")
             else:
@@ -394,28 +391,22 @@ def main():
         asyncio.run(run_scraping())
     
     elif args.command == "train":
-        logger.info("Training enhanced ML models (vehicle-type-aware)...")
-        from valuation.enhanced_train import train_enhanced_models
-        pricing = train_enhanced_models(force_retrain=args.force)
-        if pricing.car_model or pricing.moto_model:
-            logger.info("Enhanced models trained successfully!")
-            if pricing.car_metrics:
-                logger.info(f"  Cars: R²={pricing.car_metrics.get('r2', 'N/A')}, n={pricing.car_metrics.get('n_samples', 'N/A')}")
-            if pricing.moto_metrics:
-                logger.info(f"  Motos: R²={pricing.moto_metrics.get('r2', 'N/A')}, n={pricing.moto_metrics.get('n_samples', 'N/A')}")
-        else:
-            logger.error("Model training failed for both vehicle types")
-            logger.info("Falling back to basic training...")
-            from valuation.train_model import train_model
-            model = train_model(force_retrain=True)
-            if model:
-                logger.info("Basic model trained successfully (fallback)")
+        logger.info("Training ML models (vehicle-type-aware)...")
+        from valuation.train import train_all_models
+        results = train_all_models(force_retrain=args.force)
+        for vtype, meta in results.items():
+            if meta:
+                metrics = meta.get("metrics", {})
+                logger.info(f"  {vtype}: {meta['model_type']} R²={metrics.get('r2', 'N/A'):.4f}, "
+                            f"MAE=€{metrics.get('mae', 'N/A'):.0f}, n={meta.get('n_samples', 0)}")
+            else:
+                logger.warning(f"  {vtype}: training failed or insufficient data")
     
     elif args.command == "valuate":
-        logger.info("Updating vehicle valuations...")
-        from valuation.predict import update_vehicle_valuations
-        update_vehicle_valuations(batch_size=args.batch_size)
-        logger.info("Valuations updated!")
+        logger.info("Updating vehicle valuations (statistical)...")
+        from valuation.statistical_pricer import update_all_valuations
+        n = update_all_valuations()
+        logger.info(f"Valuations updated for {n} vehicles!")
     
     elif args.command == "find-deals":
         logger.info("Finding best deals...")
@@ -663,13 +654,22 @@ def main():
         logger.info(f"Scraping auction sites for real transaction prices...")
         
         async def run_auction_scraping():
-            from scrapers.auction_scraper import AuctionScraper, scrape_all_auctions
+            from scrapers.auction_scraper import scrape_all_auctions as scrape_legacy_auctions
+            from scrapers.auction_multi_scraper import scrape_all_auctions as scrape_new_auctions
             
-            results = await scrape_all_auctions(max_per_source=args.max_listings)
+            aggregate: Dict[str, object] = {}
             
-            logger.info(f"Auction scraping completed!")
-            if results:
-                for source, count in results.items():
+            if args.source in ["vpauto", "leilosoc", "all"]:
+                legacy = await scrape_legacy_auctions(max_per_source=args.max_listings)
+                aggregate.update(legacy)
+            
+            if args.source in ["manheim", "autorola", "bca", "all"]:
+                new_results = await scrape_new_auctions(max_per_source=args.max_listings)
+                aggregate.update(new_results)
+            
+            logger.info("Auction scraping completed!")
+            if aggregate:
+                for source, count in aggregate.items():
                     logger.info(f"  {source}: {count} transactions saved")
             else:
                 logger.warning("No auction data collected - sites may be blocking or structure changed")

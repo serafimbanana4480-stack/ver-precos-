@@ -144,19 +144,18 @@ class ProxyPool:
     
     def _load_proxies(self) -> None:
         """Load proxies from configuration"""
-        # Load from comma-separated list in environment
-        proxy_list = getattr(settings, 'proxy_list', '')
+        proxy_list = getattr(settings, 'proxy_list', '') or ''
         if proxy_list:
             for proxy_str in proxy_list.split(','):
                 proxy_str = proxy_str.strip()
                 if proxy_str:
                     self.add_proxy_from_string(proxy_str)
         
-        # Load individual proxy settings
-        if hasattr(settings, 'proxy_host') and settings.proxy_host:
+        proxy_host = getattr(settings, 'proxy_host', None)
+        if proxy_host:
             self.add_proxy(
-                host=settings.proxy_host,
-                port=getattr(settings, 'proxy_port', 8080),
+                host=proxy_host,
+                port=int(getattr(settings, 'proxy_port', 8080) or 8080),
                 username=getattr(settings, 'proxy_username', None),
                 password=getattr(settings, 'proxy_password', None)
             )
@@ -165,14 +164,22 @@ class ProxyPool:
     
     def add_proxy_from_string(self, proxy_str: str) -> None:
         """Add proxy from string format (host:port or username:password@host:port)"""
+        if not proxy_str or not isinstance(proxy_str, str):
+            return
         try:
-            # Parse proxy string
+            proxy_str = proxy_str.strip()
+            if not proxy_str:
+                return
             if '@' in proxy_str:
                 auth_part, addr_part = proxy_str.split('@', 1)
+                if ':' not in auth_part or ':' not in addr_part:
+                    raise ValueError(f"Malformed proxy string: {proxy_str}")
                 username, password = auth_part.split(':', 1)
-                host, port = addr_part.split(':', 1)
+                host, port = addr_part.rsplit(':', 1)
             else:
-                host, port = proxy_str.split(':', 1)
+                if ':' not in proxy_str:
+                    raise ValueError(f"Malformed proxy string: {proxy_str}")
+                host, port = proxy_str.rsplit(':', 1)
                 username = None
                 password = None
             

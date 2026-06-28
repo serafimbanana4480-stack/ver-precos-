@@ -36,7 +36,7 @@ class ProductionPipeline:
     def __init__(self, db_path: Optional[str] = None):
         # Use config.settings.database_url if db_path not provided
         if db_path is None:
-            if settings.use_sqlite:
+            if getattr(settings, 'use_sqlite', True):
                 # Extract SQLite path from database_url
                 db_url = settings.database_url
                 if db_url.startswith("sqlite:///"):
@@ -50,7 +50,7 @@ class ProductionPipeline:
                 db_path = settings.database_url
         
         self.db_path = db_path
-        self.ollama_available = settings.check_ollama_available()
+        self.ollama_available = getattr(settings, 'check_ollama_available', lambda: False)()
         logger.info(f"Pipeline initialized with db_path: {self.db_path}")
         logger.info(f"Ollama available: {self.ollama_available}")
     

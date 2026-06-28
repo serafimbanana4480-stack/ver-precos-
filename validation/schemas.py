@@ -31,13 +31,20 @@ class Transmission(str, Enum):
 
 
 class Source(str, Enum):
-    OLX = "olx"
-    STANDVIRTUAL = "standvirtual"
-    AUTOSAPO = "autosapo"
-    CUSTOJUSTO = "custojusto"
-    AUTOPT = "autopt"
-    PISCAPISCA = "piscapisca"
-    CARPLUS = "carplus"
+    OLX = "OLX"
+    STANDVIRTUAL = "STANDVIRTUAL"
+    AUTOSAPO = "AUTOSAPO"
+    CUSTOJUSTO = "CUSTOJUSTO"
+    AUTOPT = "AUTOPT"
+    PISCAPISCA = "PISCAPISCA"
+    CARPLUS = "CARPLUS"
+    AUTOSCOUT24 = "AUTOSCOUT24"
+    EBAY_MOTORS = "EBAY_MOTORS"
+    VPAUTO = "VPAUTO"
+    LEILOSOC = "LEILOSOC"
+    MANHEIM = "MANHEIM"
+    AUTOROLA = "AUTOROLA"
+    BCA = "BCA"
 
 
 class ScrapedVehicle(BaseModel):

@@ -42,7 +42,7 @@ class CustoJustoScraper:
 
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                browser = await p.chromium.launch(headless=getattr(settings, 'playwright_headless', True))
                 context = await browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     viewport={"width": 1920, "height": 1080},
@@ -53,7 +53,7 @@ class CustoJustoScraper:
                     playwright_page = await context.new_page()
 
                     logger.info(f"[CUSTOJUSTO] Scraping page {page}: {search_url}")
-                    await playwright_page.goto(search_url, wait_until="networkidle", timeout=45000)
+                    await playwright_page.goto(search_url, wait_until="networkidle", timeout=getattr(settings, 'playwright_timeout', 45000))
                     await playwright_page.wait_for_timeout(2000)
 
                     await self._dismiss_cookie_banner(playwright_page)

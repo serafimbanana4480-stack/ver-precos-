@@ -42,7 +42,8 @@ class ProxyMonitor:
         
         # Check for degraded proxies
         degraded_count = sum(1 for p in stats['proxy_details'] if p['status'] == 'degraded')
-        if degraded_count / stats['total_proxies'] >= self.alert_threshold_degraded:
+        total = stats.get('total_proxies') or 0
+        if total > 0 and degraded_count / total >= self.alert_threshold_degraded:
             alerts.append({
                 'type': 'warning',
                 'message': f'High number of degraded proxies: {degraded_count}/{stats["total_proxies"]}',

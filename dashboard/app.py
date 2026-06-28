@@ -17,7 +17,7 @@ from pathlib import Path
 
 # Ensure DATABASE_URL is set before any imports
 if not os.environ.get("DATABASE_URL"):
-    os.environ["DATABASE_URL"] = "sqlite:///autodeal.db"
+    os.environ["DATABASE_URL"] = "sqlite:///data/autodeal.db"
 
 # Configure page
 st.set_page_config(
@@ -432,26 +432,27 @@ def recalculate_vehicle_valuation(vehicle_id: int) -> Dict[str, Any]:
 # DATA LOADING
 # =============================================================================
 @st.cache_data(ttl=120)
-def load_all_vehicles() -> pd.DataFrame:
-    """Load all vehicles from database into a DataFrame."""
+def load_vehicles_page(page: int = 0, page_size: int = 100, sort_by: str = "deal_score",
+                        sort_desc: bool = True) -> pd.DataFrame:
+    """Load a single page of vehicles (never all at once)."""
+    from sqlalchemy import desc
     with get_db_context() as db:
-        vehicles = db.query(Vehicle).filter(Vehicle.is_active == True).all()
-        data = []
-        for v in vehicles:
-            row = v.to_dict()
-            row["lifecycle_status"] = getattr(v, "lifecycle_status", "Descoberto") or "Descoberto"
-            row["engine_type"] = getattr(v, "engine_type", None)
-            row["has_abs"] = getattr(v, "has_abs", None)
-            row["license_category"] = getattr(v, "license_category", None)
-            row["ai_risk_score"] = getattr(v, "ai_risk_score", 1.5) or 1.5
-            # Include detailed profit fields
-            row["buyer_profit"] = getattr(v, "buyer_profit", None)
-            row["buyer_profit_margin"] = getattr(v, "buyer_profit_margin", None)
-            row["deal_grade"] = getattr(v, "deal_grade", None)
-            row["price_discount_percentage"] = getattr(v, "price_discount_percentage", None)
-            row["estimated_savings"] = getattr(v, "estimated_savings", None)
-            data.append(row)
+        query = db.query(Vehicle).filter(Vehicle.is_active == True)
+        sort_col = getattr(Vehicle, sort_by, Vehicle.deal_score)
+        if sort_desc:
+            query = query.order_by(desc(sort_col))
+        else:
+            query = query.order_by(sort_col)
+        vehicles = query.offset(page * page_size).limit(page_size).all()
+        data = [v.to_dict() for v in vehicles]
         return pd.DataFrame(data)
+
+
+@st.cache_data(ttl=120)
+def count_vehicles() -> int:
+    """Count total active vehicles."""
+    with get_db_context() as db:
+        return db.query(Vehicle).filter(Vehicle.is_active == True).count()
 
 @st.cache_data(ttl=300)
 def load_price_history(vehicle_id: int) -> List[Dict]:
@@ -559,8 +560,10 @@ def apply_filters(df: pd.DataFrame, nlp_filters: dict, brand_filter: str,
     f_df = f_df[f_df["km"] <= max_km]
     if "deal_score" in f_df.columns and min_score > 0:
         f_df = f_df[f_df["deal_score"] >= min_score]
-    if fuel_filter != "Todos" and "fuel" in f_df.columns:
-        f_df = f_df[f_df["fuel"] == fuel_filter]
+    if fuel_filter != "Todos":
+        col = "fuel_type" if "fuel_type" in f_df.columns else ("fuel" if "fuel" in f_df.columns else None)
+        if col:
+            f_df = f_df[f_df[col] == fuel_filter.lower()]
     if year_range and "year" in f_df.columns:
         f_df = f_df[(f_df["year"] >= year_range[0]) & (f_df["year"] <= year_range[1])]
     if min_profit > 0 and "profit_potential" in f_df.columns:
@@ -647,7 +650,7 @@ def generate_negotiation_pdf(vehicle_data: Dict) -> bytes:
                           f"O preço de mercado estimado é de {format_price(est)}. "
                           f"Uma proposta inicial de {format_price(proposal)} pode ser considerada.")
 
-    return pdf.output(dest='S').encode('latin-1')
+    return pdf.output(dest='S').encode('utf-8')
 
 # =============================================================================
 # UI HELPERS
@@ -677,11 +680,23 @@ def main() -> None:
         st.markdown("<p style='margin-top:-8px; color:#64748b; font-size:0.95rem;'>Console Avançado de Arbitragem & Negociação de Veículos Usados em Portugal</p>", unsafe_allow_html=True)
     st.markdown("---")
 
-    # Load data
-    df = load_all_vehicles()
-    if df.empty:
+    # Load data (paginated)
+    total_vehicles = count_vehicles()
+    if total_vehicles == 0:
         st.error("Sem dados na base de dados. Execute primeiro: python main.py scrape")
         st.info("Ou verifique se a base de dados SQLite (autodeal.db) existe e tem dados.")
+        return
+
+    page_size = 100
+    total_pages = max(1, (total_vehicles + page_size - 1) // page_size)
+    page_num = st.sidebar.number_input(
+        f"Página (1-{total_pages})", min_value=1, max_value=total_pages, value=1, step=1
+    )
+    st.sidebar.caption(f"{total_vehicles} veículos • {page_size} por página")
+
+    df = load_vehicles_page(page=page_num - 1, page_size=page_size)
+    if df.empty:
+        st.warning("Nenhum veículo encontrado nesta página.")
         return
 
     # Sidebar
@@ -694,6 +709,7 @@ def main() -> None:
             "Início: Estado do Mercado",
             "Explorar Oportunidades",
             "Comparador Lado a Lado",
+            "Preços Justos & Market Research",
             "Watchlist Ativa",
             "Monitor de Preços",
             "Ingestão de Leiloeiras",
@@ -830,7 +846,7 @@ def main() -> None:
             brands = ["Todas"] + sorted(df["brand"].dropna().unique().tolist())
             brand_filter = st.selectbox("Marca", brands, index=0)
         with col_f2:
-            default_max_price = int(parsed.get("max_price", 100000))
+            default_max_price = int(parsed.get("max_price", 500000))
             max_price = st.number_input("Preço Máx (€)", 0, 500000, default_max_price)
         with col_f3:
             default_max_km = int(parsed.get("max_km", 500000))
@@ -841,7 +857,7 @@ def main() -> None:
         # Extra filters row
         col_e1, col_e2, col_e3, col_e4 = st.columns(4)
         with col_e1:
-            fuel_types = ["Todos"] + sorted(df["fuel"].dropna().unique().tolist()) if "fuel" in df.columns else ["Todos"]
+            fuel_types = ["Todos"] + sorted(df["fuel_type"].dropna().unique().tolist()) if "fuel_type" in df.columns else ["Todos"]
             fuel_filter = st.selectbox("Combustível", fuel_types, index=0)
         with col_e2:
             min_year = int(df["year"].min()) if "year" in df.columns and df["year"].notna().any() else 1990
@@ -1051,6 +1067,152 @@ def main() -> None:
                 st.rerun()
 
     # =============================================================================
+    # PAGE: PREÇOS JUSTOS & MARKET RESEARCH
+    # =============================================================================
+    elif page == "Preços Justos & Market Research":
+        st.subheader("📊 Preços Justos — Market Research VS Modelo ML")
+
+        st.markdown("""
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1.5rem; margin-bottom:1.5rem;">
+            <h4 style="color:#00d4aa; margin-top:0;">📈 Comparação: Preço Real de Mercado vs Estimativa do Bot</h4>
+            <p style="color:var(--text-muted);">
+                Análise baseada em <b>886 listings reais</b> da base de dados (Standvirtual, OLX, CustoJusto, AutoSapo).
+                O modelo XGBoost/CatBoost explica <b>~59%</b> da variação de preços (R²=0.59).
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Load data for market comparison
+        with get_db_context() as db:
+            vehicles = db.query(Vehicle).filter(
+                Vehicle.vehicle_type == VehicleType.carros,
+                Vehicle.price.isnot(None),
+                Vehicle.estimated_value.isnot(None),
+            ).all()
+
+        if vehicles:
+            # Build comparison dataframe
+            data = []
+            for v in vehicles:
+                diff = (v.estimated_value or 0) - (v.price or 0)
+                pct = ((diff / v.price) * 100) if v.price and v.price > 0 else 0
+                data.append({
+                    "Marca": v.brand, "Modelo": v.model or "", "Ano": v.year,
+                    "KM": v.km, "Preço Anúncio": v.price,
+                    "Estimativa ML": v.estimated_value or 0,
+                    "Diferença (€)": diff, "Diferença (%)": round(pct, 1),
+                    "Fuel": str(v.fuel_type.value if v.fuel_type else ""),
+                })
+
+            comp_df = pd.DataFrame(data)
+
+            # Summary metrics
+            total = len(comp_df)
+            avg_diff = comp_df["Diferença (€)"].mean()
+            avg_pct = comp_df["Diferença (%)"].mean()
+            within_10pct = int((comp_df["Diferença (%)"].abs() <= 10).sum())
+            underest = int((comp_df["Diferença (€)"] < 0).sum())
+            overest = int((comp_df["Diferença (€)"] > 0).sum())
+
+            col_s1, col_s2, col_s3, col_s4, col_s5 = st.columns(5)
+            col_s1.metric("Total Listings", total)
+            col_s2.metric("Erro Médio (€)", f"€{avg_diff:+,.0f}")
+            col_s3.metric("Erro Médio (%)", f"{avg_pct:+.1f}%")
+            col_s4.metric("Dentro de 10%", f"{within_10pct} ({within_10pct/total*100:.0f}%)")
+            col_s5.metric("R² Modelo", "0.59")
+
+            st.markdown("---")
+
+            # Market segments comparison
+            st.subheader("🔍 Comparação por Segmento")
+            segments = ["Volkswagen Golf", "BMW Série 3", "Mercedes Classe C", "Renault Clio", "Peugeot 208"]
+            selected_segment = st.selectbox("Escolhe um segmento:", segments)
+
+            # Filter by segment
+            brand_model_map = {
+                "Volkswagen Golf": ("Volkswagen", "Golf"),
+                "BMW Série 3": ("BMW", "Série 3"),
+                "Mercedes Classe C": ("Mercedes", "Classe C"),
+                "Renault Clio": ("Renault", "Clio"),
+                "Peugeot 208": ("Peugeot", "208"),
+            }
+            brand_filter, model_filter = brand_model_map[selected_segment]
+            seg_df = comp_df[
+                (comp_df["Marca"].str.contains(brand_filter, case=False, na=False)) &
+                (comp_df["Modelo"].str.contains(model_filter, case=False, na=False))
+            ]
+
+            if not seg_df.empty:
+                # Summary for this segment
+                seg_avg_diff = seg_df["Diferença (€)"].mean()
+                seg_avg_pct = seg_df["Diferença (%)"].mean()
+                col_seg1, col_seg2, col_seg3 = st.columns(3)
+                col_seg1.metric(f"{selected_segment} — Amostras", len(seg_df))
+                col_seg2.metric("Diferença Média", f"€{seg_avg_diff:+,.0f}")
+                col_seg3.metric("Desvio % Médio", f"{seg_avg_pct:+.1f}%")
+
+                # Show sample table
+                display_cols = ["Marca", "Modelo", "Ano", "KM", "Preço Anúncio", "Estimativa ML", "Diferença (€)", "Diferença (%)"]
+                st.dataframe(
+                    seg_df[display_cols].head(20).style.format({
+                        "Preço Anúncio": "€{:,.0f}",
+                        "Estimativa ML": "€{:,.0f}",
+                        "Diferença (€)": "€{:+,.0f}",
+                        "Diferença (%)": "{:+.1f}%",
+                        "KM": "{:,.0f}",
+                    }),
+                    use_container_width=True, hide_index=True
+                )
+
+                # Bar chart comparison
+                fig = px.bar(
+                    seg_df.head(10), x="Modelo", y=["Preço Anúncio", "Estimativa ML"],
+                    barmode="group", title=f"Preço Real vs Estimativa ML — {selected_segment}",
+                    color_discrete_map={"Preço Anúncio": "#10b981", "Estimativa ML": "#0ea5e9"},
+                    labels={"value": "Preço (€)", "variable": ""},
+                )
+                fig.update_layout(template="plotly_dark", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info(f"Sem dados suficientes para o segmento {selected_segment}.")
+
+            st.markdown("---")
+
+            # Overall accuracy distribution
+            st.subheader("📉 Distribuição do Erro Percentual")
+            fig = px.histogram(
+                comp_df, x="Diferença (%)", nbins=40,
+                title="Distribuição da Diferença % (real vs estimativa)",
+                color_discrete_sequence=["#00d4aa"],
+                labels={"Diferença (%)": "Erro Percentual"},
+            )
+            fig.add_vline(x=0, line_dash="dash", line_color="#f43f5e")
+            fig.add_vline(x=10, line_dash="dot", line_color="#10b981")
+            fig.add_vline(x=-10, line_dash="dot", line_color="#10b981")
+            fig.update_layout(template="plotly_dark", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Confidence interval explanation
+            st.markdown("""
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1.5rem; margin-top:1rem;">
+                <h4 style="color:#f59e0b; margin-top:0;">⚠️ Como Interpretar as Estimativas</h4>
+                <ul style="color:var(--text-muted); line-height:1.8;">
+                    <li><b>R² = 0.59</b> — O modelo explica 59% da variação de preços. Para referência, um modelo ideal tem R² > 0.85.</li>
+                    <li><b>Erro médio = ~€6.100</b> — A diferença típica entre a estimativa e o preço real é de ~€6.000.</li>
+                    <li><b>Apenas 46%</b> das estimativas estão dentro de 10% do preço real de mercado.</li>
+                    <li><b>Usa como referência, não como verdade</b> — Cruza sempre com preços reais no Standvirtual, OLX e CustoJusto.</li>
+                    <li>Para carros <b>abaixo de €15.000</b>, o erro percentual tende a ser maior (margem absoluta menor).</li>
+                </ul>
+                <p style="color:var(--text-dim); font-size:0.85rem; margin-top:0.5rem;">
+                    📊 Fonte: <code>docs/market_research.md</code> — 886 listings analisados em 28/06/2026.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        else:
+            st.warning("Sem dados disponíveis para análise de mercado. Executa scraping primeiro.")
+
+    # =============================================================================
     # PAGE: WATCHLIST
     # =============================================================================
     elif page == "Watchlist Ativa":
@@ -1190,12 +1352,12 @@ def main() -> None:
                         return results
 
                     try:
-                        loop = asyncio.get_event_loop()
+                        loop = asyncio.get_running_loop()
+                        results = loop.run_until_complete(run_scraps())
                     except RuntimeError:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
-
-                    results = loop.run_until_complete(run_scraps())
+                        results = loop.run_until_complete(run_scraps())
                     st.success(f"Ingestão concluída! VPauto: {results['vpauto']}, Leilosoc: {results['leilosoc']}")
                     st.cache_data.clear()
                 except Exception as e:

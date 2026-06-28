@@ -32,6 +32,7 @@ wheels/
 
 # Environment
 .env
+.env.*.local
 .env.local
 
 # Database
@@ -76,6 +77,7 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
 
 # ── GSD baseline (auto-generated) ──
 .gsd

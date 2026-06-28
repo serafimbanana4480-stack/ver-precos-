@@ -28,7 +28,8 @@ class AutoPtScraper:
     
     def __init__(self) -> None:
         self.base_url = "https://www.auto.pt"
-        self.timeout = 30000
+        self.timeout = getattr(settings, 'playwright_timeout', 30000)
+        self.headless = getattr(settings, 'playwright_headless', True)
         
     @track_scrape(source='autopt')
     @retry_network(max_attempts=3, min_wait=2, max_wait=10)

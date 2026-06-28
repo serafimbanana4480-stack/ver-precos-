@@ -47,8 +47,8 @@ class AutoSapoScraper:
     
     def __init__(self) -> None:
         self.base_url = settings.autosapo_base_url
-        self.headless = settings.playwright_headless
-        self.timeout = settings.playwright_timeout
+        self.headless = getattr(settings, 'playwright_headless', True)
+        self.timeout = getattr(settings, 'playwright_timeout', 30000)
         self.proxy_pool = get_proxy_pool()
         self.selector_manager = get_selector_manager()
         self.managed_client = get_managed_client() if get_managed_client else None
@@ -75,12 +75,12 @@ class AutoSapoScraper:
             List of vehicle dictionaries
         """
         logger.info(f"[PROGRESS] Starting AutoSapo scrape for {vehicle_type}, max {max_listings} listings")
-        logger.info(f"[PROGRESS] AI scraping priority: {settings.ai_scraper_priority}")
+        logger.info(f"[PROGRESS] AI scraping priority: {getattr(settings, 'ai_scraper_priority', 'fallback')}")
         
         url = self._build_url(vehicle_type, page=1, filters=filters)
         
         # AI-First Approach (if configured as primary)
-        if settings.ai_scraping_enabled and settings.ai_scraper_priority == "primary" and get_ai_scraper:
+        if getattr(settings, 'ai_scraping_enabled', False) and getattr(settings, 'ai_scraper_priority', 'fallback') == "primary" and get_ai_scraper:
             logger.info("[AI_PRIMARY] Using AI scraper as primary method")
             try:
                 ai_scraper = get_ai_scraper()
@@ -692,15 +692,15 @@ class AutoSapoScraper:
                             fuel_type = listing_data.get("fuel_type", "")
                             if isinstance(fuel_type, str) and fuel_type:
                                 fuel_type_lower = fuel_type.lower()
-                                if "gasolina" in fuel_type:
+                                if "gasolina" in fuel_type_lower:
                                     vehicle.fuel_type = FuelType.GASOLINE
-                                elif "diesel" in fuel_type:
+                                elif "diesel" in fuel_type_lower:
                                     vehicle.fuel_type = FuelType.DIESEL
-                                elif "eletrico" in fuel_type or "eléctrico" in fuel_type:
+                                elif "eletrico" in fuel_type_lower or "eléctrico" in fuel_type_lower:
                                     vehicle.fuel_type = FuelType.ELECTRIC
-                                elif "hibrido" in fuel_type or "híbrido" in fuel_type:
+                                elif "hibrido" in fuel_type_lower or "híbrido" in fuel_type_lower:
                                     vehicle.fuel_type = FuelType.HYBRID
-                                elif "gpl" in fuel_type:
+                                elif "gpl" in fuel_type_lower:
                                     vehicle.fuel_type = FuelType.GPL
 
                             transmission = listing_data.get("transmission", "")

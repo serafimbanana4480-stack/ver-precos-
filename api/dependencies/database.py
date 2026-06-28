@@ -476,18 +476,20 @@ def configure_database_settings(settings: dict) -> bool:
         db = get_database()
         cursor = db.connection.cursor()
         
-        # Apply settings
-        if "cache_size" in settings:
-            cursor.execute(f"PRAGMA cache_size = {settings['cache_size']}")
-        
-        if "temp_store" in settings:
-            cursor.execute(f"PRAGMA temp_store = {settings['temp_store']}")
-        
-        if "journal_mode" in settings:
-            cursor.execute(f"PRAGMA journal_mode = {settings['journal_mode']}")
-        
-        if "synchronous" in settings:
-            cursor.execute(f"PRAGMA synchronous = {settings['synchronous']}")
+        # Apply settings (parameterized PRAGMA to prevent SQL injection)
+        pragma_map = {
+            "cache_size": "cache_size",
+            "temp_store": "temp_store",
+            "journal_mode": "journal_mode",
+            "synchronous": "synchronous",
+        }
+        for key, pragma in pragma_map.items():
+            if key in settings:
+                value = settings[key]
+                if isinstance(value, str):
+                    cursor.execute(f"PRAGMA {pragma} = ?", (value,))
+                else:
+                    cursor.execute(f"PRAGMA {pragma} = ?", (int(value),))
         
         db.connection.commit()
         

@@ -333,12 +333,12 @@ class PiscaPiscaScraper:
         details: Dict[str, object] = {}
         
         # Description
-        desc = soup.find(['.description', '[data-testid="description"]', '.vehicle-description'])
+        desc = soup.select_one('.description, [data-testid="description"], .vehicle-description')
         if desc:
             details["description"] = desc.get_text(strip=True)
         
         # Specs
-        specs = soup.find_all(['.spec', '.specification', '[data-testid="spec"]'])
+        specs = soup.select('.spec, .specification, [data-testid="spec"]')
         for spec in specs:
             text = spec.get_text(strip=True).lower()
             if 'ano' in text:

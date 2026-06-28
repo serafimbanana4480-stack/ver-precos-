@@ -13,8 +13,8 @@ from enum import Enum
 
 
 class VehicleType(str, Enum):
-    CAR = "car"
-    MOTO = "moto"
+    CARROS = "carros"
+    MOTOS = "motos"
 
 
 class FuelType(str, Enum):
@@ -33,9 +33,20 @@ class Transmission(str, Enum):
 
 
 class Source(str, Enum):
-    OLX = "olx"
-    STANDVIRTUAL = "standvirtual"
-    AUTOSAPO = "autosapo"
+    OLX = "OLX"
+    STANDVIRTUAL = "STANDVIRTUAL"
+    AUTOSAPO = "AUTOSAPO"
+    CUSTOJUSTO = "CUSTOJUSTO"
+    PISCAPISCA = "PISCAPISCA"
+    CARPLUS = "CARPLUS"
+    AUTOPT = "AUTOPT"
+    AUTOSCOUT24 = "AUTOSCOUT24"
+    EBAY_MOTORS = "EBAY_MOTORS"
+    VPAUTO = "VPAUTO"
+    LEILOSOC = "LEILOSOC"
+    MANHEIM = "MANHEIM"
+    AUTOROLA = "AUTOROLA"
+    BCA = "BCA"
 
 
 class ScrapedVehicle(BaseModel):
@@ -91,7 +102,7 @@ class ScrapedVehicle(BaseModel):
     def validate_source(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
-        valid_sources = ["olx", "standvirtual", "autosapo"]
+        valid_sources = ["olx", "standvirtual", "autosapo", "imovirtual", "piscapisca", "custojusto", "carplus", "autopt"]
         if v.lower() not in valid_sources:
             return None
         return v.lower()
@@ -101,10 +112,13 @@ class ScrapedVehicle(BaseModel):
     def validate_vehicle_type(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
-        valid_types = ["car", "moto", "carros", "motos"]
-        if v.lower() not in valid_types:
-            return None
-        return "car" if v.lower() in ["car", "carros"] else "moto"
+        valid_types = ["carros", "motos"]
+        if v.lower() in valid_types:
+            return v.lower()
+        # Accept English/short forms
+        if v.lower() in ["car", "moto"]:
+            return "carros" if v.lower() == "car" else "motos"
+        return None
     
     @field_validator('brand', mode='before')
     @classmethod

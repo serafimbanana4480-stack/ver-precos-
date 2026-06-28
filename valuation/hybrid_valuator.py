@@ -35,23 +35,29 @@ class HybridValuator:
         self._compute_segment_medians()
 
     def _load_ml_model(self):
-        """Try to load the ML model."""
+        """Try to load the ML model using PricePredictor for carros and motos."""
         try:
-            from valuation.predict_v2 import VehicleValuationModelV2
-            self.ml_model = VehicleValuationModelV2()
-            if self.ml_model.model is not None:
-                # Check model quality
-                metrics_path = settings.models_dir / "metrics_carros.json"
-                if metrics_path.exists():
-                    with open(metrics_path) as f:
-                        metrics = json.load(f)
-                    self.ml_r2 = metrics.get("r2", 0)
-                    self.ml_available = self.ml_r2 >= 0.50
-                    logger.info(f"ML model loaded (R²={self.ml_r2:.3f}, available={self.ml_available})")
-                else:
-                    self.ml_available = True
-            else:
-                logger.warning("ML model file not found")
+            from valuation.predict import PricePredictor
+
+            # Try carros first (more data, more reliable)
+            predictor = PricePredictor("carros")
+            if predictor.model is not None:
+                self.ml_r2 = predictor.metrics.get("r2", 0)
+                self.ml_available = self.ml_r2 >= 0.30
+                self.ml_model = predictor
+                logger.info(f"ML model loaded for carros (R²={self.ml_r2:.3f}, available={self.ml_available})")
+                return
+
+            # Fallback to motos (fewer samples, more lenient)
+            predictor = PricePredictor("motos")
+            if predictor.model is not None:
+                self.ml_r2 = predictor.metrics.get("r2", 0)
+                self.ml_available = self.ml_r2 >= 0.30
+                self.ml_model = predictor
+                logger.info(f"ML model loaded for motos (R²={self.ml_r2:.3f}, available={self.ml_available})")
+                return
+
+            logger.warning("No ML model could be loaded for carros or motos")
         except Exception as e:
             logger.warning(f"Could not load ML model: {e}")
 
@@ -171,7 +177,7 @@ class HybridValuator:
         # Try ML model first
         if self.ml_available and self.ml_model:
             try:
-                ml_price = self.ml_model.predict_price(vehicle_data)
+                ml_price = self.ml_model.predict(vehicle_data)
                 if ml_price and ml_price > 0:
                     logger.debug(f"ML estimate: €{ml_price:.0f}")
             except Exception as e:
@@ -280,7 +286,7 @@ class HybridValuator:
             "net_profit_percentage": round(net_profit_pct, 2),
             "transfer_taxes": round(taxes, 2),
             "estimated_repair_costs": round(repair_costs, 2),
-            "valuation_method": "ml" if (self.ml_available and self.ml_r2 >= 0.5) else "segment",
+            "valuation_method": "ml" if self.ml_available else "segment",
         }
 
 

@@ -10,7 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
 
-from config import settings
+from core.settings import settings
 from scrapers.olx_scraper import OLXScraper
 from scrapers.standvirtual_scraper import StandvirtualScraper
 from scrapers.autosapo_scraper import AutoSapoScraper
@@ -23,7 +23,7 @@ from alerts.watchlist_notifier import WatchlistNotifier
 logger = logging.getLogger(__name__)
 
 # Default timezone for scheduler
-SCHEDULER_TZ = getattr(settings, "scheduler_timezone", "Europe/Lisbon")
+SCHEDULER_TZ = "Europe/Lisbon"
 
 
 class DailyJob:
@@ -119,7 +119,14 @@ class DailyJob:
                 as_listings = await self.autosapo_scraper.scrape_listings("carros", max_listings=50, scrape_details=True)
                 save_deduped(as_listings, "AUTOSAPO", "carros")
 
-            asyncio.run(_run_async_scraping())
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(_run_async_scraping())
+                else:
+                    asyncio.run(_run_async_scraping())
+            except RuntimeError:
+                asyncio.run(_run_async_scraping())
             
             # Update valuations
             logger.info("Updating vehicle valuations...")
@@ -236,7 +243,7 @@ class DailyJob:
             logger.warning("Email libraries not available, skipping email notification")
             return
 
-        if not all([settings.email_smtp_host, settings.email_smtp_user, settings.email_smtp_password, settings.email_from]):
+        if not all([settings.email_smtp_server, settings.email_smtp_user, settings.email_smtp_password, settings.email_from]):
             return
         
         # Build email content
@@ -260,12 +267,16 @@ class DailyJob:
         
         msg = MIMEMultipart()
         msg['From'] = settings.email_from
-        msg['To'] = ", ".join(settings.email_to)
+        recipients = settings.email_to
+        if isinstance(recipients, list):
+            msg['To'] = ", ".join(recipients)
+        else:
+            msg['To'] = recipients
         msg['Subject'] = subject
         msg.attach(MIMEText(body, 'html'))
 
         try:
-            with smtplib.SMTP(settings.email_smtp_host, settings.email_smtp_port) as server:
+            with smtplib.SMTP(settings.email_smtp_server, settings.email_smtp_port) as server:
                 server.starttls()
                 server.login(settings.email_smtp_user, settings.email_smtp_password)
                 server.send_message(msg)
@@ -332,7 +343,7 @@ class DailyJob:
         self.scheduler.add_job(
             self.run_analysis_job,
             trigger='interval',
-            hours=settings.scraping_interval_hours,
+            hours=settings.scraping_interval_hours if hasattr(settings, 'scraping_interval_hours') else settings.scrape_interval_hours,
             id='periodic_analysis',
             name='Periodic Analysis Job',
             replace_existing=True

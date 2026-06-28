@@ -41,11 +41,14 @@ class Source(str, enum.Enum):
     AUTOPT = "AUTOPT"
     PISCAPISCA = "PISCAPISCA"
     CARPLUS = "CARPLUS"
+    AUTOSCOUT24 = "AUTOSCOUT24"
+    EBAY_MOTORS = "EBAY_MOTORS"
     VPAUTO = "VPAUTO"
     LEILOSOC = "LEILOSOC"
     MANHEIM = "MANHEIM"
     AUTOROLA = "AUTOROLA"
     BCA = "BCA"
+    FACEBOOK = "FACEBOOK"
 
 
 class Vehicle(Base):
@@ -247,6 +250,36 @@ class Vehicle(Base):
             "price_discount_percentage": self.price_discount_percentage,
             "buyer_profit": self.buyer_profit,
             "buyer_profit_margin": self.buyer_profit_margin,
+            "buyer_roi": self.buyer_roi,
+            "repair_costs": self.repair_costs,
+            "taxes": self.taxes,
+            "total_additional_costs": self.total_additional_costs,
+            "score_interpretation": self.score_interpretation,
+            "recommended_action": self.recommended_action,
+            "valuation_details": self.valuation_details,
+            "ai_risk_score": self.ai_risk_score,
+            "ai_recommendation": self.ai_recommendation,
+            "ai_confidence": self.ai_confidence,
+            "vision_confidence": self.vision_confidence,
+            "llm_confidence": self.llm_confidence,
+            "engine_type": self.engine_type,
+            "riding_style": self.riding_style,
+            "has_abs": self.has_abs,
+            "has_traction_control": self.has_traction_control,
+            "aftermarket_mods": self.aftermarket_mods,
+            "seat_height": self.seat_height,
+            "wet_weight": self.wet_weight,
+            "license_category": self.license_category,
+            "engine_size": self.engine_size,
+            "horsepower": self.horsepower,
+            "doors": self.doors,
+            "seats": self.seats,
+            "color": self.color,
+            "market_deviation_score": self.market_deviation_score,
+            "ai_risk_score_component": self.ai_risk_score_component,
+            "vision_damage_score": self.vision_damage_score,
+            "price_anomaly_score": self.price_anomaly_score,
+            "demand_signal_score": self.demand_signal_score,
         }
 
 

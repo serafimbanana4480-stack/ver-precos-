@@ -791,7 +791,7 @@ class OLXScraper:
                 log.listings_found = len(listings)  # type: ignore[assignment]
                 log.listings_added = saved_count  # type: ignore[assignment]
                 log.listings_updated = updated_count  # type: ignore[assignment]
-                log.validation_errors = validation_errors  # type: ignore[assignment]
+                log.validation_errors = json.dumps(validation_errors) if hasattr(log, 'validation_errors') else None  # type: ignore[assignment]
 
                 db.commit()
                 logger.info(f"[PROGRESS] Database save completed: {saved_count} new, {updated_count} updated, {validation_errors} validation errors")
@@ -812,7 +812,7 @@ class OLXScraper:
             "Citroën", "Ford", "Toyota", "Honda", "Nissan", "Hyundai", 
             "Kia", "Fiat", "Seat", "Skoda", "Volvo", "Mazda", "Mitsubishi",
             "Suzuki", "Dacia", "Opel", "Alfa Romeo", "Mini", "Smart",
-            "Yamaha", "Kawasaki", "Honda", "Suzuki", "Ducati", "KTM"
+            "Yamaha", "Kawasaki", "Ducati", "KTM", "Aprilia", "Triumph", "Harley Davidson", "BMW Motorrad"
         ]
         
         title_lower = title.lower()

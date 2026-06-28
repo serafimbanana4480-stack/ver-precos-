@@ -76,6 +76,16 @@ class CircuitBreaker:
         
         return False
 
+    def allow_transient_bypass(self) -> bool:
+        """Allow one transient request when circuit is open to test recovery without blocking."""
+        if self.state == 'open' and self.last_failure_time is not None:
+            time_since_failure = (datetime.now(timezone.utc) - self.last_failure_time).total_seconds()
+            if time_since_failure > self.recovery_timeout:
+                self.state = 'half-open'
+                logger.info("Circuit breaker: transient bypass allowed for recovery probe")
+                return True
+        return False
+
 
 # Global circuit breakers for critical operations
 _olx_circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=300)
@@ -83,6 +93,9 @@ _standvirtual_circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_tim
 _autosapo_circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=300)
 _ai_api_circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
 _database_circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=30)
+_manheim_circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=300)
+_autorola_circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=300)
+_bca_circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=300)
 
 # Legacy alias for backward compatibility
 _scraping_circuit_breaker = _olx_circuit_breaker
@@ -101,11 +114,13 @@ def with_circuit_breaker(breaker: CircuitBreaker, operation_name: str):
         @wraps(func)
         async def async_wrapper(*args, **kwargs) -> Any:
             if not breaker.can_attempt():
-                logger.error(f"Circuit breaker: {operation_name} blocked - circuit is {breaker.state}")
-                raise ProductionError(
-                    f"Operation '{operation_name}' blocked by circuit breaker (state: {breaker.state})",
-                    context={"operation": operation_name, "state": breaker.state}
-                )
+                if not breaker.allow_transient_bypass():
+                    logger.error(f"Circuit breaker: {operation_name} blocked - circuit is {breaker.state}")
+                    raise ProductionError(
+                        f"Operation '{operation_name}' blocked by circuit breaker (state: {breaker.state})",
+                        context={"operation": operation_name, "state": breaker.state}
+                    )
+                logger.warning(f"Circuit breaker: {operation_name} proceeding on transient bypass (state: {breaker.state})")
             
             try:
                 result = await func(*args, **kwargs)
@@ -122,11 +137,13 @@ def with_circuit_breaker(breaker: CircuitBreaker, operation_name: str):
         @wraps(func)
         def sync_wrapper(*args, **kwargs) -> Any:
             if not breaker.can_attempt():
-                logger.error(f"Circuit breaker: {operation_name} blocked - circuit is {breaker.state}")
-                raise ProductionError(
-                    f"Operation '{operation_name}' blocked by circuit breaker (state: {breaker.state})",
-                    context={"operation": operation_name, "state": breaker.state}
-                )
+                if not breaker.allow_transient_bypass():
+                    logger.error(f"Circuit breaker: {operation_name} blocked - circuit is {breaker.state}")
+                    raise ProductionError(
+                        f"Operation '{operation_name}' blocked by circuit breaker (state: {breaker.state})",
+                        context={"operation": operation_name, "state": breaker.state}
+                    )
+                logger.warning(f"Circuit breaker: {operation_name} proceeding on transient bypass (state: {breaker.state})")
             
             try:
                 result = func(*args, **kwargs)

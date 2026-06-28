@@ -2,10 +2,13 @@
 Unit test for valuation predict.
 """
 import pytest
-from valuation.predict import Predictor
+from valuation.predict import PricePredictor
 
 
 def test_predictor_init():
     """Test predictor initialization."""
-    predictor = Predictor()
+    predictor = PricePredictor()
     assert predictor is not None
+    # Verify model loaded or gracefully skipped
+    if predictor.model:
+        assert hasattr(predictor, 'predict')

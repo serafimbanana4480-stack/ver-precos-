@@ -787,7 +787,7 @@ class VPAutoScraper(BaseAuctionScraper):
 
                     # Try to find reserve/starting price
                     for price_match in re.finditer(
-                        r"(preço mínimo|preço de reserva|valor mínimo|starting price|reserve).*?([\d\s\.\,]+",
+                        r"(preço mínimo|preço de reserva|valor mínimo|starting price|reserve).*?([\d\s\.\,]+)",
                         text.lower(),
                     ):
                         reserve = parse_price(price_match.group(2))

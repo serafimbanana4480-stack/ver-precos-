@@ -9,6 +9,7 @@ from fastapi import Request, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 from datetime import datetime, timedelta
+from core.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +114,11 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"Error in security middleware: {e}")
-            # Don't block requests due to security errors
-            return await call_next(request)
+            logger.error(f"Security middleware error (denying request): {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Security check failed",
+            )
     
     def _get_client_ip(self, request: Request) -> str:
         """Get client IP address."""
@@ -247,10 +250,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         client_ip = self._get_client_ip(request)
         timestamp = datetime.now().timestamp()
         
-        # Generate token using HMAC
-        secret = "csrf_secret_key"  # Should be from config
+        # Generate token using HMAC with secret from settings
+        csrf_secret = settings.jwt_secret or "csrf-fallback-change-me"
         message = f"{client_ip}:{timestamp}"
-        token = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+        token = hmac.new(csrf_secret.encode(), message.encode(), hashlib.sha256).hexdigest()
         
         # Store token
         token_key = f"{client_ip}:{hash(token)}"
