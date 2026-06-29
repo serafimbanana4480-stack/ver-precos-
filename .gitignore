@@ -1,187 +1,167 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Environment
-.env
-.env.*.local
-.env.local
-
+!.env.example
+!CHANGELOG.md
+!data/.gitkeep
+!exports/.gitkeep
+!LICENSE.md
+!models/.gitkeep
+!README.md
+# .git/  # commented out — .gitignore should never ignore itself
+# .gitignore
+# ── Auto-generated / Temporary ──
+# ── Downloaded / Cache ──
+# ── GSD baseline (auto-generated) ──
+# ── IDE / Local ──
+# ── Local scripts ──
+# ── One-off files ──
+# ── Reports ──
+# ── Test artifacts ──
+# Ambiente virtual
+# Dados pesados (não versionar)
+# Data
 # Database
+# Docker
+# Environment
+# Exports
+# Git
+# IDE
+# Logs
+# Models
+# OS
+# Python
+# Testing
+*$py.class
+*.code-workspace
 *.db
+*.egg
+*.egg-info/
+*.log
+*.md
+*.py[cod]
+*.pyc
+*.so
 *.sqlite
 *.sqlite3
-
-# Logs
-logs/
-*.log
-
-# Data
+*.swo
+*.swp
+*~
+.agents/
+.bg-shell/
+.cache/
+.catboost_info/
+.coverage
+.dockerignore
+.DS_Store
+.eggs/
+.env
+.env.*
+.env.*.local
+.env.local
+.env/
+.gsd
+.gsd-id
+.idea/
+.installed.cfg
+.kimi/
+.next/
+.planning/
+.pytest_cache/
+.Python
+.tox/
+.venv/
+.vscode/
+.windsurf/
+__pycache__/
+1-UAT.md
+ANALISE_*.md
+analyze_standvirtual_structure.py
+app_new.py
+archive/
+AUDIT_*.md
+AUDITORIA_*.md
+AUTO_FIX_*.md
+build/
+CLAUDE.md
+CLEANUP_*.md
+CODE_QUALITY_*.md
+CORRECOES_*.md
+coverage/
+coverage_report.txt
+data/
 data/*.csv
 data/*.json
 data/*.xlsx
-!data/.gitkeep
-
-# Models
+debug_standvirtual.py
+develop-eggs/
+DIAGNOSTIC_*.md
+dist/
+docker-compose.yml
+Dockerfile
+downloaded_files/
+downloads/
+eggs/
+env/
+ENV/
+exports/*
+FINAL_*.md
+FINDINGS_*.md
+FREE_MODE_*.md
+htmlcov/
+HYBRID_*.md
+IMPLEMENTATION_*.md
+init_test.txt
+LAYER2_*.md
+lib/
+lib64/
+logs/
+mass_scrape*.py
+MIGRATION_*.md
+mlruns/
+models/*.joblib
 models/*.json
 models/*.pkl
-models/*.joblib
-!models/.gitkeep
-
-# Exports
-exports/*
-!exports/.gitkeep
-
-# Git
-# .git/  # commented out — .gitignore should never ignore itself
-# .gitignore
-
-# Docker
-Dockerfile
-docker-compose.yml
-.dockerignore
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# ── GSD baseline (auto-generated) ──
-.gsd
-.gsd-id
-.bg-shell/
-*.code-workspace
-.env.*
-!.env.example
 node_modules/
-.next/
-*.pyc
-.venv/
-target/
-vendor/
-coverage/
-.cache/
-tmp/
-
-# ── Auto-generated / Temporary ──
-.agents/
-.kimi/
-scratch/
-archive/
-mass_scrape*.py
-app_new.py
-overnight_runner.py
-*.md
-!README.md
-!CHANGELOG.md
-!LICENSE.md
-
-# ── IDE / Local ──
-.windsurf/
-.planning/
-
-# ── Test artifacts ──
-pytest.ini              # Se for local-only; se usado em CI, commitar
-
-# ── Reports ──
-AUDIT_*.md
-ANALISE_*.md
-RELATORIO_*.md
-AUDITORIA_*.md
-VALIDACAO_*.md
-VIABILIDADE_*.md
-IMPLEMENTATION_*.md
-MIGRATION_*.md
-LAYER2_*.md
-PROJECT_*.md
-FINAL_*.md
-TEST_*.md
-CODE_QUALITY_*.md
-CLEANUP_*.md
-PRODUCTION_*.md
-SYSTEM_*.md
-AUTO_FIX_*.md
 ORGANIZACAO_*.md
+organize_project.ps1
+overnight_runner.py
+parts/
+PRODUCTION_*.md
+PROJECT_*.md
+pytest.ini              # Se for local-only; se usado em CI, commitar
+quick_test.txt
 REFACTORING_*.md
-DIAGNOSTIC_*.md
-FREE_MODE_*.md
-HYBRID_*.md
-CORRECOES_*.md
-FINDINGS_*.md
-1-UAT.md
-CLAUDE.md
-
-# ── Downloaded / Cache ──
-downloaded_files/
-
-# ── Local scripts ──
+RELATORIO_*.md
+requirements_original_backup.txt
+requirements_simplified.txt
+requirements_v2.txt
+requirements-minimal.txt
+scraper_olx_run*.txt
+scraper_test*.txt
+scratch/
+scripts/
+scripts/clean_database.py
+scripts/comprehensive_audit.py
 scripts/insert_demo_data.py
 scripts/insert_price_history.py
 scripts/investigate_database.py
 scripts/recalculate_*.py
+scripts/setup_ollama_auto.py
 scripts/snapshot_price_history.py
 scripts/verify_imports.py
-scripts/clean_database.py
-scripts/comprehensive_audit.py
-scripts/setup_ollama_auto.py
-
-# ── One-off files ──
-analyze_standvirtual_structure.py
-debug_standvirtual.py
-organize_project.ps1
+sdist/
+SYSTEM_*.md
+target/
+TEST_*.md
 test_data_analysis.py
 test_db_check.py
-test_standvirtual_selectors.py
 test_output.txt
 test_results.txt
-scraper_olx_run*.txt
-scraper_test*.txt
-init_test.txt
-quick_test.txt
-coverage_report.txt
-requirements-minimal.txt
-requirements_original_backup.txt
-requirements_simplified.txt
-requirements_v2.txt
-
-# Dados pesados (não versionar)
-data/
-*.db
-*.sqlite
-*.sqlite3
-.catboost_info/
-mlruns/
-
+test_standvirtual_selectors.py
+Thumbs.db
+tmp/
+VALIDACAO_*.md
+var/
+vendor/
+venv/
+VIABILIDADE_*.md
+wheels/
