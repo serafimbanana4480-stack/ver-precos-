@@ -1,0 +1,26 @@
+{
+  "mae": 12380.860259567482,
+  "rmse": 23103.580021878293,
+  "r2": -0.24576266408694392,
+  "n_samples": 342,
+  "features": [
+    "year",
+    "km",
+    "horsepower",
+    "engine_size",
+    "doors",
+    "condition_score",
+    "brand_encoded",
+    "model_encoded",
+    "fuel_type_encoded",
+    "transmission_encoded",
+    "district_encoded",
+    "age",
+    "km_per_year",
+    "log_km",
+    "location_premium",
+    "brand_rarity"
+  ],
+  "training_date": "2026-06-10T22:06:51.998585+00:00",
+  "quality_warning": true
+}

@@ -28,6 +28,8 @@ def __getattr__(name: str) -> Any:
         "BCAScraper": ".auction_multi_scraper",
         "get_auction_multi_scraper": ".auction_multi_scraper",
         "FacebookScraper": ".facebook_scraper",
+        "AutoUncleLightweight": ".autouncle_lightweight",
+        "LeilosocLightweight": ".leilosoc_lightweight",
     }
     if name in module_map:
         module = importlib.import_module(module_map[name], __package__)
@@ -42,5 +44,5 @@ __all__ = [
     "AuctionScraper", "ImoVirtualScraper",
     "AuctionMultiScraper", "ManheimScraper", "AutorolaScraper",
     "BCAScraper", "get_auction_multi_scraper",
-    "FacebookScraper",
+    "FacebookScraper", "AutoUncleLightweight", "LeilosocLightweight",
 ]

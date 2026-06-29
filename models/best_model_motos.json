@@ -1,0 +1,34 @@
+{
+  "model_type": "catboost",
+  "model_path": "model_motos.cbm",
+  "scaler_path": "scaler_motos.joblib",
+  "brand_index_path": "brand_index_motos.json",
+  "vehicle_type": "motos",
+  "feature_names": [
+    "year",
+    "km",
+    "horsepower",
+    "engine_size",
+    "doors",
+    "age",
+    "km_per_year",
+    "fuel_type",
+    "transmission",
+    "brand",
+    "model",
+    "district",
+    "depreciation_factor",
+    "fuel_premium",
+    "location_premium",
+    "age_group",
+    "km_category",
+    "brand_popularity"
+  ],
+  "metrics": {
+    "r2": -0.03738485098482045,
+    "mae": 8637.387166023647,
+    "mape_pct": 94.34476564566147
+  },
+  "n_samples": 225,
+  "trained_at": "2026-06-29T23:18:29.528610"
+}

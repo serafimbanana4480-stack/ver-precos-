@@ -56,6 +56,9 @@ class FeatureStore:
         "fuel_type", "transmission",
         "brand", "model", "district",
         "depreciation_factor", "fuel_premium", "location_premium",
+        # New features for better accuracy
+        "age_group", "km_category", "brand_popularity",
+        "is_auction",  # Binary: 1 if source is LEILOSOC/VPAUTO/etc
     ]
 
     def __init__(self):
@@ -155,4 +158,83 @@ class FeatureStore:
                 break
         features["district"] = d_idx
 
+        # --- New features for better accuracy ---
+        # Age group (0-3, 4-6, 7-10, 10+)
+        if age <= 3:
+            features["age_group"] = 0.0
+        elif age <= 6:
+            features["age_group"] = 1.0
+        elif age <= 10:
+            features["age_group"] = 2.0
+        else:
+            features["age_group"] = 3.0
+        
+        # KM category (0-10k, 10k-50k, 50k-100k, 100k+)
+        km = features["km"]
+        if km <= 10000:
+            features["km_category"] = 0.0
+        elif km <= 50000:
+            features["km_category"] = 1.0
+        elif km <= 100000:
+            features["km_category"] = 2.0
+        else:
+            features["km_category"] = 3.0
+        
+        # Brand popularity (frequency encoding)
+        brand = str(vehicle.get("brand", "Unknown")).strip()
+        if not hasattr(self, '_brand_freq'):
+            # Compute frequency if not already done
+            total = sum(self.brand_to_idx.values()) if self.brand_to_idx else 1
+            self._brand_freq = {b: (i / total) for b, i in self.brand_to_idx.items()}
+        features["brand_popularity"] = float(self._brand_freq.get(brand, 0.0))
+        
+        # --- Auction flag (binary) ---
+        # Vehicles from auction sources have fundamentally different pricing
+        source = str(vehicle.get("source", "")).upper()
+        features["is_auction"] = 1.0 if source in ("LEILOSOC", "VPAUTO", "MANHEIM", "AUTOROLA", "BCA") else 0.0
+        
+        return features
+
+    def _compute_age_group(self, age: int) -> float:
+        """Convert age to group (0-3, 4-6, 7-10, 10+)."""
+        if age <= 3:
+            return 0.0
+        elif age <= 6:
+            return 1.0
+        elif age <= 10:
+            return 2.0
+        else:
+            return 3.0
+
+    def _compute_km_category(self, km: float) -> float:
+        """Convert km to category (0-10k, 10k-50k, 50k-100k, 100k+)."""
+        if km <= 10000:
+            return 0.0
+        elif km <= 50000:
+            return 1.0
+        elif km <= 100000:
+            return 2.0
+        else:
+            return 3.0
+
+    def _compute_brand_popularity(self, brand: str) -> float:
+        """Frequency encoding for brand."""
+        if not hasattr(self, '_brand_freq'):
+            # Compute frequency if not already done
+            total = sum(self.brand_to_idx.values())
+            self._brand_freq = {b: (i / total) for b, i in self.brand_to_idx.items()}
+        return self._brand_freq.get(brand, 0.0)
+
+    # Non-linear features for better fit
+    def _add_nonlinear_features(self, features: dict) -> dict:
+        """Add non-linear features (squares, interactions)."""
+        # Age squared (depreciation accelerates with age)
+        features['age_squared'] = features['age'] ** 2
+        
+        # KM squared (high KM penalizes more)
+        features['km_squared'] = features['km'] ** 2 / 1e6  # Scale down
+        
+        # Horsepower per year (performance retention)
+        features['horsepower_per_year'] = features['horsepower'] / max(features['age'], 1)
+        
         return features

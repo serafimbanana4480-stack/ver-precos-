@@ -1,0 +1,186 @@
+version: '3.8'
+
+# =============================================================================
+# AutoDeal IA Hunter — Production Docker Compose
+# =============================================================================
+
+x-common-env: &common-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-autodeal}:${POSTGRES_PASSWORD:-autodeal_password}@postgres:5432/${POSTGRES_DB:-autodeal}
+  REDIS_URL: redis://redis:6379/0
+  GROK_API_KEY: ${GROK_API_KEY:-}
+  USE_OLLAMA: ${USE_OLLAMA:-false}
+  OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+  DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+  EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST:-}
+  EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT:-587}
+  EMAIL_SMTP_USER: ${EMAIL_SMTP_USER:-}
+  EMAIL_SMTP_PASSWORD: ${EMAIL_SMTP_PASSWORD:-}
+  EMAIL_FROM: ${EMAIL_FROM:-}
+  EMAIL_TO: ${EMAIL_TO:-}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+  ENV: ${ENV:-production}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+x-common-volumes: &common-volumes
+  - ./data:/app/data
+  - ./models:/app/models
+  - ./logs:/app/logs
+  - ./exports:/app/exports
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: autodeal-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-autodeal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-autodeal_password}
+      POSTGRES_DB: ${POSTGRES_DB:-autodeal}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-autodeal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - autodeal-network
+
+  # ---------------------------------------------------------------------------
+  # Redis (Caching & Queue)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: autodeal-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - autodeal-network
+
+  # ---------------------------------------------------------------------------
+  # Streamlit Dashboard
+  # ---------------------------------------------------------------------------
+  dashboard:
+    build:
+      context: .
+      target: production
+    container_name: autodeal-dashboard
+    <<: [*common-env]
+    volumes: *common-volumes
+    ports:
+      - "8501:8501"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - autodeal-network
+
+  # ---------------------------------------------------------------------------
+  # FastAPI Backend
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      target: api
+    container_name: autodeal-api
+    <<: [*common-env]
+    volumes: *common-volumes
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - autodeal-network
+
+  # ---------------------------------------------------------------------------
+  # Scheduler Worker
+  # ---------------------------------------------------------------------------
+  scheduler:
+    build:
+      context: .
+      target: scheduler
+    container_name: autodeal-scheduler
+    <<: [*common-env]
+    volumes: *common-volumes
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    restart: unless-stopped
+    networks:
+      - autodeal-network
+
+  # ---------------------------------------------------------------------------
+  # Nginx Reverse Proxy (optional, for production)
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    container_name: autodeal-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - dashboard
+      - api
+    restart: unless-stopped
+    networks:
+      - autodeal-network
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  autodeal-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

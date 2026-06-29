@@ -1,194 +1,71 @@
-
-!.env.example
-!CHANGELOG.md
-!data/.gitkeep
-!exports/.gitkeep
-!LICENSE.md
-!models/.gitkeep
-!README.md
-# .git/  # commented out — .gitignore should never ignore itself
-# .gitignore
-# ── Auto-generated / Temporary ──
-# ── Downloaded / Cache ──
-# ── GSD baseline (auto-generated) ──
-# ── IDE / Local ──
-# ── Local scripts ──
-# ── One-off files ──
-# ── Reports ──
-# ── Test artifacts ──
-# Ambiente virtual
-# Dados pesados (não versionar)
-# Data
-# Database
-# Docker
-# Environment
-# Exports
-# Git
-# IDE
-# Logs
-# Models
-# OS
-# Python
-# Testing
-*$py.class
-*.code-workspace
-*.db
-*.egg
-*.egg-info/
-*.log
-*.md
-*.py[cod]
-*.pyc
-*.so
-*.sqlite
-*.sqlite3
-*.swo
-*.swp
-*~
-.agents/
-.bg-shell/
-.cache/
-.catboost_info/
-.coverage
-.dockerignore
-.DS_Store
-.eggs/
-.env
-.env.*
-.env.*.local
-.env.local
-.env/
-.gsd
-.gsd-id
-.idea/
-.installed.cfg
-.kimi/
-.next/
-.planning/
-.pytest_cache/
-.Python
-.tox/
-.venv/
-.vscode/
-.windsurf/
-__pycache__/
-1-UAT.md
-ANALISE_*.md
-analyze_standvirtual_structure.py
-app_new.py
-archive/
-AUDIT_*.md
-AUDITORIA_*.md
-AUTO_FIX_*.md
-build/
-CLAUDE.md
-CLEANUP_*.md
-CODE_QUALITY_*.md
-CORRECOES_*.md
-coverage/
-coverage_report.txt
-data/
-data/*.csv
-data/*.json
-data/*.xlsx
-debug_standvirtual.py
-develop-eggs/
-DIAGNOSTIC_*.md
-dist/
-docker-compose.yml
-Dockerfile
-downloaded_files/
-downloads/
-eggs/
-env/
-ENV/
-exports/*
-FINAL_*.md
-FINDINGS_*.md
-FREE_MODE_*.md
-htmlcov/
-HYBRID_*.md
-IMPLEMENTATION_*.md
-init_test.txt
-LAYER2_*.md
-lib/
-lib64/
-logs/
-mass_scrape*.py
-MIGRATION_*.md
-mlruns/
-models/*.joblib
-models/*.json
-models/*.pkl
-node_modules/
-ORGANIZACAO_*.md
-organize_project.ps1
-overnight_runner.py
-parts/
-PRODUCTION_*.md
-PROJECT_*.md
-pytest.ini              # Se for local-only; se usado em CI, commitar
-quick_test.txt
-REFACTORING_*.md
-RELATORIO_*.md
-requirements_original_backup.txt
-requirements_simplified.txt
-requirements_v2.txt
-requirements-minimal.txt
-scraper_olx_run*.txt
-scraper_test*.txt
-scratch/
-scripts/
-scripts/clean_database.py
-scripts/comprehensive_audit.py
-scripts/insert_demo_data.py
-scripts/insert_price_history.py
-scripts/investigate_database.py
-scripts/recalculate_*.py
-scripts/setup_ollama_auto.py
-scripts/snapshot_price_history.py
-scripts/verify_imports.py
-sdist/
-SYSTEM_*.md
-target/
-TEST_*.md
-test_data_analysis.py
-test_db_check.py
-test_output.txt
-test_results.txt
-test_standvirtual_selectors.py
-Thumbs.db
-tmp/
-VALIDACAO_*.md
-var/
-vendor/
-venv/
-VIABILIDADE_*.md
-wheels/
-
-# Python
+# ── Python ──
 __pycache__/
 *.pyc
 *.pyo
-*.pyd
-.Python/
-env/
-venv/
 *.egg-info/
-.eggs/
-# IDEs
+dist/
+build/
+
+# ── Virtual env ──
+.venv/
+venv/
+env/
+
+# ── IDE / Editor ──
 .vscode/
 .idea/
 *.swp
 *.swo
-# Meus ficheiros
-data/
-models/
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── Environment ──
+.env
+!.env.example
+
+# ── Database ──
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ── Logs ──
 logs/
 *.log
-*.json
-*.pkl
-# Scripts (nao comitar)
-scripts/
 
-scripts/
+# ── Cache ──
+catboost_info/
+ml_outputs/
+
+# ── Exports / Downloads ──
+exports/*
+!exports/.gitkeep
+downloaded_files/
+
+# ── Docker ──
+docker-compose.override.yml
+
+# ── Data (large files) ──
+data/*.db
+!data/.gitkeep
+
+# ── Models (large binaries) ──
+models/*.cbm
+models/*.joblib
+
+# ── Temporary / Scratch ──
+scratch/
+tmp/
+temp/
+
+# ── Cohort / testing ──
+.kimi/
+.windsurf/
+.planning/
+.openworkflow/
+.gsd/
+.bg-shell/
+.agents/
+.artifacts/
+.gsd-id

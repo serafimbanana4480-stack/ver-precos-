@@ -32,38 +32,48 @@ def _val_str(val) -> str:
 
 
 def load_raw_data(vehicle_type: str = "carros") -> pd.DataFrame:
-    from database.db import get_db_context
+    """Load vehicle data from SQLite, properly handling session binding."""
+    from database.db import SessionLocal
     from database.models import Vehicle, VehicleType
 
-    with get_db_context() as db:
+    db = SessionLocal()
+    try:
         query = db.query(Vehicle).filter(
             Vehicle.vehicle_type == VehicleType(vehicle_type),
-            Vehicle.price > 500,
-            Vehicle.price < 500000,
+            Vehicle.price > 1000,  # Remover preços muito baixos (prováveis erros)
+            Vehicle.price < 100000,  # Remover preços muito altos (outliers)
             Vehicle.year.isnot(None),
         )
         # For cars, require KM data (essential); for motorcycles be more lenient
         if vehicle_type == "carros":
-            query = query.filter(Vehicle.km.isnot(None), Vehicle.km > 0)
+            query = query.filter(Vehicle.km.isnot(None), Vehicle.km > 0, Vehicle.km <= 300000)  # Remover KM irrealistas
         
         rows = query.all()
 
-        records = [{
-            "year": v.year, "km": v.km or 0,
-            "horsepower": v.horsepower or 0, "engine_size": v.engine_size or 0,
-            "doors": v.doors or 4,
-            "fuel_type": _val_str(v.fuel_type),
-            "transmission": _val_str(v.transmission),
-            "brand": v.brand or "Unknown",
-            "model": v.model or "",
-            "location": v.location or "",
-            "price": v.price,
-            "first_seen": v.first_seen,
-        } for v in rows]
-
-    df = pd.DataFrame(records)
-    logger.info(f"Loaded {len(df)} rows for {vehicle_type}")
-    return df
+        records = []
+        for v in rows:
+            # Access ALL attributes inside the session
+            records.append({
+                "id": v.id,
+                "year": v.year, 
+                "km": v.km or 0,
+                "horsepower": v.horsepower or 0, 
+                "engine_size": v.engine_size or 0,
+                "doors": v.doors or 4,
+                "fuel_type": _val_str(v.fuel_type),
+                "transmission": _val_str(v.transmission),
+                "brand": v.brand or "Unknown",
+                "model": v.model or "",
+                "location": v.location or "",
+                "price": v.price,
+                "first_seen": v.first_seen,
+            })
+        
+        df = pd.DataFrame(records)
+        logger.info(f"Loaded {len(df)} rows for {vehicle_type}")
+        return df
+    finally:
+        db.close()
 
 
 def train_model(vehicle_type: str = "carros", force_retrain: bool = False) -> Optional[Dict]:

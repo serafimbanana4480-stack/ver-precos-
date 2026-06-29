@@ -1,0 +1,35 @@
+{
+  "model_type": "xgboost",
+  "model_path": "model_carros.json",
+  "scaler_path": "scaler_carros.joblib",
+  "brand_index_path": "brand_index_carros.json",
+  "vehicle_type": "carros",
+  "feature_names": [
+    "year",
+    "km",
+    "horsepower",
+    "engine_size",
+    "doors",
+    "age",
+    "km_per_year",
+    "fuel_type",
+    "transmission",
+    "brand",
+    "model",
+    "district",
+    "depreciation_factor",
+    "fuel_premium",
+    "location_premium",
+    "age_group",
+    "km_category",
+    "brand_popularity",
+    "is_auction"
+  ],
+  "metrics": {
+    "r2": 0.6531765865833279,
+    "mae": 5818.0827997408915,
+    "mape_pct": 46.02156015369976
+  },
+  "n_samples": 2392,
+  "trained_at": "2026-06-30T00:16:33.830145"
+}
