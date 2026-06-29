@@ -165,3 +165,29 @@ vendor/
 venv/
 VIABILIDADE_*.md
 wheels/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python/
+env/
+venv/
+*.egg-info/
+.eggs/
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+# Meus ficheiros
+data/
+models/
+logs/
+*.log
+*.json
+*.pkl
+# Scripts (nao comitar)
+scripts/
+
