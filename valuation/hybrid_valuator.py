@@ -120,8 +120,8 @@ class HybridValuator:
         """Get price from segment medians with depreciation adjustment."""
         brand = str(vehicle_data.get("brand", "")).strip().lower()
         model = str(vehicle_data.get("model", "")).strip().lower()
-        year = int(vehicle_data.get("year", 0))
-        km = int(vehicle_data.get("km", 0))
+        year = int(vehicle_data.get("year") or 0)
+        km = int(vehicle_data.get("km") or 0)
 
         # Try level 1: brand + model + year
         key = (brand, model, year)
@@ -191,22 +191,81 @@ class HybridValuator:
         except Exception as e:
             logger.debug(f"Segment estimate failed: {e}")
 
-        # Combine estimates
+        # Combine estimates into a base value
         if ml_price and segment_price:
             # Weight by model confidence (R²)
             ml_weight = max(0.3, min(0.7, self.ml_r2))
             seg_weight = 1 - ml_weight
-            combined = ml_price * ml_weight + segment_price * seg_weight
-            logger.debug(f"Combined estimate (ML w={ml_weight:.2f}): €{combined:.0f}")
-            return round(combined, 2)
+            final = ml_price * ml_weight + segment_price * seg_weight
+            logger.debug(f"Combined estimate (ML w={ml_weight:.2f}): €{final:.0f}")
         elif ml_price:
-            return round(ml_price, 2)
+            final = ml_price
         elif segment_price:
-            return round(segment_price, 2)
+            final = segment_price
         else:
             # Ultimate fallback
-            return 10000.0
+            final = 10000.0
 
+        # --- AUCTION ADJUSTMENT ---
+        # Vehicles from auctions sell 60-85% below market due to:
+        # - Sold "as-is" (no warranty, often damaged)
+        # - Buyer must transport, repair, register
+        # - Professional buyers only (less competition)
+        source = str(vehicle_data.get("source", "")).upper()
+        if source in ("LEILOSOC", "VPAUTO", "MANHEIM", "AUTOROLA", "BCA"):
+            year = int(vehicle_data.get("year") or 2010)
+            km = int(vehicle_data.get("km") or 200000)
+            age = max(0, pd.Timestamp.now().year - year)
+
+            # Base ratio: how much market price exceeds auction price
+            if age > 15 or km > 250000:
+                auction_ratio = 3.5
+            elif age > 10 or km > 150000:
+                auction_ratio = 2.5
+            elif age > 5:
+                auction_ratio = 2.0
+            else:
+                auction_ratio = 1.6
+
+            auction_price = float(vehicle_data.get("price", 0))
+            if auction_price > 0 and auction_price < final * 0.5:
+                repair_cost = self._estimate_repair_costs(
+                    float(vehicle_data.get("condition_score") or 3.0)
+                )
+                adjusted = min(auction_price * auction_ratio, final * 0.7)
+                adjusted += repair_cost
+                # Never let auction estimate exceed €50K (cap for sanity)
+                adjusted = min(adjusted, 50000)
+                logger.debug(f"Auction adjustment: €{final:.0f} → €{adjusted:.0f} "
+                           f"(ratio={auction_ratio}x, repairs=€{repair_cost:.0f})")
+                final = adjusted
+            else:
+                final = final * 0.55
+
+        # --- SMALL MOTORCYCLE ADJUSTMENT ---
+        # Scooters and small bikes (125cc) are systematically overestimated
+        # because the model was trained mostly on cars and large BMWs.
+        # Simple rule: for known scooters, cap the estimate at 1.5x the asking price.
+        vehicle_type = str(vehicle_data.get("vehicle_type", "")).lower()
+        title = str(vehicle_data.get("title", "")).lower()
+        model_str = str(vehicle_data.get("model", "")).lower()
+        price = float(vehicle_data.get("price", 0))
+
+        is_scooter = any(kw in (title + model_str) for kw in
+            ['pcx', 'scooter', 'vespa', 'liberty', 'jet', 'nmax', 'xmax',
+             'forza', 'sh125', 'sh150', 'medley', 'burgman', 'cygnus', 'dink',
+             'msx', 'vision', 'tweet', 'agility', 'people', 'like',
+             'sh125i', 'sh150i', 'nss', 'ww125', 'cbf125', 'cb125', 'cbr125'])
+        has_125 = ('125' in title or '125' in model_str) and '1250' not in title and '1250' not in model_str
+        is_scooter = is_scooter or has_125
+
+        if vehicle_type == 'motos' and is_scooter and price > 100:
+            # A PCX selling for E2500 is not worth E10000.
+            # Cap realistic value at 1.8x asking price for scooters.
+            final = min(final, price * 1.8)
+            logger.debug(f"Scooter cap: E{final:.0f}")
+
+        return round(final, 2)
     # Portugal vehicle transfer tax rates (simplified)
     TRANSFER_TAX_RATE = 0.155   # ISV(10%) + IMT(5%) + Selo(0.5%) ≈ 15.5%
 

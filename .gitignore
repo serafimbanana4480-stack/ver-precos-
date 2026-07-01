@@ -39,6 +39,7 @@ wheels/
 *.db
 *.sqlite
 *.sqlite3
+autodeal.db              # raiz — DB local pesado (5.7MB)
 
 # Logs
 logs/
@@ -55,6 +56,11 @@ models/*.json
 models/*.pkl
 models/*.joblib
 !models/.gitkeep
+
+# Binary / serialized artifacts (global)
+*.backup
+*.joblib
+*.pkl
 
 # Exports
 exports/*

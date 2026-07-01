@@ -199,6 +199,30 @@ class CustoJustoScraper:
 
             fuel = params.get("fuel")
             gearbox = params.get("gearbox")
+            # --- Extract KM from params or title ---
+            km = 0
+            # Try params first
+            mileage_raw = params.get("mileage") or params.get("km") or params.get("quilometros")
+            if mileage_raw:
+                try:
+                    km = int(re.sub(r"[^\d]", "", str(mileage_raw)))
+                except (ValueError, TypeError):
+                    pass
+            # Fallback: extract from title (e.g. "73 Mil Kms", "150000 km")
+            if not km:
+                km_match = re.search(r"(\d{1,3}(?:[.,]\d{3})*)\s*(?:mil\s*)?(?:kms?|km|quil)[^\w]", title, re.I)
+                if km_match:
+                    km_str = re.sub(r"[.,\s]", "", km_match.group(1))
+                    try:
+                        km = int(km_str)
+                        if "mil" in title.lower():
+                            km *= 1000
+                    except ValueError:
+                        pass
+            # Fallback: estimate from year (15,000 km/year)
+            if not km and year:
+                age = max(1, datetime.now().year - year)
+                km = age * 15000
 
             return {
                 "source": "custojusto",
@@ -209,7 +233,7 @@ class CustoJustoScraper:
                 "model": model,
                 "year": year,
                 "price": price,
-                "km": 0,
+                "km": km,
                 "vehicle_type": vehicle_type,
                 "description": (item.get("body") or title).strip(),
                 "images": [image_url] if image_url else [],
@@ -261,6 +285,21 @@ class CustoJustoScraper:
             if price == 0:
                 return None
 
+            # Extract KM from title or nearby text
+            km = 0
+            km_match = re.search(r"(\d{1,3}(?:[.,]\d{3})*)\s*(?:mil\s*)?(?:kms?|km|quil)", title + " " + description, re.I)
+            if km_match:
+                km_str = re.sub(r"[.,\s]", "", km_match.group(1))
+                try:
+                    km = int(km_str)
+                    if "mil" in (title + description).lower():
+                        km *= 1000
+                except ValueError:
+                    pass
+            if not km and year:
+                age = max(1, datetime.now().year - year)
+                km = age * 15000
+
             return {
                 "source": "custojusto",
                 "source_id": f"custojusto_{hash(url) % 100000000}",
@@ -270,7 +309,7 @@ class CustoJustoScraper:
                 "model": model,
                 "year": year,
                 "price": price,
-                "km": 0,  # CustoJusto doesn't always show KM in listings
+                "km": km,
                 "vehicle_type": vehicle_type,
                 "description": description.strip() if description else title.strip(),
                 "images": [image_url] if image_url else [],
