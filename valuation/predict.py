@@ -101,18 +101,13 @@ def update_vehicle_valuations(batch_size: int = 100) -> int:
     updated = 0
 
     with get_db_context() as db:
-        vehicles = db.query(Vehicle).filter(
-            Vehicle.estimated_value.is_(None),
-            Vehicle.year.isnot(None),
-        ).limit(batch_size).all()
+        vehicles = db.query(Vehicle).filter(Vehicle.estimated_value.is_(None)).limit(batch_size).all()
         for v in vehicles:
             ft = v.fuel_type.value if v.fuel_type else "unknown"
             tr = v.transmission.value if v.transmission else "unknown"
             data = {
-                "year": v.year or 0, "km": v.km or 0,
-                "horsepower": v.horsepower or 0,
-                "engine_size": v.engine_size or 0,
-                "doors": v.doors or 4,
+                "year": v.year, "km": v.km, "horsepower": v.horsepower,
+                "engine_size": v.engine_size, "doors": v.doors,
                 "fuel_type": ft, "transmission": tr,
                 "brand": v.brand or "Unknown", "location": v.location or "",
             }
