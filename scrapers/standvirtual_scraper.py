@@ -346,6 +346,7 @@ class StandvirtualScraper:
             "location": location,
             "images": images,
             "fuel_type": (candidate.get("fuel") or candidate.get("fuelType") or "") or "",
+            "transmission": (candidate.get("gearbox") or candidate.get("transmission") or "") or "",
             "description": candidate.get("description") or "",
             "raw_data": str(candidate),
         }

@@ -17,6 +17,8 @@ from urllib.parse import urljoin
 
 import requests
 
+from utils.scraping_log import start_scrape_log, finish_scrape_log
+
 logger = logging.getLogger(__name__)
 
 # Vehicle category ID = 6 ("Veículos")
@@ -74,6 +76,7 @@ class LeilosocLightweight:
             List of auction lot dicts with real transaction prices.
         """
         logger.info(f"[LEILOSOC_LIGHT] Starting scrape, max {max_listings}")
+        log_id = start_scrape_log("LEILOSOC")
 
         listings = []
         page = 1
@@ -106,6 +109,8 @@ class LeilosocLightweight:
 
         listings = listings[:max_listings]
         logger.info(f"[LEILOSOC_LIGHT] Total extracted: {len(listings)}")
+        if log_id:
+            finish_scrape_log(log_id, "completed", listings_found=len(listings))
         return listings
 
     def _parse_next_data(self, html: str) -> List[Dict[str, Any]]:
@@ -168,9 +173,23 @@ class LeilosocLightweight:
 
         # --- KM ---
         km = None
-        mileage = cf.get("mileage")
-        if mileage is not None:
-            km = self._safe_int(mileage)
+        # Try multiple field names
+        for km_field in ["mileage", "km", "odometer", "kilometers", "kms"]:
+            km_val = cf.get(km_field)
+            if km_val is not None:
+                km = self._safe_int(km_val)
+                if km is not None and km > 0:
+                    break
+        # If still no km, try to extract from title/description
+        if not km:
+            full_text = (title + " " + (lot.get("description") or "")).lower()
+            km_m = re.search(r"(\d[\d\s.]*)\s*(?:km|kms|quilómetros|quilometros)", full_text)
+            if km_m:
+                km_str = re.sub(r"[\s.]", "", km_m.group(1))
+                try:
+                    km = int(km_str) if km_str else None
+                except ValueError:
+                    pass
 
         # --- Price (adjudication / base value) ---
         # Priority: valueSold (actual adjudication) > valueOpen (current bid) > valueBase (starting)
@@ -200,6 +219,13 @@ class LeilosocLightweight:
             transmission = "manual"
         elif "auto" in trans_raw:
             transmission = "automatico"
+        # Fallback: try to extract from title/description
+        if transmission == "unknown":
+            full_text = (title + " " + (lot.get("description") or "")).lower()
+            if "manual" in full_text:
+                transmission = "manual"
+            elif any(t in full_text for t in ["automático", "automática", "automatico", "automatica", "auto"]):
+                transmission = "automatico"
 
         # --- Horsepower (power/cv) ---
         hp = self._safe_int(cf.get("power"))

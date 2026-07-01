@@ -16,6 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from database.models import Source, VehicleType
+from utils.scraping_log import start_scrape_log, finish_scrape_log
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +80,14 @@ class AutoPtLightweightScraper:
             model, fuel_type, transmission, url, source_id, source, location
         """
         logger.info(f"[AUTOPT_LIGHT] Starting scrape for {vehicle_type}, max {max_listings}")
+        log_id = start_scrape_log("AUTOPT")
         url = self._build_url(vehicle_type, filters)
         html = self._fetch(url)
 
         if not html:
             logger.warning("[AUTOPT_LIGHT] No HTML fetched")
+            if log_id:
+                finish_scrape_log(log_id, "failed", error_message="No HTML fetched")
             return []
 
         soup = BeautifulSoup(html, "html.parser")
@@ -92,17 +96,23 @@ class AutoPtLightweightScraper:
         listings = self._parse_listing_links(soup, max_listings)
         if listings:
             logger.info(f"[AUTOPT_LIGHT] Extracted {len(listings)} listings from listing links")
+            if log_id:
+                finish_scrape_log(log_id, "completed", listings_found=len(listings))
             return listings
 
         # Strategy 2: Parse <article> elements
         listings = self._parse_articles(soup, max_listings)
         if listings:
             logger.info(f"[AUTOPT_LIGHT] Extracted {len(listings)} listings from articles")
+            if log_id:
+                finish_scrape_log(log_id, "completed", listings_found=len(listings))
             return listings
 
         # Strategy 3: Extract from schema.org JSON-LD (limited data)
         listings = self._extract_from_schema(soup, max_listings)
         logger.info(f"[AUTOPT_LIGHT] Extracted {len(listings)} listings from schema")
+        if log_id:
+            finish_scrape_log(log_id, "completed", listings_found=len(listings))
         return listings
 
     def _build_url(self, vehicle_type: str, filters: Optional[Dict[str, object]] = None) -> str:
@@ -229,6 +239,7 @@ class AutoPtLightweightScraper:
             fuel_type = None
             year = None
             km = None
+            transmission = None
 
             for li in li_items:
                 li_text = li.get_text(" ", strip=True)
@@ -239,6 +250,14 @@ class AutoPtLightweightScraper:
                                                   "eléctrico", "electrico",
                                                   "híbrido", "hibrido", "gpl", "hidrogénio"]):
                     fuel_type = self._normalize_fuel(li_text)
+
+                # Check transmission
+                if any(t in li_lower for t in ["manual", "automático", "automática",
+                                                 "automatico", "automatica"]):
+                    if "manual" in li_lower:
+                        transmission = "manual"
+                    else:
+                        transmission = "automático"
 
                 # Check year (4 digits)
                 year_m = re.search(r"\b(19[4-9]\d|20[0-3]\d)\b", li_text)
@@ -255,24 +274,30 @@ class AutoPtLightweightScraper:
                         pass
 
             # Alternative: parse from full text if ul parsing didn't work
-            if not any([fuel_type, year, km]):
-                full_text_lower = card.get_text(" ", strip=True).lower()
+            full_text = card.get_text(" ", strip=True)
+            full_text_lower = full_text.lower()
+            if not fuel_type:
                 for f in ["gasolina", "diesel", "elétrico", "eletrico", "híbrido", "hibrido", "gpl"]:
                     if f in full_text_lower:
                         fuel_type = self._normalize_fuel(f)
                         break
-                if not year:
-                    year_m = re.search(r"\b(19[4-9]\d|20[0-3]\d)\b", card.get_text())
-                    if year_m:
-                        year = int(year_m.group(1))
-                if not km:
-                    km_m = re.search(r"([\d\s.]+)\s*km", card.get_text(), re.I)
-                    if km_m:
-                        km_str = re.sub(r"[\s.]", "", km_m.group(1))
-                        try:
-                            km = int(km_str) if km_str else None
-                        except ValueError:
-                            pass
+            if not transmission:
+                if "manual" in full_text_lower and "automático" not in full_text_lower and "automatico" not in full_text_lower:
+                    transmission = "manual"
+                elif any(t in full_text_lower for t in ["automático", "automatico", "automática"]):
+                    transmission = "automático"
+            if not year:
+                year_m = re.search(r"\b(19[4-9]\d|20[0-3]\d)\b", full_text)
+                if year_m:
+                    year = int(year_m.group(1))
+            if not km:
+                km_m = re.search(r"([\d\s.]+)\s*(?:km|kms|quilómetros|quilometros)", full_text, re.I)
+                if km_m:
+                    km_str = re.sub(r"[\s.]", "", km_m.group(1))
+                    try:
+                        km = int(km_str) if km_str else None
+                    except ValueError:
+                        pass
 
             # Location from the location div
             location = ""
@@ -284,14 +309,6 @@ class AutoPtLightweightScraper:
                     location = location_text.split("|")[-1].strip()
                 else:
                     location = location_text.strip()
-
-            # Transmission is usually not shown on listing cards, try to infer from text
-            transmission = None
-            full_text_lower = card.get_text(" ", strip=True).lower()
-            if "manual" in full_text_lower and "automático" not in full_text_lower and "automatico" not in full_text_lower:
-                transmission = "manual"
-            elif any(t in full_text_lower for t in ["automático", "automatico", "automática"]):
-                transmission = "automatico"
 
             # Brand/Model from title
             brand, model = self._parse_brand_model(title)

@@ -257,6 +257,20 @@ class AutoSapoScraper:
             import hashlib
             source_id = hashlib.md5(url.encode()).hexdigest()
 
+            # Extract fuel_type and transmission from full text
+            full_text_lower = (text_block + " " + title).lower()
+            fallback_fuel = None
+            if any(f in full_text_lower for f in ['gasolina', 'diesel', 'elétrico', 'eletrico', 'eléctrico', 'híbrido', 'hibrido', 'gpl']):
+                for f in ['gasolina', 'diesel', 'elétrico', 'eletrico', 'eléctrico', 'híbrido', 'hibrido', 'gpl']:
+                    if f in full_text_lower:
+                        fallback_fuel = f
+                        break
+            fallback_transmission = None
+            if 'manual' in full_text_lower:
+                fallback_transmission = 'manual'
+            elif any(t in full_text_lower for t in ['automático', 'automática', 'automatico', 'automatica']):
+                fallback_transmission = 'automático'
+
             listings.append({
                 "source": "AUTOSAPO",
                 "source_id": source_id,
@@ -269,6 +283,8 @@ class AutoSapoScraper:
                 "km": km,
                 "location": location,
                 "images": [image_url] if isinstance(image_url, str) and image_url.startswith("http") else [],
+                "fuel_type": fallback_fuel or "",
+                "transmission": fallback_transmission or "",
                 "description": "",
             })
             seen_urls.add(url)
@@ -431,10 +447,11 @@ class AutoSapoScraper:
             if price is None:
                 price = self._extract_price_from_text(desc.get_text(strip=True))
 
-            # Year, km, fuel from div.features > ul > li
+            # Year, km, fuel, transmission from div.features > ul > li
             year = None
             km = None
             fuel_type = None
+            transmission = None
 
             features = desc.find('div', class_='features')
             if features:
@@ -448,7 +465,20 @@ class AutoSapoScraper:
                             km_val = re.sub(r"\D", "", text)
                             if km_val:
                                 km = int(km_val)
-                        else:
+                        elif any(f in text.lower() for f in
+                                ['gasolina', 'diesel', 'elétrico', 'eletrico',
+                                 'eléctrico', 'electrico',
+                                 'híbrido', 'hibrido', 'gpl', 'hidrogénio']):
+                            fuel_type = text
+                        elif any(t in text.lower() for t in
+                                ['manual', 'automático', 'automática',
+                                 'automatico', 'automatica', 'caixa']):
+                            transmission = text.lower()
+                            if 'manual' in transmission:
+                                transmission = 'manual'
+                            elif 'automático' in transmission or 'automática' in transmission or 'automatico' in transmission or 'automatica' in transmission:
+                                transmission = 'automático'
+                        elif fuel_type is None and transmission is None:
                             fuel_type = text
 
             # Image
@@ -476,6 +506,7 @@ class AutoSapoScraper:
                 "location": "",
                 "images": [image_url] if image_url and image_url.startswith('http') else [],
                 "fuel_type": fuel_type or "",
+                "transmission": transmission or "",
                 "description": "",
                 "raw_data": str(element)
             }
