@@ -1,6 +1,6 @@
 {
-  "model_type": "xgboost",
-  "model_path": "model_carros.json",
+  "model_type": "catboost",
+  "model_path": "model_carros.cbm",
   "scaler_path": "scaler_carros.joblib",
   "brand_index_path": "brand_index_carros.json",
   "vehicle_type": "carros",
@@ -19,17 +19,13 @@
     "district",
     "depreciation_factor",
     "fuel_premium",
-    "location_premium",
-    "age_group",
-    "km_category",
-    "brand_popularity",
-    "is_auction"
+    "location_premium"
   ],
   "metrics": {
-    "r2": 0.6793626172256806,
-    "mae": 5753.837482419539,
-    "mape_pct": 43.16346346254677
+    "r2": 0.601179768330812,
+    "mae": 9123.224197338479,
+    "mape_pct": 58.548603186335036
   },
-  "n_samples": 2511,
-  "trained_at": "2026-06-30T01:06:27.750693"
+  "n_samples": 3027,
+  "trained_at": "2026-07-01T17:09:14.505390"
 }

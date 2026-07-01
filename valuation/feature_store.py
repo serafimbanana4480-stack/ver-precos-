@@ -93,11 +93,11 @@ class FeatureStore:
 
     def compute_features(self, vehicle: dict) -> dict:
         features = {}
-        features["year"] = float(vehicle.get("year", datetime.now().year - 5))
-        features["km"] = float(vehicle.get("km", 0))
-        features["horsepower"] = float(vehicle.get("horsepower", 0))
-        features["engine_size"] = float(vehicle.get("engine_size", 0))
-        features["doors"] = float(vehicle.get("doors", 4))
+        features["year"] = float(vehicle.get("year") or datetime.now().year - 5)
+        features["km"] = float(vehicle.get("km") or 0)
+        features["horsepower"] = float(vehicle.get("horsepower") or 0)
+        features["engine_size"] = float(vehicle.get("engine_size") or 0)
+        features["doors"] = float(vehicle.get("doors") or 4)
         age = max(datetime.now().year - features["year"], 0)
         features["age"] = float(age)
         features["km_per_year"] = features["km"] / max(age, 1)

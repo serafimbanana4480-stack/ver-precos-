@@ -95,9 +95,9 @@ class PricePredictor:
 def update_vehicle_valuations(batch_size: int = 100) -> int:
     from database.db import get_db_context
     from database.models import Vehicle
+    from valuation.hybrid_valuator import get_valuator
 
-    predictor_car = PricePredictor("carros")
-    predictor_moto = PricePredictor("motos")
+    valuator = get_valuator()
     updated = 0
 
     with get_db_context() as db:
@@ -109,10 +109,15 @@ def update_vehicle_valuations(batch_size: int = 100) -> int:
                 "year": v.year, "km": v.km, "horsepower": v.horsepower,
                 "engine_size": v.engine_size, "doors": v.doors,
                 "fuel_type": ft, "transmission": tr,
-                "brand": v.brand or "Unknown", "location": v.location or "",
+                "brand": v.brand or "Unknown", "model": v.model or "",
+                "location": v.location or "",
+                "source": v.source.value if v.source else "",
+                "vehicle_type": v.vehicle_type.value if v.vehicle_type else "carros",
+                "title": v.title or "",
+                "price": v.price or 0,
+                "condition_score": v.condition_score or 3.0,
             }
-            predictor = predictor_car if v.vehicle_type.value == "carros" else predictor_moto
-            pred = predictor.predict(data)
+            pred = valuator.estimate_value(data)
             if pred is not None:
                 v.estimated_value = round(pred, 2)
                 updated += 1
