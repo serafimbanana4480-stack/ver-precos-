@@ -148,11 +148,18 @@ EXPOSE 8000
 CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
 
 # -----------------------------------------------------------------------------
-# STAGE 5: Scheduler — Background worker
+# STAGE 5: Scheduler — Background worker (autonomous: scrape+retrain+health)
 # -----------------------------------------------------------------------------
 FROM production AS scheduler
 
-CMD ["python", "-m", "scheduler.daily_job"]
+EXPOSE 8501
+
+# O scheduler autónomo faz scrape diário, retrain semanal e relatório de saúde.
+# Mantém-se vivo; o módulo faz o loop interno (schedule.run_pending).
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+    CMD python -c "import subprocess,sys; sys.exit(0 if b'scheduler.autonomous' in subprocess.check_output(['pgrep','-af','scheduler'],stderr=subprocess.STDOUT) else 1)"
+
+CMD ["python", "-m", "scheduler.autonomous"]
 
 # -----------------------------------------------------------------------------
 # STAGE 6: Development — Full dev environment with root access

@@ -1,8 +1,17 @@
 {
-  "model_type": "catboost",
-  "model_path": "model_carros.cbm",
+  "model_type": "xgboost",
+  "model_path": "model_carros.json",
   "scaler_path": "scaler_carros.joblib",
   "brand_index_path": "brand_index_carros.json",
+  "low_model_path": "model_carros_low.json",
+  "low_scaler_path": "scaler_carros_low.joblib",
+  "high_model_path": "model_carros_high.json",
+  "high_threshold": 20000.0,
+  "high_log_target": true,
+  "high_cat_features": [7, 8, 9, 10, 11],
+  "high_model_type": "catboost",
+  "full_log_target": true,
+  "low_threshold": 20000.0,
   "vehicle_type": "carros",
   "feature_names": [
     "year",
@@ -19,13 +28,38 @@
     "district",
     "depreciation_factor",
     "fuel_premium",
-    "location_premium"
+    "location_premium",
+    "log_km",
+    "km_excess",
+    "km_extreme"
   ],
   "metrics": {
-    "r2": 0.601179768330812,
-    "mae": 9123.224197338479,
-    "mape_pct": 58.548603186335036
+    "r2": 0.8807973677323832,
+    "mae": 4376.0604358351375,
+    "mape_pct": 14.728716968401526
   },
-  "n_samples": 3027,
-  "trained_at": "2026-07-01T17:09:14.505390"
+  "low_metrics": {
+    "r2": 0.8117804277246168,
+    "mae": 1690.5306216732486,
+    "mape_pct": 24.953750041715324
+  },
+  "n_samples": 3733,
+  "trained_at": "2026-07-10T05:30:02.358860",
+  "excludes_auctions": [
+    "AUTOLINE",
+    "AUTOROLA",
+    "BCA",
+    "LEILOSOC",
+    "MANHEIM",
+    "MARTELO",
+    "PENHORADO",
+    "VPAUTO"
+  ],
+  "routing": "three_way_full_prelim",
+  "optimizations": {
+    "segmented_low_full": true,
+    "segmented_high_full": true,
+    "full_log_target": true,
+    "excludes_auctions": true
+  }
 }

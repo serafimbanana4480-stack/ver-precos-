@@ -102,12 +102,15 @@ class StatisticalPricer:
         result = None
         method = "unknown"
 
-        # 1. Try brand+year exact match
+        # 1. Try brand+year exact match. Require enough comparables so rare
+        # vehicles don't get a meaningless median (e.g. a 1992 Honda at 75k).
         if year:
             by_key = f"by:{brand}|{year}"
             result = self._cache.get(by_key)
-            if result:
+            if result and result.get("count", 0) >= 3:
                 method = "brand_year"
+            else:
+                result = None
 
         # 2. Try brand-only
         if result is None:

@@ -1,0 +1,31 @@
+{
+  "model_type": "lightgbm",
+  "model_path": "model_motos.txt",
+  "scaler_path": "scaler_motos.joblib",
+  "brand_index_path": "brand_index_motos.json",
+  "vehicle_type": "motos",
+  "feature_names": [
+    "year",
+    "km",
+    "horsepower",
+    "engine_size",
+    "doors",
+    "age",
+    "km_per_year",
+    "fuel_type",
+    "transmission",
+    "brand",
+    "model",
+    "district",
+    "depreciation_factor",
+    "fuel_premium",
+    "location_premium"
+  ],
+  "metrics": {
+    "r2": 0.26325746689420426,
+    "mae": 7462.328598541173,
+    "mape_pct": 52.577087756534226
+  },
+  "n_samples": 233,
+  "trained_at": "2026-07-01T17:04:14.532395"
+}

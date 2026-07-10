@@ -1,0 +1,37 @@
+{
+  "model_type": "catboost",
+  "model_path": "model_carros.cbm",
+  "scaler_path": "scaler_carros.joblib",
+  "brand_index_path": "brand_index_carros.json",
+  "vehicle_type": "carros",
+  "feature_names": [
+    "year",
+    "km",
+    "horsepower",
+    "engine_size",
+    "doors",
+    "age",
+    "km_per_year",
+    "fuel_type",
+    "transmission",
+    "brand",
+    "model",
+    "district",
+    "depreciation_factor",
+    "fuel_premium",
+    "location_premium"
+  ],
+  "metrics": {
+    "r2": 0.556088178364227,
+    "mae": 7541.933289301598,
+    "mape_pct": 55.26631430157475
+  },
+  "n_samples": 3103,
+  "trained_at": "2026-07-10T04:20:33.179139",
+  "optimizations": {
+    "optuna_tuning": true,
+    "ensemble_model": false,
+    "feature_selection": true,
+    "outlier_removal": true
+  }
+}

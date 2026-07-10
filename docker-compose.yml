@@ -142,6 +142,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      # O scheduler é um processo de longa duração; o healthcheck confirma
+      # que o ficheiro de arranque existe e o processo python está vivo.
+      test: ["CMD", "python", "-c", "import sys,subprocess; sys.exit(0 if b'scheduler.autonomous' in subprocess.check_output(['pgrep','-af','scheduler'],stderr=subprocess.STDOUT) else 1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:

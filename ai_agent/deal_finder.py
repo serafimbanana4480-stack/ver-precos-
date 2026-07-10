@@ -74,10 +74,11 @@ class DealFinder:
             # Get top deals
             deals = query.limit(limit * 2).all()  # Get more to filter
             
-            # Filter by recency (last 7 days)
-            # Ensure naive vs aware compatibility for SQLite
+            # Filter by recency (last 7 days) when fresh data is available.
+            # If no recent deals exist (e.g. scraping hasn't run recently),
+            # fall back to all-time top deals so the feature stays useful.
             recent_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
-            
+
             filtered_deals = []
             for v in deals:
                 if v.first_seen:
@@ -87,8 +88,9 @@ class DealFinder:
                         first_seen = first_seen.replace(tzinfo=timezone.utc)
                     if first_seen >= recent_cutoff:
                         filtered_deals.append(v)
-            
-            deals = filtered_deals
+
+            # Graceful fallback: don't hide every deal just because data is stale
+            deals = filtered_deals if filtered_deals else deals
             
             # Sort and limit
             deals.sort(key=lambda x: (x.deal_score or 0, x.profit_potential or 0), reverse=True)

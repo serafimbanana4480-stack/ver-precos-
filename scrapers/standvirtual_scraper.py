@@ -183,10 +183,35 @@ class StandvirtualScraper:
                 break
 
         if scrape_details and all_listings:
-            # (Enrichment logic here if needed, but simple_playwright already tries to get some details)
-            pass
-
+            logger.info(f"[STANDVIRTUAL] Enriching {len(all_listings)} listings with details...")
+            all_listings = await self._enrich_listings_with_details(all_listings)
+        
         return all_listings[:max_listings]
+    
+    async def _enrich_listings_with_details(self, listings: List[Dict[str, object]], max_concurrent: int = 5) -> List[Dict[str, object]]:
+        """Enrich Standvirtual listing cards with details - concurrent for speed."""
+        semaphore = asyncio.Semaphore(max_concurrent)
+        
+        async def enrich_one(listing: Dict[str, object]) -> Dict[str, object]:
+            # Check if listing already has detailed info
+            needs_details = not listing.get("horsepower") and not listing.get("engine_size") and not listing.get("doors")
+            listing_url = listing.get("url")
+            
+            if needs_details and isinstance(listing_url, str) and listing_url.startswith("http"):
+                async with semaphore:
+                    try:
+                        details = await self.scrape_listing_details(listing_url)
+                        if details:
+                            # Merge details into listing
+                            listing.update(details)
+                            logger.debug(f"[STANDVIRTUAL] Enriched: {listing.get('title', 'Unknown')}")
+                    except Exception as e:
+                        logger.warning(f"[STANDVIRTUAL] Failed to enrich {listing_url}: {e}")
+                    await asyncio.sleep(random.uniform(0.3, 0.6))
+            return listing
+        
+        tasks = [enrich_one(lst.copy()) for lst in listings]
+        return await asyncio.gather(*tasks)
 
     async def _scrape_page_with_playwright(self, url: str, vehicle_type: str, limit: int) -> List[Dict[str, Any]]:
         try:
@@ -236,18 +261,78 @@ class StandvirtualScraper:
     def _extract_listings_from_next_data(self, html: str, max_listings: int) -> List[Dict[str, object]]:
         """Extract listings from Standvirtual Next.js payload (__NEXT_DATA__)."""
         try:
-            script_match = re.search(
+            # Try multiple script ID patterns
+            script_patterns = [
                 r'<script[^>]*id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
-                html,
-                re.DOTALL | re.IGNORECASE,
-            )
-            if not script_match:
+                r'<script[^>]*id=["\']__next_data["\'][^>]*>(.*?)</script>',
+                r'<script[^>]*type=["\']application/json["\'][^>]*>(.*?)</script>',
+            ]
+            
+            payload = None
+            for pattern in script_patterns:
+                script_match = re.search(pattern, html, re.DOTALL | re.IGNORECASE)
+                if script_match:
+                    try:
+                        payload = json.loads(script_match.group(1))
+                        if payload:
+                            break
+                    except json.JSONDecodeError:
+                        continue
+            
+            if not payload:
+                # Try to find JSON in window.__NUXT__ or other global vars
+                nuxt_match = re.search(r'window\.__NUXT__\s*=\s*({.*?});', html, re.DOTALL)
+                if nuxt_match:
+                    try:
+                        payload = json.loads(nuxt_match.group(1))
+                    except json.JSONDecodeError:
+                        pass
+            
+            if not payload:
+                logger.debug("[NEXT_DATA] No JSON payload found")
                 return []
-
-            payload = json.loads(script_match.group(1))
+            
+            # Try multiple extraction strategies
             candidates: List[Dict[str, Any]] = []
+            
+            # Strategy 1: Recursively collect vehicle candidates
             self._collect_vehicle_candidates(payload, candidates)
-
+            
+            # Strategy 2: Look for common Standvirtual data structures
+            if not candidates:
+                # Check for ads/vehicles in common paths
+                possible_paths = [
+                    ['props', 'pageProps', 'ads'],
+                    ['props', 'pageProps', 'vehicles'],
+                    ['props', 'pageProps', 'listings'],
+                    ['props', 'pageProps', 'data', 'ads'],
+                    ['props', 'pageProps', 'data', 'vehicles'],
+                    ['data', 'ads'],
+                    ['data', 'vehicles'],
+                    ['ads'],
+                    ['vehicles'],
+                    ['listings'],
+                ]
+                
+                for path in possible_paths:
+                    node = payload
+                    try:
+                        for key in path:
+                            node = node.get(key, {})
+                        if isinstance(node, list) and node:
+                            candidates.extend(node)
+                            break
+                    except (AttributeError, TypeError):
+                        continue
+            
+            # Strategy 3: Search for arrays with vehicle-like objects
+            if not candidates:
+                self._find_vehicle_arrays(payload, candidates)
+            
+            if not candidates:
+                logger.debug("[NEXT_DATA] No vehicle candidates found in payload")
+                return []
+            
             listings: List[Dict[str, object]] = []
             for candidate in candidates:
                 listing = self._candidate_to_listing(candidate)
@@ -260,6 +345,26 @@ class StandvirtualScraper:
         except Exception as e:
             logger.debug(f"[NEXT_DATA] Failed parsing __NEXT_DATA__: {e}")
             return []
+
+    def _find_vehicle_arrays(self, node: Any, out: List[Dict[str, Any]]) -> None:
+        """Find arrays that contain vehicle-like objects."""
+        if isinstance(node, dict):
+            for value in node.values():
+                self._find_vehicle_arrays(value, out)
+        elif isinstance(node, list):
+            # Check if this array contains vehicle-like objects
+            if len(node) > 0 and isinstance(node[0], dict):
+                sample = node[0]
+                has_url = any(k in sample for k in ("url", "slug", "seoSlug", "href"))
+                has_title = any(k in sample for k in ("title", "name"))
+                has_price = any(k in sample for k in ("price", "priceValue", "priceAmount", "amount"))
+                
+                if has_url and has_title and has_price:
+                    out.extend(node)
+                    return
+            
+            for item in node:
+                self._find_vehicle_arrays(item, out)
 
     def _collect_vehicle_candidates(self, node: Any, out: List[Dict[str, Any]]) -> None:
         """Recursively collect listing-like nodes from nested Next.js JSON."""
@@ -333,8 +438,25 @@ class StandvirtualScraper:
         source_id = str(candidate.get("id") or candidate.get("adId") or candidate.get("offerId") or url)
         brand, model = self._parse_brand_model(title)
 
+        # Extract additional fields from candidate data
+        horsepower = self._safe_int(candidate.get("power") or candidate.get("horsePower") or candidate.get("potencia"))
+        engine_size = self._safe_int(candidate.get("engineSize") or candidate.get("engineCapacity") or candidate.get("cilindrada"))
+        doors = self._safe_int(candidate.get("doors") or candidate.get("numDoors"))
+        color = candidate.get("color") or candidate.get("cor") or ""
+        seller_name = candidate.get("sellerName") or candidate.get("seller") or ""
+        seller_type = candidate.get("sellerType") or candidate.get("seller_type") or ""
+        trim_level = candidate.get("version") or candidate.get("trim") or candidate.get("acabamento") or ""
+        
+        # Extract extras/features
+        extras_raw = candidate.get("extras") or candidate.get("features") or candidate.get("equipment") or []
+        extras = []
+        if isinstance(extras_raw, list):
+            extras = [str(e) for e in extras_raw if e]
+        elif isinstance(extras_raw, str):
+            extras = [e.strip() for e in extras_raw.split(",") if e.strip()]
+
         return {
-            "source": "standvirtual",
+            "source": "STANDVIRTUAL",
             "source_id": source_id,
             "url": url,
             "title": title.strip(),
@@ -348,6 +470,14 @@ class StandvirtualScraper:
             "fuel_type": (candidate.get("fuel") or candidate.get("fuelType") or "") or "",
             "transmission": (candidate.get("gearbox") or candidate.get("transmission") or "") or "",
             "description": candidate.get("description") or "",
+            "horsepower": horsepower,
+            "engine_size": engine_size,
+            "doors": doors,
+            "color": color if isinstance(color, str) else "",
+            "seller_name": seller_name if isinstance(seller_name, str) else "",
+            "seller_type": seller_type if isinstance(seller_type, str) else "",
+            "trim_level": trim_level if isinstance(trim_level, str) else "",
+            "extras": extras,
             "raw_data": str(candidate),
         }
 
@@ -569,12 +699,83 @@ class StandvirtualScraper:
             if img_elem:
                 image_url = img_elem.get('data-src') or img_elem.get('src') or ''
 
+            # Extract missing fields from element text/attributes
+            horsepower = None
+            engine_size = None
+            doors = None
+            color = None
+            seller_name = None
+            seller_type = None
+            trim_level = None
+            extras = []
+
+            # Search for details in element text
+            element_text = element.get_text(" ", strip=True)
+            element_text_lower = element_text.lower()
+
+            # Horsepower (e.g., "150 cv", "150 hp")
+            hp_match = re.search(r'(\d+)\s*(?:cv|hp|potência)', element_text_lower)
+            if hp_match:
+                horsepower = int(hp_match.group(1))
+
+            # Engine size (e.g., "2000 cc", "2.0")
+            engine_match = re.search(r'(\d{3,5})\s*(?:cc|cilindrada)', element_text_lower)
+            if engine_match:
+                engine_size = int(engine_match.group(1))
+            else:
+                # Try format like "2.0" (liters)
+                liter_match = re.search(r'(\d+[.,]\d+)\s*l', element_text_lower)
+                if liter_match:
+                    engine_size = int(float(liter_match.group(1).replace(',', '.')) * 1000)
+
+            # Doors (e.g., "5 portas", "3 drs")
+            doors_match = re.search(r'(\d+)\s*(?:portas|door|drs)', element_text_lower)
+            if doors_match:
+                doors = int(doors_match.group(1))
+
+            # Color (e.g., "Cor: Preto", "Black")
+            color_match = re.search(r'cor:?\s*([A-Za-zÀ-ÿ\s]+?)(?:\s|$|,)', element_text_lower)
+            if color_match:
+                color = color_match.group(1).strip()
+            # Try English pattern
+            color_match_en = re.search(r'color:?\s*([A-Za-z\s]+?)(?:\s|$|,)', element_text_lower)
+            if not color and color_match_en:
+                color = color_match_en.group(1).strip()
+
+            # Seller info - look for seller name patterns
+            seller_elem = element.find('div', class_=re.compile(r'seller|dealer|owner', re.I))
+            if seller_elem:
+                seller_text = seller_elem.get_text(strip=True)
+                # Check if it's a dealer or private
+                if any(word in seller_text.lower() for word in ['stand', 'concessionário', 'dealer', 'profissional']):
+                    seller_type = 'profissional'
+                else:
+                    seller_type = 'particular'
+                seller_name = seller_text
+
+            # Trim level (often in title after model)
+            # Look for version/acabamento in title
+            title_lower = title.lower()
+            trim_patterns = [r'version[:\s]*(.+)', r'acabamento[:\s]*(.+)', r'trim[:\s]*(.+)']
+            for pattern in trim_patterns:
+                trim_match = re.search(pattern, title_lower)
+                if trim_match:
+                    trim_level = trim_match.group(1).strip()
+                    break
+
+            # Extras - look for common extra keywords
+            extra_keywords = ['ar condicionado', 'gps', 'nav', 'sensores', 'câmara', 'camara',
+                            'jantes', 'alloy', 'leather', 'pele', 'couro', 'sunroof', 'tejadilho']
+            for keyword in extra_keywords:
+                if keyword in element_text_lower:
+                    extras.append(keyword)
+
             import hashlib
             source_id = hashlib.md5(str(url).encode()).hexdigest()
             brand, model = self._parse_brand_model(title)
 
             return {
-                "source": "standvirtual",
+                "source": "STANDVIRTUAL",
                 "source_id": source_id,
                 "url": url,
                 "title": title,
@@ -587,6 +788,14 @@ class StandvirtualScraper:
                 "images": [image_url] if image_url else [],
                 "fuel_type": fuel_type or "",
                 "transmission": transmission or "",
+                "horsepower": horsepower,
+                "engine_size": engine_size,
+                "doors": doors,
+                "color": color or "",
+                "seller_name": seller_name or "",
+                "seller_type": seller_type or "",
+                "trim_level": trim_level or "",
+                "extras": extras,
                 "raw_data": str(element)
             }
 

@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import numpy as np
+
 
 LOCATION_PREMIUM: Dict[str, float] = {
     "lisboa": 1.15, "porto": 1.10, "faro": 1.05, "braga": 1.03,
@@ -56,6 +58,10 @@ class FeatureStore:
         "fuel_type", "transmission",
         "brand", "model", "district",
         "depreciation_factor", "fuel_premium", "location_premium",
+        # --- km de-penalização (combate ao enviesamento +54% em 240-285k km) ---
+        "log_km",            # log1p(km): relação km->preço é concava, não linear
+        "km_excess",         # max(0, km - 150k): degradação marginal só acima de 150k
+        "km_extreme",        # indicador binário: km > 250k (extremo / outlier tratado)
     ]
 
     def __init__(self):
@@ -101,6 +107,14 @@ class FeatureStore:
         age = max(datetime.now().year - features["year"], 0)
         features["age"] = float(age)
         features["km_per_year"] = features["km"] / max(age, 1)
+
+        # --- Features de penalização de KM (combate enviesamento em 240-285k km) ---
+        # log1p(km): a relação km->preço é concava; km cru domina o XGBoost p/ valores altos.
+        features["log_km"] = float(np.log1p(features["km"]))
+        # Degradação marginal só acima de 150k km (km baixo não deve penalizar em dobro).
+        features["km_excess"] = float(max(0.0, features["km"] - 150000.0))
+        # Indicador de km extremo: outlier tratado (km > 250k).
+        features["km_extreme"] = 1.0 if features["km"] > 250000.0 else 0.0
 
         # --- Engineered features ---
         # Depreciation factor (0-1 scale, older = more depreciated)

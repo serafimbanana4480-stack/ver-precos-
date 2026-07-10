@@ -99,7 +99,36 @@ class ScrapedVehicle(BaseModel):
     def normalize_source_field(cls, v):
         if v is None:
             return None
-        return str(v).lower().strip()
+        # Normalize to match Source enum values
+        v_str = str(v).strip()
+        # Handle common lowercase variants
+        normalize_map = {
+            "olx": "OLX",
+            "standvirtual": "STANDVIRTUAL",
+            "autosapo": "AUTOSAPO",
+            "custojusto": "CUSTOJUSTO",
+            "piscapisca": "PISCAPISCA",
+            "carplus": "CARPLUS",
+            "autopt": "AUTOPT",
+            "autoscout24": "AUTOSCOUT24",
+            "ebay_motors": "EBAY_MOTORS",
+            "vpauto": "VPAUTO",
+            "leilosoc": "LEILOSOC",
+            "manheim": "MANHEIM",
+            "autorola": "AUTOROLA",
+            "bca": "BCA",
+        }
+        v_lower = v_str.lower()
+        if v_lower in normalize_map:
+            return normalize_map[v_lower]
+        # Try uppercase with underscore replacement
+        v_upper = v_str.upper().replace(" ", "_")
+        # Check if it's already a valid enum value
+        from validation.scraped_models import Source
+        if v_upper in [e.value for e in Source]:
+            return v_upper
+        # Return as-is and let Pydantic handle the error
+        return v_str
 
     @field_validator('transmission', mode='before')
     @classmethod

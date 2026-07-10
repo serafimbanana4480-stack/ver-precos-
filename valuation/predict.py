@@ -28,6 +28,17 @@ class PricePredictor:
         self.feature_names: List[str] = []
         self.metrics: Dict[str, float] = {}
         self.fs = FeatureStore()
+        # Segmented (low-end) model for two-stage routing
+        self.low_model = None
+        self.low_scaler = None
+        self.low_threshold: Optional[float] = None
+        # Segmented (high-end) CatBoost model for three-way routing
+        self.high_model = None
+        self.high_scaler = None
+        self.high_threshold: Optional[float] = None
+        self.high_log_target: bool = False
+        self.high_cat_features: List[int] = []
+        self.full_log_target: bool = False
         self._load_model()
 
     def _load_model(self) -> None:
@@ -42,6 +53,11 @@ class PricePredictor:
             self.model_name = meta.get("model_type", "xgboost")
             self.metrics = meta.get("metrics", {})
             self.feature_names = meta.get("feature_names", [])
+            self.low_threshold = meta.get("low_threshold")
+            self.high_threshold = meta.get("high_threshold")
+            self.high_log_target = meta.get("high_log_target", False)
+            self.high_cat_features = meta.get("high_cat_features", [])
+            self.full_log_target = meta.get("full_log_target", False)
 
             self.fs.load_index(model_dir / meta.get("brand_index_path", f"brand_index_{self.vehicle_type}.json"))
 
@@ -65,7 +81,34 @@ class PricePredictor:
             if scaler_path.exists():
                 self.scaler = load(str(scaler_path))
 
-            logger.info(f"Loaded {self.model_name} for {self.vehicle_type} (R²={self.metrics.get('r2', 'N/A')})")
+            # --- Load optional LOW-end model for two-stage routing ---
+            low_model_path = meta.get("low_model_path")
+            if low_model_path:
+                low_path = model_dir / low_model_path
+                if low_path.exists():
+                    import xgboost as xgb
+                    self.low_model = xgb.XGBRegressor()
+                    self.low_model.load_model(str(low_path))
+                    low_scaler_path = model_dir / meta.get("low_scaler_path", f"scaler_{self.vehicle_type}_low.joblib")
+                    if low_scaler_path.exists():
+                        self.low_scaler = load(str(low_scaler_path))
+
+            # --- Load optional HIGH-end model (CatBoost) for three-way routing ---
+            high_model_path = meta.get("high_model_path")
+            if high_model_path:
+                high_path = model_dir / high_model_path
+                if high_path.exists():
+                    from catboost import CatBoostRegressor
+                    self.high_model = CatBoostRegressor()
+                    high_fmt = "json" if str(high_path).endswith(".json") else "cbm"
+                    self.high_model.load_model(str(high_path), format=high_fmt)
+                    high_scaler_path = model_dir / meta.get("high_scaler_path", f"scaler_{self.vehicle_type}_high.joblib")
+                    if high_scaler_path.exists():
+                        self.high_scaler = load(str(high_scaler_path))
+
+            logger.info(f"Loaded {self.model_name} for {self.vehicle_type} (R²={self.metrics.get('r2', 'N/A')})"
+                        f"{' + LOW model' if self.low_model else ''}"
+                        f"{' + HIGH model' if self.high_model else ''}")
         except Exception as e:
             logger.error(f"Failed to load model: {e}")
 
@@ -75,10 +118,42 @@ class PricePredictor:
         try:
             features = self.fs.compute_features(vehicle_data)
             X = np.array([[features.get(f, 0.0) for f in self.feature_names]])
+
+            # --- Three-way routing (LOW / FULL / HIGH) ---
             if self.scaler:
-                X = self.scaler.transform(X)
-            pred = float(self.model.predict(X)[0])
-            return max(pred, 0.0)
+                X_full = self.scaler.transform(X)
+            else:
+                X_full = X
+            full_pred = float(self.model.predict(X_full)[0])
+            if self.full_log_target:
+                full_pred = float(np.expm1(full_pred))
+            full_pred = max(full_pred, 0.0)
+
+            # High-end: use CatBoost dedicated model for expensive cars.
+            # This model uses native categorical features (string cols) and an
+            # optional log-target; no scaler. Falls back to scaler if configured.
+            if self.high_model is not None and self.high_threshold and full_pred >= self.high_threshold:
+                if self.high_cat_features:
+                    X_high = X.astype(object)
+                    for c in self.high_cat_features:
+                        X_high[0, c] = str(int(X_high[0, c]))
+                elif self.high_scaler is not None:
+                    X_high = self.high_scaler.transform(X)
+                else:
+                    X_high = X
+                high_pred = float(self.high_model.predict(X_high)[0])
+                if self.high_log_target:
+                    high_pred = float(np.expm1(high_pred))
+                return max(high_pred, 0.0)
+
+            # Low-end: use dedicated model for cheap cars (< low_threshold)
+            if (self.low_model is not None and self.low_scaler is not None
+                    and self.low_threshold and full_pred < self.low_threshold):
+                X_low = self.low_scaler.transform(X)
+                low_pred = float(self.low_model.predict(X_low)[0])
+                return max(low_pred, 0.0)
+
+            return full_pred
         except Exception as e:
             logger.error(f"Prediction error: {e}")
             return None

@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import asyncio
+import random
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
@@ -21,7 +23,7 @@ class AutoScout24Scraper(PlaywrightScraper):
         super().__init__("AUTOSCOUT24")
 
     async def scrape_listings(
-        self, vehicle_type: str, max_listings: int = 50, scrape_details: bool = True
+        self, vehicle_type: str, max_listings: int = 50, scrape_details: bool = True, retry_count: int = 0
     ) -> List[Dict[str, Any]]:
         listings = []
         page_num = 1
@@ -33,15 +35,28 @@ class AutoScout24Scraper(PlaywrightScraper):
                 logger.info(f"[AUTOSCOUT24] Page {page_num}: {url}")
 
                 try:
-                    await page.goto(url, wait_until="networkidle", timeout=30000)
-                    await page.wait_for_timeout(2000)
+                    await page.goto(url, wait_until="networkidle", timeout=60000)  # Increased to 60s
+                    await page.wait_for_timeout(3000)  # Increased wait time
                 except Exception as e:
-                    logger.error(f"[AUTOSCOUT24] Page load error: {e}")
+                    logger.error(f"[AUTOSCOUT24] Page load error (attempt {retry_count + 1}): {e}")
+                    if retry_count < 2:
+                        await page.close()
+                        backoff_time = (2 ** retry_count) * 3 + random.uniform(1, 3)
+                        logger.info(f"[AUTOSCOUT24] Retrying after {backoff_time:.1f}s...")
+                        await asyncio.sleep(backoff_time)
+                        return await self.scrape_listings(vehicle_type, max_listings, scrape_details, retry_count + 1)
                     break
 
                 cards = await page.query_selector_all("article.ListItem_article__q_yqV, div[data-testid='listing-card']")
                 if not cards:
                     logger.warning(f"[AUTOSCOUT24] No cards on page {page_num}")
+                    # Retry with different approach if first page
+                    if page_num == 1 and retry_count < 2:
+                        await page.close()
+                        backoff_time = (2 ** retry_count) * 3 + random.uniform(1, 3)
+                        logger.info(f"[AUTOSCOUT24] Retrying page 1 with different approach...")
+                        await asyncio.sleep(backoff_time)
+                        return await self.scrape_listings(vehicle_type, max_listings, scrape_details, retry_count + 1)
                     break
 
                 for card in cards[:max_listings - len(listings)]:

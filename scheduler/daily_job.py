@@ -79,6 +79,25 @@ class DailyJob:
                                 existing.price = listing.get("price", existing.price)
                                 existing.last_seen = datetime.now(timezone.utc)
                                 existing.scrape_count = (existing.scrape_count or 1) + 1
+                                
+                                # Update detailed fields if available
+                                if listing.get("horsepower") is not None:
+                                    existing.horsepower = listing.get("horsepower")
+                                if listing.get("engine_size") is not None:
+                                    existing.engine_size = listing.get("engine_size")
+                                if listing.get("doors") is not None:
+                                    existing.doors = listing.get("doors")
+                                if listing.get("color"):
+                                    existing.color = listing.get("color")
+                                if listing.get("description"):
+                                    existing.description = listing.get("description")
+                                if listing.get("fuel_type"):
+                                    existing.fuel_type = listing.get("fuel_type")
+                                if listing.get("transmission"):
+                                    existing.transmission = listing.get("transmission")
+                                if listing.get("images"):
+                                    existing.images = listing.get("images")
+                                
                                 updated += 1
                             else:
                                 vehicle = Vehicle(
@@ -97,6 +116,13 @@ class DailyJob:
                                     images=listing.get("images"),
                                     fuel_type=listing.get("fuel_type"),
                                     transmission=listing.get("transmission"),
+                                    horsepower=listing.get("horsepower"),
+                                    engine_size=listing.get("engine_size"),
+                                    doors=listing.get("doors"),
+                                    color=listing.get("color"),
+                                    seller_name=listing.get("seller_name"),
+                                    seller_type=listing.get("seller_type"),
+                                    extras=listing.get("extras"),
                                 )
                                 db.add(vehicle)
                                 added += 1
@@ -105,10 +131,10 @@ class DailyJob:
                     return added + updated
 
                 logger.info("Scraping OLX...")
-                olx_listings = await self.olx_scraper.scrape_listings("carros", max_listings=50, scrape_details=False)
+                olx_listings = await self.olx_scraper.scrape_listings("carros", max_listings=50, scrape_details=True)
                 save_deduped(olx_listings, "OLX", "carros")
 
-                olx_motos = await self.olx_scraper.scrape_listings("motos", max_listings=30, scrape_details=False)
+                olx_motos = await self.olx_scraper.scrape_listings("motos", max_listings=30, scrape_details=True)
                 save_deduped(olx_motos, "OLX", "motos")
 
                 logger.info("Scraping Standvirtual...")

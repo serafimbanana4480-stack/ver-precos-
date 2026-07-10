@@ -27,6 +27,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logger = logging.getLogger(__name__)
 
+# Resiliência: retry + circuit breaker + fallback chain (ver scrapers/resilience.py)
+try:
+    from scrapers.resilience import scrape_with_resilience, FallbackChain
+    from utils.production_safeguards import CircuitBreaker
+    _RESILIENCE_AVAILABLE = True
+except Exception as _e:  # noqa: BLE001
+    logger.warning("Módulo de resiliência indisponível: %s", _e)
+    _RESILIENCE_AVAILABLE = False
+
 
 @dataclass
 class ScrapingResult:
@@ -42,11 +51,27 @@ def run_carplus(max_listings: int = 200) -> ScrapingResult:
     """Carplus: LD+JSON Vehicle blocks (16 listings/page). Fastest scraper."""
     t0 = time.time()
     result = ScrapingResult("Carplus", "CARPLUS")
+    if not _RESILIENCE_AVAILABLE:
+        try:
+            from scrapers.carplus_lightweight import CarplusLightweightScraper
+            s = CarplusLightweightScraper()
+            result.listings = s.scrape_listings("carros", max_listings=max_listings)
+            result.success = True
+        except Exception as e:
+            result.errors.append(str(e))
+        result.duration = time.time() - t0
+        return result
     try:
         from scrapers.carplus_lightweight import CarplusLightweightScraper
-        s = CarplusLightweightScraper()
-        result.listings = s.scrape_listings("carros", max_listings=max_listings)
-        result.success = True
+        listings, ok = scrape_with_resilience(
+            "carplus",
+            lambda: CarplusLightweightScraper().scrape_listings("carros", max_listings=max_listings),
+            CircuitBreaker(failure_threshold=3, recovery_timeout=300),
+        )
+        result.listings = listings
+        result.success = ok
+        if not ok:
+            result.errors.append("retry/circuit exaurido")
     except Exception as e:
         result.errors.append(str(e))
     result.duration = time.time() - t0
@@ -56,41 +81,31 @@ def run_carplus(max_listings: int = 200) -> ScrapingResult:
 def run_autouncle(max_listings: int = 200) -> ScrapingResult:
     """AutoUncle: Market analysis + price comparison. MOST VALUABLE data."""
     t0 = time.time()
-    result = ScrapingResult("AutoUncle", "AUTOUNDLE")
+    result = ScrapingResult("AutoUncle", "AUTOPT")
+    if not _RESILIENCE_AVAILABLE:
+        try:
+            from scrapers.autouncle_lightweight import AutoUncleLightweight
+            s = AutoUncleLightweight()
+            result.listings = s.scrape_listings("carros", max_listings=max_listings)
+            result.success = True
+        except Exception as e:
+            result.errors.append(str(e))
+        result.duration = time.time() - t0
+        return result
     try:
-        from scrapers.autouncle_lightweight import AutoUncleLightweight, get_top_brand_model_pages
+        from scrapers.autouncle_lightweight import AutoUncleLightweight
 
-        s = AutoUncleLightweight()
-        all_listings = []
+        def _autouncle_fn() -> list:
+            return AutoUncleLightweight().scrape_listings("carros", max_listings=max_listings)
 
-        # Get top brand-model pages from sitemap
-        urls = get_top_brand_model_pages()
-        if urls:
-            # Take top 15 most popular brand-model pages
-            top_urls = urls[:15]
-            for url in top_urls:
-                if len(all_listings) >= max_listings:
-                    break
-                html = s._fetch(url)
-                if html:
-                    listings = s._parse_listings(html, max_per_page=25)
-                    all_listings.extend(listings)
-        else:
-            # Fallback: scrape popular brands
-            popular = [
-                ("BMW", "Serie-3"), ("Mercedes", "Classe-C"), ("Volkswagen", "Golf"),
-                ("Audi", "A3"), ("Renault", "Clio"), ("Peugeot", "208"),
-                ("BMW", "Serie-1"), ("Mercedes", "Classe-A"), ("Toyota", "Corolla"),
-                ("Volkswagen", "Passat"),
-            ]
-            for brand, model in popular:
-                if len(all_listings) >= max_listings:
-                    break
-                listings = s.scrape_listings(brand=brand, model=model, max_listings=20)
-                all_listings.extend(listings)
-
-        result.listings = all_listings[:max_listings]
-        result.success = True
+        listings, ok = scrape_with_resilience(
+            "autouncle", _autouncle_fn,
+            CircuitBreaker(failure_threshold=3, recovery_timeout=300),
+        )
+        result.listings = listings
+        result.success = ok
+        if not ok:
+            result.errors.append("retry/circuit exaurido")
     except Exception as e:
         result.errors.append(str(e))
     result.duration = time.time() - t0
@@ -103,9 +118,212 @@ def run_piscapisca(max_listings: int = 100) -> ScrapingResult:
     result = ScrapingResult("PiscaPisca", "PISCAPISCA")
     try:
         from scrapers.piscapisca_lightweight import PiscaPiscaLightweight
-        s = PiscaPiscaLightweight()
-        result.listings = s.scrape_listings("carros", max_listings=min(max_listings, 50))
-        result.success = True
+
+        def _pisca_fn() -> list:
+            return PiscaPiscaLightweight().scrape_listings("carros", max_listings=min(max_listings, 50))
+
+        if _RESILIENCE_AVAILABLE:
+            listings, ok = scrape_with_resilience(
+                "piscapisca", _pisca_fn,
+                CircuitBreaker(failure_threshold=3, recovery_timeout=300),
+            )
+            result.listings = listings
+            result.success = ok
+            if not ok:
+                result.errors.append("retry/circuit exaurido")
+        else:
+            result.listings = _pisca_fn()
+            result.success = True
+    except Exception as e:
+        result.errors.append(str(e))
+    result.duration = time.time() - t0
+    return result
+
+
+def run_leilosoc(max_listings: int = 200) -> ScrapingResult:
+    """Leilosoc: ground truth de leilões (preços reais de adjudicação)."""
+    t0 = time.time()
+    result = ScrapingResult("Leilosoc", "LEILOSOC")
+    try:
+        from scrapers.leilosoc_lightweight import LeilosocLightweight
+
+        def _fn() -> list:
+            return LeilosocLightweight().scrape_listings(max_listings=min(max_listings, 150))
+
+        if _RESILIENCE_AVAILABLE:
+            listings, ok = scrape_with_resilience("leilosoc", _fn, CircuitBreaker(failure_threshold=3, recovery_timeout=300))
+            result.listings, result.success = listings, ok
+        else:
+            result.listings, result.success = _fn(), True
+    except Exception as e:
+        result.errors.append(str(e))
+    result.duration = time.time() - t0
+    return result
+
+
+def run_custojusto(max_listings: int = 200) -> ScrapingResult:
+    """CustoJusto: marketplace PT (km/ano parse melhorado)."""
+    t0 = time.time()
+    result = ScrapingResult("CustoJusto", "CUSTOJUSTO")
+    try:
+        import asyncio
+        from scrapers.custojusto_scraper import CustoJustoScraper
+
+        def _fn() -> list:
+            return asyncio.run(CustoJustoScraper().scrape_listings("carros", max_listings=max_listings))
+
+        if _RESILIENCE_AVAILABLE:
+            listings, ok = scrape_with_resilience("custojusto", _fn, CircuitBreaker(failure_threshold=3, recovery_timeout=300))
+            result.listings, result.success = listings, ok
+        else:
+            result.listings, result.success = _fn(), True
+    except Exception as e:
+        result.errors.append(str(e))
+    result.duration = time.time() - t0
+    return result
+
+
+def run_autopt(max_listings: int = 200) -> ScrapingResult:
+    """AutoPT: stock de stand (via AutoUncle-lightweight agregado)."""
+    t0 = time.time()
+    result = ScrapingResult("AutoPT", "AUTOPT")
+    try:
+        from scrapers.autopt_lightweight import AutoPtLightweightScraper
+
+        def _fn() -> list:
+            return AutoPtLightweightScraper().scrape_listings("carros", max_listings=max_listings)
+
+        if _RESILIENCE_AVAILABLE:
+            listings, ok = scrape_with_resilience("autopt", _fn, CircuitBreaker(failure_threshold=3, recovery_timeout=300))
+            result.listings, result.success = listings, ok
+        else:
+            result.listings, result.success = _fn(), True
+    except Exception as e:
+        result.errors.append(str(e))
+    result.duration = time.time() - t0
+    return result
+
+
+def run_olx(max_listings: int = 200) -> ScrapingResult:
+    """OLX: API JSON pública (~52k anúncios). Substitui scraper Playwright."""
+    t0 = time.time()
+    result = ScrapingResult("OLX", "OLX")
+    try:
+        from scrapers.olx_lightweight import OLXLightweight
+
+        def _fn() -> list:
+            return OLXLightweight().scrape_listings(max_listings=max_listings)
+
+        if _RESILIENCE_AVAILABLE:
+            listings, ok = scrape_with_resilience("olx", _fn, CircuitBreaker(failure_threshold=3, recovery_timeout=300))
+            result.listings, result.success = listings, ok
+        else:
+            result.listings, result.success = _fn(), True
+    except Exception as e:
+        result.errors.append(str(e))
+    result.duration = time.time() - t0
+    return result
+
+
+def run_mcoutinho(max_listings: int = 200) -> ScrapingResult:
+    """M. Coutinho Usados: API JSON stand (~1100 viaturas)."""
+    t0 = time.time()
+    result = ScrapingResult("MCoutinho", "MCOUTINHO")
+    try:
+        from scrapers.mcoutinho_lightweight import McoutinhoLightweight
+
+        def _fn() -> list:
+            return McoutinhoLightweight().scrape_listings(max_listings=max_listings)
+
+        if _RESILIENCE_AVAILABLE:
+            listings, ok = scrape_with_resilience("mcoutinho", _fn, CircuitBreaker(failure_threshold=3, recovery_timeout=300))
+            result.listings, result.success = listings, ok
+        else:
+            result.listings, result.success = _fn(), True
+    except Exception as e:
+        result.errors.append(str(e))
+    result.duration = time.time() - t0
+    return result
+
+
+def run_autohub(max_listings: int = 200) -> ScrapingResult:
+    """AutoHub: sitemap + BS4 (volume útil baixo)."""
+    t0 = time.time()
+    result = ScrapingResult("AutoHub", "AUTOHUB")
+    try:
+        from scrapers.autohub_lightweight import AutohubLightweight
+
+        def _fn() -> list:
+            return AutohubLightweight().scrape_listings(max_listings=max_listings)
+
+        if _RESILIENCE_AVAILABLE:
+            listings, ok = scrape_with_resilience("autohub", _fn, CircuitBreaker(failure_threshold=3, recovery_timeout=300))
+            result.listings, result.success = listings, ok
+        else:
+            result.listings, result.success = _fn(), True
+    except Exception as e:
+        result.errors.append(str(e))
+    result.duration = time.time() - t0
+    return result
+
+
+def run_martelo(max_listings: int = 200) -> ScrapingResult:
+    """Martelo: agregador de leilões PT (Valor Base / Lance Atual)."""
+    t0 = time.time()
+    result = ScrapingResult("Martelo", "MARTELO")
+    try:
+        from scrapers.martelo_lightweight import MarteloLightweight
+
+        def _fn() -> list:
+            return MarteloLightweight().scrape_listings(max_listings=max_listings)
+
+        if _RESILIENCE_AVAILABLE:
+            listings, ok = scrape_with_resilience("martelo", _fn, CircuitBreaker(failure_threshold=3, recovery_timeout=300))
+            result.listings, result.success = listings, ok
+        else:
+            result.listings, result.success = _fn(), True
+    except Exception as e:
+        result.errors.append(str(e))
+    result.duration = time.time() - t0
+    return result
+
+
+def run_autoline(max_listings: int = 200) -> ScrapingResult:
+    """Autoline: leilões de carros PT/ES (sl-item com lote individual)."""
+    t0 = time.time()
+    result = ScrapingResult("Autoline", "AUTOLINE")
+    try:
+        from scrapers.autoline_lightweight import AutolineLightweight
+
+        def _fn() -> list:
+            return AutolineLightweight().scrape_listings(max_listings=max_listings)
+
+        if _RESILIENCE_AVAILABLE:
+            listings, ok = scrape_with_resilience("autoline", _fn, CircuitBreaker(failure_threshold=3, recovery_timeout=300))
+            result.listings, result.success = listings, ok
+        else:
+            result.listings, result.success = _fn(), True
+    except Exception as e:
+        result.errors.append(str(e))
+    result.duration = time.time() - t0
+    return result
+
+
+def run_penhorado(max_listings: int = 200) -> ScrapingResult:
+    """Penhorado: carros penhorados / leilões Finanças."""
+    t0 = time.time()
+    result = ScrapingResult("Penhorado", "PENHORADO")
+    try:
+        from scrapers.penhorado_lightweight import PenhoradoLightweight
+
+        def _fn() -> list:
+            return PenhoradoLightweight().scrape_listings(max_listings=max_listings)
+
+        if _RESILIENCE_AVAILABLE:
+            listings, ok = scrape_with_resilience("penhorado", _fn, CircuitBreaker(failure_threshold=3, recovery_timeout=300))
+            result.listings, result.success = listings, ok
+        else:
+            result.listings, result.success = _fn(), True
     except Exception as e:
         result.errors.append(str(e))
     result.duration = time.time() - t0
@@ -113,7 +331,12 @@ def run_piscapisca(max_listings: int = 100) -> ScrapingResult:
 
 
 def save_to_database(listings: List[Dict[str, Any]], source: str) -> int:
-    """Batch-save listings to DB. Returns count of new+updated records."""
+    """Batch-save listings to DB with robust upsert. Returns count of new+updated records.
+
+    Handles pre-existing rows (UNIQUE constraint on source+source_id / url) by
+    checking existence first and issuing a session rollback after a failed commit
+    so one bad row never kills the whole batch.
+    """
     from database.db import get_db_context
     from database.models import Vehicle, VehicleType, FuelType, Transmission, Source
 
@@ -123,6 +346,15 @@ def save_to_database(listings: List[Dict[str, Any]], source: str) -> int:
         "autoscout24": Source.AUTOSCOUT24,
         "autouncle": Source.AUTOPT,
         "facebook": Source.FACEBOOK,
+        "leilosoc": Source.LEILOSOC,
+        "custojusto": Source.CUSTOJUSTO,
+        "autopt": Source.AUTOPT,
+        "olx": Source.OLX,
+        "mcoutinho": Source.MCOUTINHO,
+        "autohub": Source.AUTOHUB,
+        "martelo": Source.MARTELO,
+        "autoline": Source.AUTOLINE,
+        "penhorado": Source.PENHORADO,
     }
     source_enum = source_map.get(source.lower(), Source.OLX)
 
@@ -134,8 +366,20 @@ def save_to_database(listings: List[Dict[str, Any]], source: str) -> int:
                 if not url or len(url) < 10:
                     continue
 
-                # Check if exists by URL
-                existing = db.query(Vehicle).filter(Vehicle.url == url).first()
+                source_id = str(listing.get("source_id", url))[:100]
+
+                # Check if exists by source+source_id OR url (avoids UNIQUE violations)
+                existing = (
+                    db.query(Vehicle)
+                    .filter(
+                        (Vehicle.source == source_enum)
+                        & (
+                            (Vehicle.source_id == source_id)
+                            | (Vehicle.url == url)
+                        )
+                    )
+                    .first()
+                )
                 if existing:
                     new_price = listing.get("price")
                     if new_price and new_price > 0 and existing.price != new_price:
@@ -170,7 +414,7 @@ def save_to_database(listings: List[Dict[str, Any]], source: str) -> int:
 
                 vehicle = Vehicle(
                     source=source_enum,
-                    source_id=str(listing.get("source_id", url))[:100],
+                    source_id=source_id,
                     url=url,
                     vehicle_type=VehicleType.carros,
                     brand=brand,
@@ -194,6 +438,12 @@ def save_to_database(listings: List[Dict[str, Any]], source: str) -> int:
                     seller_name=listing.get("seller_name"),
                 )
                 db.add(vehicle)
+                try:
+                    db.flush()  # valida a linha individualmente
+                except Exception as e:
+                    db.rollback()  # descarta só esta linha, mantém as anteriores
+                    logger.debug(f"Row rejected (rolling back 1): {e}")
+                    continue
                 saved += 1
             except Exception as e:
                 logger.debug(f"Error saving listing: {e}")
@@ -202,7 +452,14 @@ def save_to_database(listings: List[Dict[str, Any]], source: str) -> int:
         try:
             db.commit()
         except Exception as e:
-            logger.error(f"DB commit failed: {e}")
+            # Roll back only the (partially failed) transaction; safe rows were
+            # already flushed+committed per-row above, so only the last unsafe
+            # batch segment is lost.
+            logger.error(f"DB commit failed (rolling back final segment): {e}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
     return saved
 
@@ -226,6 +483,15 @@ def run_all_scrapers(
         ("Carplus", run_carplus, max_per_scraper),
         ("AutoUncle", run_autouncle, max_per_scraper),
         ("PiscaPisca", run_piscapisca, min(max_per_scraper, 50)),
+        ("Leilosoc", run_leilosoc, max_per_scraper),
+        ("CustoJusto", run_custojusto, max_per_scraper),
+        ("AutoPT", run_autopt, max_per_scraper),
+        ("OLX", run_olx, max_per_scraper),
+        ("MCoutinho", run_mcoutinho, max_per_scraper),
+        ("AutoHub", run_autohub, max_per_scraper),
+        ("Martelo", run_martelo, max_per_scraper),
+        ("Autoline", run_autoline, max_per_scraper),
+        ("Penhorado", run_penhorado, max_per_scraper),
     ]
 
     results: Dict[str, ScrapingResult] = {}
@@ -306,7 +572,9 @@ if __name__ == "__main__":
     # Quick stats
     print("Quick DB stats:")
     import sqlite3
-    conn = sqlite3.connect("autodeal.db")
+    from core.settings import settings
+    db_path = settings.resolved_db_url.replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
     cur = conn.execute("SELECT COUNT(*), source FROM vehicles GROUP BY source ORDER BY COUNT(*) DESC")
     for count, source in cur.fetchall():
         print(f"  {source}: {count}")

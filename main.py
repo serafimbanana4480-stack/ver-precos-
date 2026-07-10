@@ -283,7 +283,11 @@ def main():
         logger.info(f"Starting scraping: {args.source}, {args.vehicle_type}")
         
         async def run_scraping():
-            from scrapers import OLXScraper, StandvirtualScraper, AutoSapoScraper, AutoPtScraper
+            # Import scrapers using the correct class names
+            from scrapers.olx_scraper import OlxScraper
+            from scrapers.standvirtual_scraper import StandvirtualScraper
+            from scrapers.autosapo_scraper import AutoSapoScraper
+            from scrapers.autopt_scraper import AutoPtScraper
             from scrapers.custojusto_scraper import CustoJustoScraper
             from scrapers.piscapisca_scraper import PiscaPiscaScraper
             from scrapers.carplus_scraper import CarplusScraper
@@ -294,7 +298,7 @@ def main():
             pool = get_browser_pool()
             logger.info(f"[BROWSER_POOL] Initialized: {pool.get_stats()}")
 
-            olx_scraper = OLXScraper()
+            olx_scraper = OlxScraper()
             sv_scraper = StandvirtualScraper()
             as_scraper = AutoSapoScraper()
             cj_scraper = CustoJustoScraper()
@@ -403,10 +407,53 @@ def main():
                 logger.warning(f"  {vtype}: training failed or insufficient data")
     
     elif args.command == "valuate":
-        logger.info("Updating vehicle valuations (statistical)...")
-        from valuation.statistical_pricer import update_all_valuations
-        n = update_all_valuations()
-        logger.info(f"Valuations updated for {n} vehicles!")
+        logger.info("Recomputing vehicle valuations with HybridValuator (ML + segment + auction adjustment)...")
+        from database.db import get_db_context
+        from database.models import Vehicle
+        from valuation.predict import update_vehicle_valuations
+        from valuation.hybrid_valuator import get_valuator
+
+        # Reset so the HybridValuator recomputes every vehicle (this is what
+        # applies the auction adjustment for LEILOSOC/VPAUTO/etc., which the
+        # previous statistical-only path ignored -> false "deals").
+        with get_db_context() as db:
+            db.query(Vehicle).update({Vehicle.estimated_value: None})
+            db.commit()
+
+        total = 0
+        while True:
+            n = update_vehicle_valuations(batch_size=500)
+            total += n
+            if n == 0:
+                break
+
+        valuator = get_valuator()
+        with get_db_context() as db:
+            vehicles = db.query(Vehicle).filter(
+                Vehicle.estimated_value.isnot(None),
+                Vehicle.price.isnot(None),
+            ).all()
+            for v in vehicles:
+                ft = v.fuel_type.value if v.fuel_type else "unknown"
+                tr = v.transmission.value if v.transmission else "unknown"
+                data = {
+                    "year": v.year, "km": v.km, "horsepower": v.horsepower,
+                    "engine_size": v.engine_size, "doors": v.doors,
+                    "fuel_type": ft, "transmission": tr,
+                    "brand": v.brand or "Unknown", "model": v.model or "",
+                    "location": v.location or "",
+                    "source": v.source.value if v.source else "",
+                    "vehicle_type": v.vehicle_type.value if v.vehicle_type else "carros",
+                    "title": v.title or "",
+                    "price": v.price or 0,
+                    "condition_score": v.condition_score or 3.0,
+                }
+                res = valuator.calculate_deal_score(data)
+                v.deal_score = res.get("deal_score")
+                v.profit_potential = res.get("profit_potential")
+                v.profit_percentage = res.get("profit_percentage")
+            db.commit()
+        logger.info(f"Valuations updated for {total} vehicles (HybridValuator with auction adjustment)!")
     
     elif args.command == "find-deals":
         logger.info("Finding best deals...")

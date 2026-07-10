@@ -85,7 +85,7 @@ async def fetch_olx_api(
             for offer in offers:
                 try:
                     listing = {
-                        "source": "olx",
+                        "source": "OLX",
                         "source_id": str(offer.get("id", "")),
                         "title": offer.get("title", ""),
                         "url": offer.get("url", ""),
@@ -314,7 +314,7 @@ async def fetch_standvirtual_api(
             for offer in offers:
                 try:
                     listing = {
-                        "source": "standvirtual",
+                        "source": "STANDVIRTUAL",
                         "source_id": str(offer.get("id", "")),
                         "title": offer.get("title", ""),
                         "url": offer.get("url", ""),

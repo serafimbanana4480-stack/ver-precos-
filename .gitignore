@@ -49,12 +49,26 @@ logs/
 data/*.csv
 data/*.json
 data/*.xlsx
+data/**/*.json
+data/**/*.html
+data/db/
+data/autodeal.db.old
+data/autodeal.db
 !data/.gitkeep
 
-# Models
-models/*.json
-models/*.pkl
+# Models — serialized weights (HEAVY, regeneráveis via train)
+models/*.cbm
 models/*.joblib
+models/*.pkl
+models/*.pt
+models/model_*.json
+models/xgboost_*.json
+# Keep light metrics / config JSONs (pequenos, NÃO regeneráveis)
+!models/best_model_*.json
+!models/brand_index_*.json
+!models/calibration_v3.json
+!models/features_v3.json
+!models/metrics_real_only.json
 !models/.gitkeep
 
 # Binary / serialized artifacts (global)
@@ -163,6 +177,12 @@ scripts/verify_imports.py
 scripts/clean_database.py
 scripts/comprehensive_audit.py
 scripts/setup_ollama_auto.py
+
+# ── Audit/tool junk (orphan, not committed) ──
+.nexus/
+scripts_audit/
+test_limits/
+tests/test_full_audit.py
 
 # ── One-off files ──
 analyze_standvirtual_structure.py

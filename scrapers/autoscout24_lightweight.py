@@ -241,7 +241,7 @@ class AutoScout24Lightweight:
             image_url = img.get("src", "") if img else ""
 
             return {
-                "source": "autoscout24",
+                "source": "AUTOSCOUT24",
                 "source_id": hashlib.md5(url.encode()).hexdigest(),
                 "url": url,
                 "title": title,

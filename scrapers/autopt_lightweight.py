@@ -313,6 +313,82 @@ class AutoPtLightweightScraper:
             # Brand/Model from title
             brand, model = self._parse_brand_model(title)
 
+            # Extract missing fields
+            horsepower = None
+            engine_size = None
+            doors = None
+            color = None
+            seller_name = None
+            seller_type = None
+            trim_level = None
+            extras = []
+
+            # Get full text for searching
+            card_text = card.get_text(" ", strip=True)
+            card_text_lower = card_text.lower()
+
+            # Horsepower (e.g., "150 cv", "150 hp")
+            hp_match = re.search(r'(\d+)\s*(?:cv|hp|potência)', card_text_lower)
+            if hp_match:
+                try:
+                    horsepower = int(hp_match.group(1))
+                except ValueError:
+                    pass
+
+            # Engine size (e.g., "2000 cc", "2.0")
+            engine_match = re.search(r'(\d{3,5})\s*(?:cc|cilindrada)', card_text_lower)
+            if engine_match:
+                try:
+                    engine_size = int(engine_match.group(1))
+                except ValueError:
+                    pass
+            else:
+                # Try format like "2.0" (liters)
+                liter_match = re.search(r'(\d+[.,]\d+)\s*l', card_text_lower)
+                if liter_match:
+                    try:
+                        engine_size = int(float(liter_match.group(1).replace(',', '.')) * 1000)
+                    except ValueError:
+                        pass
+
+            # Doors (e.g., "5 portas", "3 drs")
+            doors_match = re.search(r'(\d+)\s*(?:portas|door|drs)', card_text_lower)
+            if doors_match:
+                try:
+                    doors = int(doors_match.group(1))
+                except ValueError:
+                    pass
+
+            # Color (e.g., "Cor: Preto", "Black")
+            color_match = re.search(r'cor:?\s*([A-Za-zÀ-ÿ\s]+?)(?:\s|$|,)', card_text_lower)
+            if color_match:
+                color = color_match.group(1).strip()
+
+            # Seller type detection (check if it's a dealer)
+            seller_type = 'particular'  # default
+            if any(word in card_text_lower for word in ['stand', 'concessionário', 'profissional', 'dealer']):
+                seller_type = 'profissional'
+
+            # Look for seller name in dedicated elements
+            seller_elem = card.find('div', class_=lambda c: c and any(x in str(c).lower() for x in ['seller', 'dealer', 'owner', 'anunciante']))
+            if seller_elem:
+                seller_name = seller_elem.get_text(strip=True)
+
+            # Trim level - look for version info in title
+            trim_patterns = [r'version[:\s]*(.+)', r'acabamento[:\s]*(.+)', r'trim[:\s]*(.+)']
+            for pattern in trim_patterns:
+                trim_match = re.search(pattern, title.lower())
+                if trim_match:
+                    trim_level = trim_match.group(1).strip()
+                    break
+
+            # Extras - look for common extra keywords
+            extra_keywords = ['ar condicionado', 'gps', 'nav', 'sensores', 'câmara', 'camara',
+                            'jantes', 'alloy', 'leather', 'pele', 'couro', 'sunroof', 'tejadilho']
+            for keyword in extra_keywords:
+                if keyword in card_text_lower:
+                    extras.append(keyword)
+
             return {
                 "source": Source.AUTOPT.value if hasattr(Source.AUTOPT, 'value') else "AUTOPT",
                 "source_id": source_id,
@@ -327,6 +403,14 @@ class AutoPtLightweightScraper:
                 "transmission": transmission,
                 "location": location,
                 "images": [img_url] if img_url else [],
+                "horsepower": horsepower,
+                "engine_size": engine_size,
+                "doors": doors,
+                "color": color or "",
+                "seller_name": seller_name or "",
+                "seller_type": seller_type,
+                "trim_level": trim_level or "",
+                "extras": extras,
             }
 
         except Exception as e:

@@ -90,36 +90,65 @@ class CarplusScraper:
         if params:
             url += "?" + "&".join(params)
         
-        return url
-    
-    async def _fetch_html(self, url: str) -> Optional[str]:
-        """Fetch HTML using browser pool."""
-        if not get_browser_pool:
-            return None
+        async def _fetch_html(self, url: str, retry_count: int = 0) -> Optional[str]:
+            """Fetch HTML using browser pool with retry logic."""
+            if not get_browser_pool:
+                logger.error("[CARPLUS] Browser pool not available")
+                return None
         
-        try:
-            pool = get_browser_pool()
-            page = await pool.new_page("carplus")
-            
-            await page.goto(url, timeout=self.timeout, wait_until='networkidle')
-            
             try:
-                await page.wait_for_selector('article, .vehicle-card, .car-card', timeout=5000)
-            except Exception:
-                pass
+                pool = get_browser_pool()
+                page = await pool.new_page("carplus")
             
-            # Scroll for lazy content
-            for _ in range(3):
-                await page.mouse.wheel(0, 800)
-                await asyncio.sleep(0.2)
+                # Use 60s timeout as requested
+                timeout_ms = 60000
             
-            html = await page.content()
-            await page.close()
-            return html
+                try:
+                    await page.goto(url, timeout=timeout_ms, wait_until='networkidle')
+                except Exception as e:
+                    logger.warning(f"[CARPLUS] Navigation timeout on attempt {retry_count + 1}: {e}")
+                    if retry_count < 2:
+                        await page.close()
+                        backoff_time = (2 ** retry_count) * 2 + random.uniform(1, 2)
+                        logger.info(f"[CARPLUS] Retrying after {backoff_time:.1f}s...")
+                        await asyncio.sleep(backoff_time)
+                        return await self._fetch_html(url, retry_count + 1)
+                    await page.close()
+                    return None
             
-        except Exception as e:
-            logger.error(f"[CARPLUS] Fetch failed: {e}")
-            return None
+                # Wait for content with retry
+                try:
+                    await page.wait_for_selector('article, .vehicle-card, .car-card', timeout=10000)
+                except Exception:
+                    logger.debug("[CARPLUS] Timeout waiting for selector, continuing anyway")
+            
+                # Scroll for lazy loading
+                for _ in range(3):
+                    await page.mouse.wheel(0, 800)
+                    await asyncio.sleep(0.2)
+            
+                html = await page.content()
+                await page.close()
+            
+                if html and len(html) > 1000:
+                    return html
+                else:
+                    logger.warning(f"[CARPLUS] HTML too short ({len(html) if html else 0} chars)")
+                    if retry_count < 2:
+                        backoff_time = (2 ** retry_count) * 2 + random.uniform(1, 2)
+                        logger.info(f"[CARPLUS] Retrying after {backoff_time:.1f}s...")
+                        await asyncio.sleep(backoff_time)
+                        return await self._fetch_html(url, retry_count + 1)
+                    return None
+            
+            except Exception as e:
+                logger.error(f"[CARPLUS] Fetch failed: {e}")
+                if retry_count < 2:
+                    backoff_time = (2 ** retry_count) * 2 + random.uniform(1, 2)
+                    logger.info(f"[CARPLUS] Retrying after error in {backoff_time:.1f}s...")
+                    await asyncio.sleep(backoff_time)
+                    return await self._fetch_html(url, retry_count + 1)
+                return None
     
     def _extract_from_json(self, html: str, max_listings: int) -> List[Dict[str, object]]:
         """Extract from embedded JSON or window.__DATA__."""
@@ -208,7 +237,7 @@ class CarplusScraper:
             brand, model = self._parse_brand_model(title)
             
             return {
-                "source": "carplus",
+                "source": "CARPLUS",
                 "source_id": str(data.get('id') or url),
                 "url": url,
                 "title": title,
@@ -273,7 +302,7 @@ class CarplusScraper:
             brand, model = self._parse_brand_model(title)
             
             return {
-                "source": "carplus",
+                "source": "CARPLUS",
                 "source_id": url,
                 "url": url,
                 "title": title,

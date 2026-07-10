@@ -304,7 +304,7 @@ class LeilosocLightweight:
         seller = lot.get("userName", "")
 
         return {
-            "source": "leilosoc",
+            "source": "LEILOSOC",
             "source_id": source_id,
             "url": url,
             "title": title,

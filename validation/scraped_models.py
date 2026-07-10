@@ -102,10 +102,24 @@ class ScrapedVehicle(BaseModel):
     def validate_source(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
-        valid_sources = ["olx", "standvirtual", "autosapo", "imovirtual", "piscapisca", "custojusto", "carplus", "autopt"]
-        if v.lower() not in valid_sources:
-            return None
-        return v.lower()
+        valid_sources = ["OLX", "STANDVIRTUAL", "AUTOSAPO", "IMOVIRL", "PISCAPISCA", "CUSTOJUSTO", "CARPLUS", "AUTOPT",
+                        "EBAY_MOTORS", "VPAUTO", "LEILOSOC", "MANHEIM", "AUTOROLA", "BCA"]
+        v_upper = v.upper().replace(" ", "_")
+        # Normalize common lowercase variants
+        normalize_map = {
+            "olx": "OLX",
+            "standvirtual": "STANDVIRTUAL",
+            "autosapo": "AUTOSAPO",
+            "imovirtual": "IMOVIRL",
+            "piscapisca": "PISCAPISCA",
+            "custojusto": "CUSTOJUSTO",
+            "carplus": "CARPLUS",
+            "autopt": "AUTOPT",
+        }
+        v_norm = normalize_map.get(v.lower(), v_upper)
+        if v_norm in valid_sources:
+            return v_norm
+        return None
     
     @field_validator('vehicle_type', mode='before')
     @classmethod

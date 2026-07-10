@@ -142,24 +142,46 @@ class AutoSapoScraper:
                 html = await self.managed_client.get_html(url, source="autosapo")
             
             if not html:
+                logger.warning(f"[AUTOSAPO] No HTML fetched for page {page}")
+                # If first page fails, try with retry
+                if page == 1:
+                    logger.info("[AUTOSAPO] Retrying page 1 with different approach...")
+                    await asyncio.sleep(2)
+                    continue
                 break
                 
             soup = BeautifulSoup(html, 'lxml')
             page_listings = self._parse_soup_to_listings(soup, max_listings - len(all_listings))
             
             if not page_listings:
-                logger.info(f"[AUTOSAPO] No more listings found at page {page}")
+                logger.info(f"[AUTOSAPO] No listings found on page {page}")
+                # Try to check if we're blocked
+                if "captcha" in html.lower() or "blocked" in html.lower():
+                    logger.warning("[AUTOSAPO] Possible blocking detected")
+                    if page == 1:
+                        # Retry with different approach
+                        await asyncio.sleep(3)
+                        continue
                 break
                 
             all_listings.extend(page_listings)
             logger.info(f"[AUTOSAPO] Total listings so far: {len(all_listings)}")
             
-            if len(page_listings) < 10:
-                break
-                
+            # Continue pagination if we got a full page (more likely to have more)
+            # AutoSapo typically shows 20-30 listings per page
+            if len(page_listings) < 15:  # Less strict threshold
+                logger.info(f"[AUTOSAPO] Only {len(page_listings)} listings on page {page}, might be last page")
+                # Don't break immediately, try next page
+                if page > 3:  # After 3 pages with few listings, stop
+                    break
+            
             page += 1
-            if page > 10:
+            if page > 20:  # Increased max pages
+                logger.info("[AUTOSAPO] Reached max page limit (20)")
                 break
+            
+            # Rate limiting
+            await asyncio.sleep(random.uniform(1, 2))
         
         return all_listings[:max_listings]
 
@@ -494,7 +516,7 @@ class AutoSapoScraper:
             brand, model = self._parse_brand_model(title)
 
             return {
-                "source": "autosapo",
+                "source": "AUTOSAPO",
                 "source_id": source_id,
                 "url": url,
                 "title": title,

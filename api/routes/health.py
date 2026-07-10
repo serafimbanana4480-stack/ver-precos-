@@ -7,8 +7,7 @@ from datetime import datetime
 import logging
 
 from ..dependencies import get_database, get_cache
-# HealthService not implemented yet - using inline health check
-# from ..services import HealthService
+from ..services.health_service import HealthService
 
 logger = logging.getLogger(__name__)
 

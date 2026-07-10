@@ -98,8 +98,8 @@ class PiscaPiscaScraper:
         
         return url
     
-    async def _fetch_html(self, url: str) -> Optional[str]:
-        """Fetch HTML using browser pool for speed."""
+    async def _fetch_html(self, url: str, retry_count: int = 0) -> Optional[str]:
+        """Fetch HTML using browser pool with retry logic."""
         if not get_browser_pool:
             logger.error("[PISCAPISCA] Browser pool not available")
             return None
@@ -108,13 +108,26 @@ class PiscaPiscaScraper:
             pool = get_browser_pool()
             page = await pool.new_page("piscapisca")
             
-            await page.goto(url, timeout=self.timeout, wait_until='networkidle')
+            timeout_ms = 60000  # 60s timeout
+            
+            try:
+                await page.goto(url, timeout=timeout_ms, wait_until='networkidle')
+            except Exception as e:
+                logger.warning(f"[PISCAPISCA] Navigation timeout (attempt {retry_count + 1}): {e}")
+                if retry_count < 2:
+                    await page.close()
+                    backoff_time = (2 ** retry_count) * 2 + random.uniform(1, 2)
+                    logger.info(f"[PISCAPISCA] Retrying after {backoff_time:.1f}s...")
+                    await asyncio.sleep(backoff_time)
+                    return await self._fetch_html(url, retry_count + 1)
+                await page.close()
+                return None
             
             # Wait for content
             try:
-                await page.wait_for_selector('article, [data-testid], .vehicle-card', timeout=5000)
+                await page.wait_for_selector('article, [data-testid], .vehicle-card, a[href*="/carro"]', timeout=10000)
             except Exception:
-                pass
+                logger.debug("[PISCAPISCA] Timeout waiting for selector, continuing anyway")
             
             # Scroll for lazy loading
             for _ in range(3):
@@ -123,10 +136,25 @@ class PiscaPiscaScraper:
             
             html = await page.content()
             await page.close()
-            return html
+            
+            if html and len(html) > 1000:
+                return html
+            else:
+                logger.warning(f"[PISCAPISCA] HTML too short ({len(html) if html else 0} chars)")
+                if retry_count < 2:
+                    backoff_time = (2 ** retry_count) * 2 + random.uniform(1, 2)
+                    logger.info(f"[PISCAPISCA] Retrying after {backoff_time:.1f}s...")
+                    await asyncio.sleep(backoff_time)
+                    return await self._fetch_html(url, retry_count + 1)
+                return None
             
         except Exception as e:
             logger.error(f"[PISCAPISCA] Fetch failed: {e}")
+            if retry_count < 2:
+                backoff_time = (2 ** retry_count) * 2 + random.uniform(1, 2)
+                logger.info(f"[PISCAPISCA] Retrying after error in {backoff_time:.1f}s...")
+                await asyncio.sleep(backoff_time)
+                return await self._fetch_html(url, retry_count + 1)
             return None
     
     def _extract_from_next_data(self, html: str, max_listings: int) -> List[Dict[str, object]]:
@@ -217,7 +245,7 @@ class PiscaPiscaScraper:
             brand, model = self._parse_brand_model(title)
             
             return {
-                "source": "piscapisca",
+                "source": "PISCAPISCA",
                 "source_id": str(data.get('id') or data.get('_id') or url),
                 "url": url,
                 "title": title,
@@ -239,23 +267,52 @@ class PiscaPiscaScraper:
             return None
     
     def _parse_soup(self, soup: Any, max_listings: int) -> List[Dict[str, object]]:
-        """Parse listings from BeautifulSoup."""
+        """Parse listings from BeautifulSoup with multiple selector strategies."""
         listings = []
         
-        # Try common selectors
+        # Strategy 1: Try multiple modern selectors
         selectors = [
-            'article.vehicle-card',
             'article[data-testid]',
+            'article.vehicle-card',
             '.vehicle-card',
             '.listing-card',
             '[data-testid="vehicle-card"]',
+            '.car-card',
+            'article[data-cy]',
+            '.ad-item',
+            '.listing-item',
+            'div[class*="vehicle"]',
+            'div[class*="card"]',
+            'a[href*="/carro/"]',
+            'a[href*="/anuncio/"]',
         ]
         
         elements = []
         for sel in selectors:
             elements = soup.select(sel)
             if elements:
+                logger.info(f"[PISCAPISCA] Found {len(elements)} elements with selector: {sel}")
                 break
+        
+        # Strategy 2: If no structured elements, look for links with car-related URLs
+        if not elements:
+            links = soup.find_all('a', href=True)
+            car_links = [l for l in links if any(x in l.get('href', '') for x in ['/carro', '/anuncio', '/veiculo', '/v/'])]
+            if car_links:
+                logger.info(f"[PISCAPISCA] Found {len(car_links)} car links as fallback")
+                elements = car_links
+        
+        # Strategy 3: Look for any div/article with price text
+        if not elements:
+            all_divs = soup.find_all(['div', 'article', 'li'])
+            price_pattern = re.compile(r'\d+.*€|\d+\s*euros', re.IGNORECASE)
+            for elem in all_divs:
+                text = elem.get_text()
+                if price_pattern.search(text) and len(text) > 50:
+                    elements.append(elem)
+                    if len(elements) >= max_listings:
+                        break
+            logger.info(f"[PISCAPISCA] Found {len(elements)} elements with price pattern")
         
         for elem in elements[:max_listings]:
             listing = self._parse_element(elem)
@@ -263,37 +320,94 @@ class PiscaPiscaScraper:
                 listings.append(listing)
         
         return listings
-    
+
     def _parse_element(self, elem: Any) -> Optional[Dict[str, object]]:
-        """Parse a single listing element."""
+        """Parse a single listing element with flexible extraction."""
         try:
-            # URL
-            link = elem.find('a', href=True)
-            url = link['href'] if link else ''
+            # Find URL - check if elem is a link or find link within
+            if elem.name == 'a' and elem.get('href'):
+                url = elem['href']
+            else:
+                link = elem.find('a', href=True)
+                if not link:
+                    # Try finding any link in children
+                    all_links = elem.find_all('a', href=True)
+                    if all_links:
+                        link = all_links[0]
+                    else:
+                        return None
+                url = link['href']
+            
+            if not url:
+                return None
+                
             if url.startswith('/'):
                 url = urljoin(self.base_url, url)
+            elif not url.startswith('http'):
+                url = urljoin(self.base_url, '/' + url)
             
-            # Title
-            title_elem = elem.find(['h2', 'h3', '.title', '[data-testid="title"]'])
-            title = title_elem.get_text(strip=True) if title_elem else ''
+            # Find title
+            title = ""
+            # Try multiple title selectors
+            title_selectors = ['h2', 'h3', 'h4', '.title', '[data-testid="title"]', '.name', 'strong']
+            for sel in title_selectors:
+                title_elem = elem.select_one(sel) if not elem.name == 'a' else None
+                if not title_elem and elem.name != 'a':
+                    title_elem = elem.find(sel)
+                if title_elem:
+                    title = title_elem.get_text(strip=True)
+                    if title:
+                        break
             
-            # Price
-            price_elem = elem.find(class_=re.compile(r'price|preco'))
-            price = self._safe_float(price_elem.get_text(strip=True)) if price_elem else None
+            # If no title found, try link text or alt text
+            if not title:
+                if elem.name == 'a':
+                    title = elem.get_text(strip=True)
+                if not title:
+                    img = elem.find('img')
+                    if img:
+                        title = img.get('alt', '') or img.get('title', '')
+            
+            # Find price
+            price = None
+            price_selectors = ['.price', '.preco', '[data-testid="price"]', 'span[class*="price"]', 'strong']
+            for sel in price_selectors:
+                price_elem = elem.select_one(sel) if elem.name != 'a' else None
+                if not price_elem and elem.name != 'a':
+                    price_elem = elem.find(sel)
+                if price_elem:
+                    price_text = price_elem.get_text(strip=True)
+                    price = self._safe_float(price_text)
+                    if price:
+                        break
+            
+            # If no price in structured element, search in text
+            if not price:
+                full_text = elem.get_text()
+                price_match = re.search(r'(\d{1,3}(?:\.\d{3})*|\d+)\s*€', full_text)
+                if price_match:
+                    price = self._safe_float(price_match.group(0))
             
             if not title or not price:
                 return None
             
             brand, model = self._parse_brand_model(title)
             
+            # Extract year, km from text
+            full_text = elem.get_text()
+            year = self._safe_int(re.search(r'\b(19\d{2}|20\d{2})\b', full_text))
+            km = self._safe_int(re.search(r'(\d{1,3}(?:\.\d{3})*|\d+)\s*km', full_text, re.IGNORECASE))
+            
             return {
-                "source": "piscapisca",
+                "source": "PISCAPISCA",
                 "source_id": url,
                 "url": url,
                 "title": title,
                 "brand": brand,
                 "model": model,
                 "price": price,
+                "year": year,
+                "km": km,
                 "raw_data": str(elem),
             }
             

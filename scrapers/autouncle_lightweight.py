@@ -299,7 +299,7 @@ class AutoUncleLightweight:
         source_id = hashlib.md5((detail_url or title).encode()).hexdigest()[:16]
 
         return {
-            "source": "autouncle",
+            "source": "AUTOUNCLE",
             "source_id": source_id,
             "url": detail_url,
             "external_url": ext_url,
@@ -431,7 +431,7 @@ def get_top_brand_model_pages() -> List[str]:
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
         r = requests.get(
-            f"{BASE_URL}/sitemaps/pt/autouncle_brand-car_model-pages_links.xml",
+            f"{AutoUncleLightweight.BASE_URL}/sitemaps/pt/autouncle_brand-car_model-pages_links.xml",
             headers=headers, timeout=15,
         )
         urls = re.findall(r"<loc>(.*?)</loc>", r.text)

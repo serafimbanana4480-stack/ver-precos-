@@ -197,6 +197,84 @@ class CustoJustoScraper:
             list_id = str(item.get("listID") or hash(url) % 100000000)
             image_url = item.get("imageFullURL") or ""
 
+            # Extract missing fields from item data
+            horsepower = None
+            engine_size = None
+            doors = None
+            color = None
+            seller_name = None
+            seller_type = None
+            trim_level = None
+            extras = []
+
+            # Get params dict
+            params = item.get("params") or {}
+
+            # Horsepower
+            power_raw = params.get("power") or params.get("potencia") or params.get("horsePower")
+            if power_raw:
+                try:
+                    horsepower = int(re.sub(r'[^\d]', '', str(power_raw)))
+                except (ValueError, TypeError):
+                    pass
+
+            # Engine size
+            engine_raw = params.get("engineSize") or params.get("engineCapacity") or params.get("cilindrada")
+            if engine_raw:
+                try:
+                    engine_size = int(re.sub(r'[^\d]', '', str(engine_raw)))
+                except (ValueError, TypeError):
+                    pass
+
+            # Doors
+            doors_raw = params.get("doors") or params.get("numDoors")
+            if doors_raw:
+                try:
+                    doors = int(re.sub(r'[^\d]', '', str(doors_raw)))
+                except (ValueError, TypeError):
+                    pass
+
+            # Color
+            color = params.get("color") or params.get("cor") or ""
+
+            # Seller info
+            seller_info = item.get("seller") or {}
+            if isinstance(seller_info, dict):
+                seller_name = seller_info.get("name") or ""
+                seller_type_raw = seller_info.get("type") or ""
+                if seller_type_raw:
+                    seller_type = seller_type_raw.lower()
+            elif isinstance(seller_info, str):
+                seller_name = seller_info
+
+            # Trim level
+            trim_level = params.get("version") or params.get("trim") or item.get("version") or ""
+
+            # Extras/features
+            extras_raw = params.get("extras") or params.get("features") or params.get("equipment") or []
+            if isinstance(extras_raw, list):
+                extras = [str(e) for e in extras_raw if e]
+            elif isinstance(extras_raw, str):
+                extras = [e.strip() for e in extras_raw.split(",") if e.strip()]
+
+            # Also try to extract from title
+            title_lower = title.lower()
+            if not horsepower:
+                hp_match = re.search(r'(\d+)\s*(?:cv|hp)', title_lower)
+                if hp_match:
+                    try:
+                        horsepower = int(hp_match.group(1))
+                    except ValueError:
+                        pass
+
+            if not engine_size:
+                engine_match = re.search(r'(\d{3,5})\s*(?:cc|cilindrada)', title_lower)
+                if engine_match:
+                    try:
+                        engine_size = int(engine_match.group(1))
+                    except ValueError:
+                        pass
+
             fuel = params.get("fuel")
             gearbox = params.get("gearbox")
             # --- Extract KM from params or title ---
@@ -225,7 +303,7 @@ class CustoJustoScraper:
                 km = age * 15000
 
             return {
-                "source": "custojusto",
+                "source": "CUSTOJUSTO",
                 "source_id": f"custojusto_{list_id}",
                 "url": url,
                 "title": title,
@@ -240,6 +318,14 @@ class CustoJustoScraper:
                 "location": location,
                 "fuel_type": fuel,
                 "transmission": gearbox,
+                "horsepower": horsepower,
+                "engine_size": engine_size,
+                "doors": doors,
+                "color": color if isinstance(color, str) else "",
+                "seller_name": seller_name if isinstance(seller_name, str) else "",
+                "seller_type": seller_type if isinstance(seller_type, str) else "",
+                "trim_level": trim_level if isinstance(trim_level, str) else "",
+                "extras": extras,
                 "first_seen": datetime.now(timezone.utc).isoformat(),
                 "last_seen": datetime.now(timezone.utc).isoformat(),
             }
@@ -300,8 +386,86 @@ class CustoJustoScraper:
                 age = max(1, datetime.now().year - year)
                 km = age * 15000
 
+            # Extract missing fields
+            horsepower = None
+            engine_size = None
+            doors = None
+            color = None
+            seller_name = None
+            seller_type = None
+            trim_level = None
+            extras = []
+
+            # Search in title and description
+            full_text = (title + " " + description).lower()
+
+            # Horsepower (e.g., "150 cv", "150 hp")
+            hp_match = re.search(r'(\d+)\s*(?:cv|hp|potência)', full_text)
+            if hp_match:
+                try:
+                    horsepower = int(hp_match.group(1))
+                except ValueError:
+                    pass
+
+            # Engine size (e.g., "2000 cc", "2.0")
+            engine_match = re.search(r'(\d{3,5})\s*(?:cc|cilindrada)', full_text)
+            if engine_match:
+                try:
+                    engine_size = int(engine_match.group(1))
+                except ValueError:
+                    pass
+            else:
+                # Try format like "2.0" (liters)
+                liter_match = re.search(r'(\d+[.,]\d+)\s*l', full_text)
+                if liter_match:
+                    try:
+                        engine_size = int(float(liter_match.group(1).replace(',', '.')) * 1000)
+                    except ValueError:
+                        pass
+
+            # Doors (e.g., "5 portas", "3 drs")
+            doors_match = re.search(r'(\d+)\s*(?:portas|door|drs)', full_text)
+            if doors_match:
+                try:
+                    doors = int(doors_match.group(1))
+                except ValueError:
+                    pass
+
+            # Color (e.g., "Cor: Preto", "Black")
+            color_match = re.search(r'cor:?\s*([A-Za-zÀ-ÿ\s]+?)(?:\s|$|,)', full_text)
+            if color_match:
+                color = color_match.group(1).strip()
+
+            # Seller type detection (check if it's a dealer)
+            seller_type = 'particular'  # default
+            if any(word in full_text for word in ['stand', 'concessionário', 'profissional', 'dealer']):
+                seller_type = 'profissional'
+
+            # Try to extract seller name from page
+            try:
+                seller_elem = await element.query_selector('.seller-name, .anunciante, [class*="seller"]')
+                if seller_elem:
+                    seller_name = await seller_elem.inner_text()
+            except Exception:
+                pass
+
+            # Trim level - look for version info in title
+            trim_patterns = [r'version[:\s]*(.+)', r'acabamento[:\s]*(.+)', r'trim[:\s]*(.+)']
+            for pattern in trim_patterns:
+                trim_match = re.search(pattern, title.lower())
+                if trim_match:
+                    trim_level = trim_match.group(1).strip()
+                    break
+
+            # Extras - look for common extra keywords
+            extra_keywords = ['ar condicionado', 'gps', 'nav', 'sensores', 'câmara', 'camara',
+                            'jantes', 'alloy', 'leather', 'pele', 'couro', 'sunroof', 'tejadilho']
+            for keyword in extra_keywords:
+                if keyword in full_text:
+                    extras.append(keyword)
+
             return {
-                "source": "custojusto",
+                "source": "CUSTOJUSTO",
                 "source_id": f"custojusto_{hash(url) % 100000000}",
                 "url": url,
                 "title": title.strip(),
@@ -316,6 +480,14 @@ class CustoJustoScraper:
                 "location": location.strip() if location else "Portugal",
                 "fuel_type": None,
                 "transmission": None,
+                "horsepower": horsepower,
+                "engine_size": engine_size,
+                "doors": doors,
+                "color": color or "",
+                "seller_name": seller_name or "",
+                "seller_type": seller_type,
+                "trim_level": trim_level or "",
+                "extras": extras,
                 "first_seen": datetime.now(timezone.utc).isoformat(),
                 "last_seen": datetime.now(timezone.utc).isoformat(),
             }

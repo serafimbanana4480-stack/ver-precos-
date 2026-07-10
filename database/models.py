@@ -49,6 +49,11 @@ class Source(str, enum.Enum):
     AUTOROLA = "AUTOROLA"
     BCA = "BCA"
     FACEBOOK = "FACEBOOK"
+    MCOUTINHO = "MCOUTINHO"
+    AUTOHUB = "AUTOHUB"
+    MARTELO = "MARTELO"
+    AUTOLINE = "AUTOLINE"
+    PENHORADO = "PENHORADO"
 
 
 class Vehicle(Base):

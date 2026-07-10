@@ -52,6 +52,7 @@ fpdf2>=2.7.0    # PDF generation for dashboard
 
 # Scheduler
 apscheduler>=3.10.4
+schedule>=1.2.2  # Scheduler autónomo (scrape+retrain+health, cron nativo leve)
 
 # API (FastAPI)
 fastapi>=0.109.0
