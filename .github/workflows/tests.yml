@@ -61,9 +61,15 @@ jobs:
     - name: Install Playwright browsers
       run: |
         playwright install chromium --with-deps
-    - name: Run unit tests
-      run: pytest tests/unit/ -v --cov=. --cov-report=term-missing --cov-fail-under=40 --timeout=60 -x
+    - name: Run unit tests (+ coverage)
+      run: pytest tests/unit/ -v --cov=. --cov-report=term-missing --cov-report=xml --cov-fail-under=55 --timeout=60
+    - name: Upload coverage artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report-${{ matrix.python-version }}
+        path: coverage.xml
     - name: Run integration tests
-      run: pytest tests/integration/ -v --timeout=120 -x
+      run: pytest tests/integration/ -v --timeout=120
       env:
-        DATABASE_URL: postgresql://autodeal:autodeal_test@localhost:5432/autodeal_test
+        DATABASE_URL: postgresql://autodeal:***@localhost:5432/autodeal_test

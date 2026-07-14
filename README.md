@@ -3,7 +3,9 @@
 > **O caçador inteligente de ofertas de veículos em Portugal** — Automatiza a procura, valorização e análise de veículos usados com IA e Machine Learning.
 
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/License-Educational-orange.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Tests](https://github.com/serafimbanana4480-stack/ver-precos-app/actions/workflows/tests.yml/badge.svg)](https://github.com/serafimbanana4480-stack/ver-precos-app/actions)
+[![Coverage](https://img.shields.io/badge/coverage-report-blue.svg)](https://github.com/serafimbanana4480-stack/ver-precos-app/actions)
 [![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)]()
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue.svg)](Dockerfile)
 
@@ -26,7 +28,7 @@ O **AutoDeal IA Hunter** é um sistema automatizado que:
 | Funcionalidade | Descrição | Estado |
 |----------------|-------------|--------|
 | **Multi-Source Scraping** | OLX.pt, Standvirtual, AutoSapo.pt com Playwright + Rust | ✅ Ativo |
-| **ML Valuation** | Modelo XGBoost com 15+ features (ano, km, cilindrada, combustible, etc.) | ✅ Ativo (R²=0.59) |
+| **ML Valuation** | Modelo segmentado 3 vias (XGBoost + CatBoost + LightGBM) com 18+ features (idade, km, HP, cilindrada, depreciación, prémios de mercado, etc.) | ✅ Ativo (R²=0.88 carros / 0.85 motos) |
 | **IA Análise** | LLM (Grok/Ollama) + Vision AI para condição do veículo | ✅ Ativo |
 | **Deal Scoring** | Algoritmo proprietário que cruza preço previsto vs. preço anúncio | ✅ Ativo |
 | **Dashboard Streamlit** | Interface web com filtros, gráficos e exportação CSV | ✅ Ativo (localhost:8501) |
@@ -63,8 +65,8 @@ AutoDeal IA Hunter
 
 ```bash
 # 1. Clonar o repositório
-git clone https://github.com/serafimbanana4480-stack/ver-precos-.git
-cd ver-precos-
+git clone https://github.com/serafimbanana4480-stack/ver-precos-app.git
+cd ver-precos-app
 
 # 2. Configurar ambiente
 cp .env.example .env
@@ -138,10 +140,13 @@ python main.py train --force
 python main.py train --incremental
 ```
 
-**Métricas do Modelo Atual:**
-- **R²:** 0.5907 (expllica 59% da variação de preço)
-- **MAE:** €8,528 (erro médio absoluto)
-- **Features:** 15 (ano, km, cilindrada, combustible, marca, modelo, etc.)
+**Métricas do Modelo Atual (carros, 3.733 amostras):**
+- **R²:** 0.8808 (explica 88% da variação de preço — modelo segmentado 3 vias)
+- **MAE:** €4,376 (erro médio absoluto)
+- **MAPE:** 14.7%
+- **Features:** 18 (ano, km, HP, cilindrada, portas, idade, km/ano, combustível, caixa, marca, modelo, distrito, fator desvalorização, prémio combustível, prémio localização, log_km, km_excess, km_extreme)
+
+> ⚠️ **Motos**: o modelo melhorou muito recentemente (R² 0.26 → **0.85** após limpeza de outliers com IsolationForest e re-treino XGBoost sobre 218 amostras). Ainda com MAPE ~29% (poucos dados), mas já fiável para filtrar deals grosseiros.
 
 ### 3. Avaliação de Veículos
 
@@ -257,7 +262,7 @@ python main.py scheduler
 ssh user@server-ip
 
 # 2. Clonar repositório
-git clone https://github.com/serafimbanana4480-stack/ver-precos-.git
+git clone https://github.com/serafimbanana4480-stack/ver-precos-app.git
 
 # 3. Configurar `.env`
 nano .env
@@ -343,9 +348,53 @@ python main.py scrape --max-listings 200
 
 ---
 
+## 🩺 Health Checks & Graceful Shutdown
+
+O sistema foi desenhado para correr em produção de forma resiliente:
+
+- **Health checks** (`utils/health_check.py`): verificam BD, configuração, logs graváveis e Ollama, agregando um status `healthy` / `degraded` / `unhealthy`.
+- **API de health** (`api/routes/health.py`): endpoints prontos para orquestradores — `/health/live` (liveness), `/health/ready` (readiness), `/health/startup` (startup), `/health/metrics`, `/health/detailed`.
+- **Docker**: o `Dockerfile` inclui `HEALTHCHECK` nativo (intervalo 30-60s) que usa estes endpoints.
+- **Graceful shutdown** (`utils/production_safeguards.py`): `SIGINT`/`SIGTERM` disparam `graceful_shutdown()`, que encerra a fila de requests, liberta as ligações da BD (`engine.dispose()`), faz flush dos logs e sai de forma limpa — sem perder trabalho em curso.
+- **Circuit breakers**: cada fonte de scraping (OLX, Standvirtual, AutoSapo, leiloeiras) tem um circuit breaker que abre após N falhas consecutivas e recupera após um timeout, evitando cascata de falhas.
+- **Validação de ambiente em produção**: em `env=production`, o arranque recusa-se a iniciar se faltarem `DATABASE_URL`, `JWT_SECRET`, ou o Sentry DSN (com aviso).
+
+```bash
+# Verificação manual de saúde
+python main.py health-check
+```
+
+---
+
+## ⚠️ Limitações Conhecidas
+
+- **Modelo de motos historicamente fraco**: estava em R²≈0.26 (233 amostras). Melhorado para **R²=0.85** após limpeza de outliers (IsolationForest) e re-treino XGBoost (218 amostras, MAPE ~29%). Ainda sensível à escassez de dados — novas amostras ajudam.
+- **Scrapers bloqueados**: Facebook e PiscaPisca estão bloqueados por login/Cloudflare (0 resultados). AutoScout24 `.pt` está offline — usar `.com` com `cy=PT`.
+- **Leilões não são mercado**: preços de leilão (LEILOSOC, VPAUTO, etc.) são ~8x inferiores ao mercado de retalho. O `HybridValuator` aplica um *auction adjustment* para não gerar "deals" falsos, mas continua a ser uma aproximação.
+- **Scraping é frágil**: sites mudam de estrutura sem aviso; os parsers quebram periodicamente. Há fallback para `requests`+BeautifulSoup e `AutoUncle` (que agrega muitos sites) como fonte mais estável.
+- **Scooters 125cc sobre-estimadas historicamente**: corrigidas com um *cap* por keywords; motos grandes (ex: BMW 1250 GS) não são afetadas.
+- **CustoJusto KM=0**: corrigido com 3 níveis de fallback (params → regex do título → estimativa por ano), mas anúncios sem KM nem ano continuam imputados.
+
+---
+
+## ⚖️ Riscos Legais do Scraping
+
+> ⚠️ **Aviso importante**: este projeto é para **fins educacionais e uso pessoal**. O scraping tem implicações legais e contratuais:
+
+- **Termos de Serviço**: OLX, Standvirtual, AutoSapo e outros proíbem scraping automatizado nos seus ToS. Violar os ToS pode resultar em bloqueio de IP ou ações legais.
+- **RGPD / Privacidade**: os anúncios podem conter dados de vendedores (nomes, contactos). Não armazenes nem reutilizes dados pessoais sem base legal.
+- **Robots.txt**: respeita os ficheiros `robots.txt` de cada site e usa *delays* (configuráveis em `.env`) para não sobrecarregar os servidores.
+- **Uso comercial**: revenda de dados extraídos ou decisões de negócio baseadas nas estimativas deste sistema são da tua responsabilidade.
+- **Rate limiting / proxy**: o sistema suporta proxy e *circuit breakers*, mas és tu quem decide a agressividade. Sê ético.
+
+**Recomendação**: usa apenas para análise pessoal, com *delays* conservadores, e nunca para spam ou contacto não solicitado de vendedores.
+
+---
+
 ## 📝 Licença
 
-Este projeto é para fins **educacionais**. Respeitar os termos de serviço dos websites ao fazer scraping.
+Este projeto está licenciado sob a **MIT License** — vê o ficheiro [LICENSE](LICENSE).
+É para fins **educacionais**. Respeita os termos de serviço dos websites ao fazer scraping.
 
 ---
 
@@ -386,12 +435,13 @@ Para problemas e questões:
 
 ## 📈 Estatísticas do Projeto
 
-- **Última atualização:** 2026-06-28
+- **Última atualização:** 2026-07-14
 - **Branch:** `main`
-- **Total de ficheiros:** ~200 (código fonte)
-- **Módulos Python:** 25+
-- **Cobertura de testes:** 85%+
-- **Modelo ML:** XGBoost (R²=0.59, MAE=€8,528)
+- **Módulos Python:** 100+
+- **Testes:** unitários + integração + e2e (CI com coverage report)
+- **Modelo ML (carros):** segmentado 3 vias — XGBoost + CatBoost + LightGBM (R²=0.88, MAE=€4,376)
+- **Modelo ML (motos):** XGBoost (R²=0.85, MAE=€4,818, MAPE=29% — 218 amostras, melhorado vs R²=0.26 anterior)
+- **Fontes ativas:** AutoUncle (AUTOPT), Leilosoc, Carplus, CustoJusto, OLX, Standvirtual, AutoSapo
 
 ---
 

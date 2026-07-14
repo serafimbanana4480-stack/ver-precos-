@@ -15,7 +15,13 @@
     "Jawa": 13,
     "Triumph": 14,
     "MITT": 15,
-    "SYM": 16
+    "SYM": 16,
+    "Mercedes": 17,
+    "Bmw": 18,
+    "Vw": 19,
+    "Opel": 20,
+    "Toyota": 21,
+    "Smart": 22
   },
   "model_to_idx": {
     "X5 40 d xDrive Pack M": 1,
@@ -242,6 +248,16 @@
     "M3 Competition xDrive": 222,
     "iX xDrive 40 Pack Desportivo": 223,
     "216 Active Tourer d": 224,
-    "418 Gran Coup\u00e9": 225
+    "418 Gran Coup\u00e9": 225,
+    "-Benz E 220": 226,
+    "S-Wing - 07": 227,
+    "X1 18 d": 228,
+    "YZF - 23": 229,
+    "Polo 1.4TDi Trendline": 230,
+    "MP3 250 -": 231,
+    "Astra Caravan 1.3CDTi": 232,
+    "Auris 1.4 D4-D": 233,
+    "ForFour 5 portas": 234,
+    "YZ 250 -": 235
   }
 }
