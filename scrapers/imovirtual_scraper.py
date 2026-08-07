@@ -3,13 +3,14 @@ ImoVirtual Scraper
 """
 from __future__ import annotations
 import logging
+import hashlib
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 from urllib.parse import urljoin, quote
 
 from config import settings
 from validation.scraped_models import ScrapedVehicle
-
+from scrapers.schema import parse_price_evidence
 logger = logging.getLogger(__name__)
 
 
@@ -19,7 +20,9 @@ class ImoVirtualScraper:
     """
     
     def __init__(self):
-        self.base_url = settings.autosapo_base_url.replace("https://www.autosapo.pt", "https://www.imovirtual.com") if hasattr(settings, 'autosapo_base_url') else "https://www.imovirtual.com"
+        # Imovirtual is an independent source; do not derive it from the
+        # AutoSapo environment setting.
+        self.base_url = "https://www.imovirtual.com"
         
     def scrape_listings(self, max_listings: int = 50, vehicle_type: str = "carros", filters: Optional[Dict[str, object]] = None) -> List[ScrapedVehicle]:
         """
@@ -62,6 +65,10 @@ class ImoVirtualScraper:
             import requests
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
             response = requests.get(search_url, headers=headers, timeout=settings.request_timeout)
+            if response.status_code == 404:
+                raise RuntimeError(
+                    "source_unavailable: Imovirtual no longer exposes vehicle listings at this route"
+                )
             response.raise_for_status()
             
             from bs4 import BeautifulSoup
@@ -80,6 +87,8 @@ class ImoVirtualScraper:
             
             logger.info(f"ImoVirtual scrape completed: {len(vehicles)} vehicles scraped")
             
+        except RuntimeError:
+            raise
         except Exception as e:
             logger.error(f"ImoVirtual scraping failed: {e}")
         
@@ -108,7 +117,9 @@ class ImoVirtualScraper:
             
             return ScrapedVehicle(
                 source="imovirtual",
-                source_id=str(hash(url)),
+                # Python's hash() is randomized per process, so it cannot be
+                # used to reconcile the same advert across scrape cycles.
+                source_id=hashlib.sha256(url.encode("utf-8")).hexdigest()[:32],
                 url=url,
                 title=title,
                 brand=self._extract_brand(title),
@@ -121,11 +132,10 @@ class ImoVirtualScraper:
             return None
     
     def _parse_price(self, price_text: str) -> Optional[float]:
-        try:
-            cleaned = price_text.replace("€", "").replace("\xa0", "").replace(".", "").replace(",", ".").strip()
-            return float(cleaned)
-        except (ValueError, AttributeError):
+        evidence = parse_price_evidence(price_text)
+        if evidence.kind.value != "total" or evidence.currency != "EUR":
             return None
+        return evidence.value
     
     def _extract_brand(self, title: str) -> Optional[str]:
         if not title:

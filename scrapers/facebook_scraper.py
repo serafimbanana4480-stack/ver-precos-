@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import random
 import re
 from datetime import datetime, timezone
@@ -19,6 +20,7 @@ from urllib.parse import urljoin, urlencode, quote
 import httpx
 
 from database.models import Source, VehicleType
+from scrapers.schema import parse_price_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,9 @@ class FacebookScraper:
     def __init__(self) -> None:
         self.source = Source.FACEBOOK
         self.source_name = Source.FACEBOOK.value
+        self.allow_cross_source_fallback = os.getenv(
+            "FACEBOOK_ALLOW_OLX_FALLBACK", "0"
+        ).lower() in {"1", "true", "yes"}
 
     async def scrape_listings(
         self,
@@ -89,7 +94,13 @@ class FacebookScraper:
         if listings:
             return listings
 
-        # Step 2: Fallback to OLX
+        # A fallback result is not a Facebook result and can corrupt source or
+        # price provenance.  Keep it opt-in for cross-reference experiments.
+        if not self.allow_cross_source_fallback:
+            logger.warning("[FACEBOOK] Blocked/auth required; OLX fallback disabled")
+            return []
+
+        # Step 2: Optional cross-source fallback to OLX
         logger.info("Facebook bloqueou - a usar fallback OLX")
         listings = await self._fallback_olx(vehicle_type, max_listings, filters)
         if listings:
@@ -158,7 +169,7 @@ class FacebookScraper:
             logger.debug("[FACEBOOK_OLX] A usar OLXScraper do projeto como fallback")
             olx = OLXScraper()
             olx_listings = await olx.scrape_listings(
-                vehicle_type=vehicle_type,
+                vtype=vehicle_type,
                 max_listings=max_listings,
                 filters=filters,
                 scrape_details=False,
@@ -639,18 +650,10 @@ class FacebookScraper:
         }
 
     def _parse_price(self, value: Any) -> Optional[float]:
-        if value is None:
+        evidence = parse_price_evidence(value)
+        if evidence.kind.value != "total" or evidence.currency != "EUR":
             return None
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            cleaned = re.sub(r"[€$£EUR\s]", "", value, flags=re.IGNORECASE).strip()
-            cleaned = cleaned.replace(".", "").replace(",", ".")
-            try:
-                return float(cleaned)
-            except ValueError:
-                return None
-        return None
+        return evidence.value
 
     def _parse_year(self, value: Any) -> Optional[int]:
         if value is None:

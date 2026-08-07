@@ -1,17 +1,8 @@
 {
-  "model_type": "xgboost",
-  "model_path": "model_carros.json",
+  "model_type": "extra_trees",
+  "model_path": "model_carros.joblib",
   "scaler_path": "scaler_carros.joblib",
   "brand_index_path": "brand_index_carros.json",
-  "low_model_path": "model_carros_low.json",
-  "low_scaler_path": "scaler_carros_low.joblib",
-  "high_model_path": "model_carros_high.json",
-  "high_threshold": 20000.0,
-  "high_log_target": true,
-  "high_cat_features": [7, 8, 9, 10, 11],
-  "high_model_type": "catboost",
-  "full_log_target": true,
-  "low_threshold": 20000.0,
   "vehicle_type": "carros",
   "feature_names": [
     "year",
@@ -33,33 +24,39 @@
     "km_excess",
     "km_extreme"
   ],
+  "full_log_target": true,
   "metrics": {
-    "r2": 0.8807973677323832,
-    "mae": 4376.0604358351375,
-    "mape_pct": 14.728716968401526
+    "r2": 0.7044342485609971,
+    "mae": 4996.993824296989,
+    "median_ae": 2550.6062854052448,
+    "rmse": 11456.026861475028,
+    "mape_pct": 19.586523941407002,
+    "mape_0k_5k": 58.9,
+    "n_0k": 119,
+    "mape_5k_15k": 22.5,
+    "n_5k": 710,
+    "mape_15k_30k": 13.5,
+    "n_15k": 1573,
+    "mape_30k_60k": 22.7,
+    "n_30k": 519,
+    "mape_60k_60k+": 32.4,
+    "n_60k": 129
   },
-  "low_metrics": {
-    "r2": 0.8117804277246168,
-    "mae": 1690.5306216732486,
-    "mape_pct": 24.953750041715324
-  },
-  "n_samples": 3733,
-  "trained_at": "2026-07-10T05:30:02.358860",
+  "n_samples": 3663,
+  "trained_at": "2026-08-01T19:16:14.709431+00:00",
   "excludes_auctions": [
-    "AUTOLINE",
+    "LEILOSOC",
+    "VPAUTO",
+    "MANHEIM",
     "AUTOROLA",
     "BCA",
-    "LEILOSOC",
-    "MANHEIM",
+    "AUTOLINE",
     "MARTELO",
-    "PENHORADO",
-    "VPAUTO"
+    "PENHORADO"
   ],
-  "routing": "three_way_full_prelim",
-  "optimizations": {
-    "segmented_low_full": true,
-    "segmented_high_full": true,
-    "full_log_target": true,
-    "excludes_auctions": true
+  "pipeline_version": "v2",
+  "library_versions": {
+    "xgboost": "3.3.0",
+    "sklearn": "1.9.0"
   }
 }

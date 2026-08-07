@@ -15,7 +15,9 @@ import httpx
 from bs4 import BeautifulSoup
 
 from scrapers.base import BaseScraper, BRANDS
+from scrapers.extractors import enrich_listing, from_jsonld_vehicle, iter_jsonld
 from core.settings import settings
+from processing.model_canon import parse_price_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +84,16 @@ class LightweightOLXScraper(BaseScraper):
             cards = soup.select("li.css-1du9zl4, div.css-1sw7q4x, article")
         return cards
 
+    #: Seletores de preço por ordem de fiabilidade. O primeiro que exista
+    #: ganha; nunca se procura o preço no texto solto do cartão, porque aí
+    #: aparecem também mensalidades de financiamento ("desde 149 €/mês").
+    PRICE_SELECTORS = (
+        "[data-testid='ad-price']",
+        "p[data-testid='ad-price']",
+        "[data-cy='ad-price']",
+        ".price, .css-10b0gli, .css-13afqrm",
+    )
+
     def _normalize(self, card: Any, vehicle_type: str) -> Optional[Dict[str, Any]]:
         try:
             link = card.select_one("a[href]")
@@ -93,45 +105,46 @@ class LightweightOLXScraper(BaseScraper):
             title_el = link.select_one("h6, h4, h3, [data-cy='ad_title']")
             title = title_el.get_text(strip=True) if title_el else ""
 
-            price_el = card.select_one("[data-testid='ad-price'], h3, p.css-13v1nwv, p[class*='price']")
-            price_text = price_el.get_text(strip=True) if price_el else "0"
-            price = self._parse_price(price_text)
-
-            details = card.get_text(" ", strip=True).lower()
-            year = None
-            km = None
-            year_match = re.search(r"\b(19[4-9]\d|20[0-3]\d)\b", details)
-            if year_match:
-                year = int(year_match.group(1))
-            km_match = re.search(r"(\d[\d\s]*(?:\.?\d{3})*)\s*km", details)
-            if km_match:
-                km = int(km_match.group(1).replace(" ", "").replace(".", ""))
-
-            fuel = None
-            for f in ["gasolina", "diesel", "elétrico", "eletrico", "hibrido", "híbrido", "gpl"]:
-                if f in details:
-                    fuel = f
+            price_el = None
+            for selector in self.PRICE_SELECTORS:
+                price_el = card.select_one(selector)
+                if price_el is not None:
                     break
-
-            trans = None
-            for t in ["manual", "automático", "automatico", "automático"]:
-                if t in details:
-                    trans = "manual" if t == "manual" else "automatico"
-                    break
-
-            return self.build_vehicle_dict(
-                url=url, title=title, price=price, vehicle_type=vehicle_type,
-                year=year, km=km, fuel_type=fuel, transmission=trans,
+            price_text = price_el.get_text(strip=True) if price_el is not None else ""
+            if not price_text:
+                # Sem elemento de preço identificável não se inventa um valor:
+                # o anúncio segue com preço 0 e é rejeitado a jusante pela
+                # camada de qualidade, com motivo auditável.
+                logger.debug("Cartão OLX sem elemento de preço: %s", url)
+            price_evidence = parse_price_evidence(price_text, context=title)
+            price = (
+                price_evidence.value
+                if price_evidence.kind.value == "total" and price_evidence.currency == "EUR"
+                else 0.0
             )
+
+            details = card.get_text(" ", strip=True)
+            listing = self.build_vehicle_dict(
+                url=url, title=title, price=price, vehicle_type=vehicle_type,
+                price_raw=price_evidence.raw,
+                price_observed_value=price_evidence.value,
+                currency=price_evidence.currency,
+                price_kind=price_evidence.kind.value,
+                price_evidence=price_evidence.evidence,
+                price_rejection_reason=price_evidence.rejection_reason,
+            )
+            # O texto do cartão traz ano/km/combustível/caixa; a extração
+            # partilhada garante o mesmo resultado que nas restantes fontes.
+            enrich_listing(listing, extra_text=details)
+            return listing
         except Exception as e:
             logger.debug(f"Card parse error: {e}")
             return None
 
     def _parse_price(self, text: str) -> float:
-        nums = re.findall(r"[\d.]+", text.replace(",", "."))
-        if nums:
-            return float(nums[0])
-        return 0.0
+        """Compatibility wrapper returning only a total EUR value."""
+        evidence = parse_price_evidence(text)
+        return evidence.value if evidence.kind.value == "total" and evidence.value else 0.0
 
     async def _enrich_details(self, listings: List[Dict]) -> None:
         """Scrape detail pages for HP, cc, fuel_type, transmission."""
@@ -150,32 +163,24 @@ class LightweightOLXScraper(BaseScraper):
                 await asyncio.sleep(1)
 
     def _extract_detail_features(self, html: str, listing: Dict) -> None:
+        """Completa o anúncio com o que só existe na página de detalhe.
+
+        Prefere dados estruturados (JSON-LD) e só depois cai para a extração
+        textual, para não depender de classes CSS que o site muda sem aviso.
+        """
+        for node in iter_jsonld(html):
+            structured = from_jsonld_vehicle(node)
+            for key, value in structured.items():
+                # O preço da listagem já foi validado com proveniência; não
+                # pode ser substituído silenciosamente pelo JSON-LD.
+                if key in ("price", "price_raw", "currency", "url", "title"):
+                    continue
+                if listing.get(key) in (None, "", [], 0):
+                    listing[key] = value
+
         soup = BeautifulSoup(html, "html.parser")
-        text = soup.get_text(" ", strip=True).lower()
-
-        hp_match = re.search(r"(\d{2,3})\s*(cv|cavalo|hp)", text)
-        if hp_match:
-            listing["horsepower"] = int(hp_match.group(1))
-
-        cc_match = re.search(r"(\d{3,4})\s*cm3|(\d{1,2}\.\d)\s*l(?:itros)", text)
-        if cc_match:
-            val = cc_match.group(1) or cc_match.group(2)
-            if "." in str(val):
-                listing["engine_size"] = int(float(val) * 1000)
-            else:
-                listing["engine_size"] = int(val)
-
-        if not listing.get("fuel_type"):
-            for f in ["gasolina", "diesel", "elétrico", "eletrico", "hibrido", "híbrido", "gpl"]:
-                if f in text:
-                    listing["fuel_type"] = f
-                    break
-
-        if not listing.get("transmission"):
-            for t in ["manual", "automático", "automatico"]:
-                if t in text:
-                    listing["transmission"] = "manual" if t == "manual" else "automatico"
-                    break
+        text = soup.get_text(" ", strip=True)
+        enrich_listing(listing, extra_text=text)
 
 
 async def fast_scrape_all(vehicle_type: str = "carros", max_listings: int = 50) -> List[Dict]:
@@ -194,9 +199,10 @@ async def fast_scrape_all(vehicle_type: str = "carros", max_listings: int = 50) 
 
 
 def save_listings_to_db(listings: List[Dict]) -> int:
-    """Save listings with dedup check."""
+    """Save listings with deduplication and auditable quality state."""
     from database.db import get_db_context
     from database.models import Vehicle, Source, FuelType, Transmission
+    from processing.quality import classify_listing
     from sqlalchemy import select
 
     saved = 0
@@ -207,45 +213,63 @@ def save_listings_to_db(listings: List[Dict]) -> int:
             try:
                 src = Source(src_name)
             except ValueError:
+                logger.warning("Skipping listing with unknown source=%s source_id=%s", src_name, sid)
                 continue
+
+            quality = classify_listing(l)
+            price = float(l.get("price") or l.get("price_observed_value") or 0.0)
+            values = {
+                "price": price,
+                "price_raw": l.get("price_raw"),
+                "price_observed_value": l.get("price_observed_value"),
+                "currency": l.get("currency"),
+                "price_kind": l.get("price_kind"),
+                "price_evidence": l.get("price_evidence"),
+                "price_rejection_reason": l.get("price_rejection_reason"),
+                "quality_status": quality["quality_status"],
+                "quality_reasons": quality["quality_reasons"],
+                "quality_checked_at": datetime.now(timezone.utc),
+            }
 
             existing = db.execute(
                 select(Vehicle).where(Vehicle.source == src, Vehicle.source_id == sid)
             ).scalar_one_or_none()
 
             if existing:
-                existing.price = float(l.get("price", existing.price))
+                for key, value in values.items():
+                    setattr(existing, key, value)
                 existing.last_seen = datetime.now(timezone.utc)
                 existing.scrape_count = (existing.scrape_count or 1) + 1
-            else:
-                fuel = l.get("fuel_type")
-                if fuel and isinstance(fuel, str):
-                    try:
-                        fuel = FuelType(fuel.lower())
-                    except ValueError:
-                        fuel = None
-                trans = l.get("transmission")
-                if trans and isinstance(trans, str):
-                    try:
-                        trans = Transmission(trans.lower())
-                    except ValueError:
-                        trans = None
+                continue
 
-                v = Vehicle(
-                    source=src, source_id=sid,
-                    url=str(l.get("url", "")),
-                    vehicle_type=l.get("vehicle_type", "carros"),
-                    brand=str(l.get("brand", "Unknown")),
-                    model=str(l.get("model", "Unknown")),
-                    year=l.get("year"), km=l.get("km"),
-                    price=float(l.get("price", 0)),
-                    title=str(l.get("title", "")),
-                    location=str(l.get("location", "")),
-                    fuel_type=fuel, transmission=trans,
-                    horsepower=l.get("horsepower"), engine_size=l.get("engine_size"),
-                )
-                db.add(v)
-                saved += 1
+            fuel = l.get("fuel_type")
+            if fuel and isinstance(fuel, str):
+                try:
+                    fuel = FuelType(fuel.lower())
+                except ValueError:
+                    fuel = None
+            trans = l.get("transmission")
+            if trans and isinstance(trans, str):
+                try:
+                    trans = Transmission(trans.lower())
+                except ValueError:
+                    trans = None
+
+            v = Vehicle(
+                source=src, source_id=sid,
+                url=str(l.get("url", "")),
+                vehicle_type=l.get("vehicle_type", "carros"),
+                brand=str(l.get("brand", "Unknown")),
+                model=str(l.get("model", "Unknown")),
+                year=l.get("year"), km=l.get("km"),
+                title=str(l.get("title", "")),
+                location=str(l.get("location", "")),
+                fuel_type=fuel, transmission=trans,
+                horsepower=l.get("horsepower"), engine_size=l.get("engine_size"),
+                **values,
+            )
+            db.add(v)
+            saved += 1
         db.commit()
     return saved
 

@@ -20,6 +20,7 @@ from validation.schemas import ScrapedVehicle, VehicleType as SchemaVehicleType
 from utils.observability import track_scrape
 from scrapers.browser_pool import get_browser_pool
 from scrapers.ai_extractor import get_ai_extractor
+from scrapers.schema import parse_price_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -147,11 +148,10 @@ class AutoPtScraper:
         return title, ""
 
     def _parse_price(self, text: str) -> float:
-        try:
-            digits = re.sub(r'[^\d]', '', text)
-            return float(digits) if digits else 0.0
-        except:
-            return 0.0
+        evidence = parse_price_evidence(text)
+        if evidence.kind.value == "total" and evidence.currency == "EUR":
+            return evidence.value or 0.0
+        return 0.0
 
     async def _fetch_html_with_playwright(self, url: str) -> Optional[str]:
         from utils.playwright_stealth import apply_stealth_async

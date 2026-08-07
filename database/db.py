@@ -70,6 +70,41 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 _db_initialized = False
 
 
+RELIABILITY_COLUMNS = {
+    "comparables_count": "INTEGER",
+    "valuation_confidence": "VARCHAR(16)",
+    "adjusted_estimated_value": "FLOAT",
+    "credible_profit": "FLOAT",
+    "profit_is_publishable": "BOOLEAN",
+}
+
+
+def ensure_reliability_columns() -> None:
+    """Adiciona (idempotente) as colunas de fiabilidade a BD já existentes.
+
+    O ``fix_price_leaks.py`` também as cria, mas o scheduler/API não podem
+    depender de um script manual: sem isto, ``find_best_deals`` rebentava com
+    ``no such column`` numa BD que nunca passou pelo backfill.
+    """
+    if not _is_sqlite:
+        return
+    from sqlalchemy import inspect, text
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("vehicles"):
+            return
+        existing = {c["name"] for c in inspector.get_columns("vehicles")}
+        with engine.begin() as conn:
+            for name, col_type in RELIABILITY_COLUMNS.items():
+                if name not in existing:
+                    conn.execute(text(
+                        f"ALTER TABLE vehicles ADD COLUMN {name} {col_type}"
+                    ))
+                    logger.info("Coluna de fiabilidade criada: %s", name)
+    except Exception as e:  # não deve bloquear o arranque
+        logger.warning("ensure_reliability_columns falhou: %s", e)
+
+
 def init_db() -> None:
     """Initialize database tables once."""
     global _db_initialized
@@ -83,6 +118,7 @@ def init_db() -> None:
     # Check if tables exist first
     inspector = inspect(engine)
     if inspector.has_table("vehicles"):
+        ensure_reliability_columns()
         _db_initialized = True
         logger.info("Database already initialized")
         return

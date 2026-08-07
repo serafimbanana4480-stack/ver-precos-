@@ -4,8 +4,8 @@ SQLAlchemy ORM models for AutoDeal IA Hunter
 from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Boolean, 
-    Text, ForeignKey, JSON, Enum, Index
+    Column, Integer, String, Float, DateTime, Boolean,
+    Text, ForeignKey, JSON, Enum, Index, event
 )
 from sqlalchemy.orm import relationship, declarative_base
 import enum
@@ -39,9 +39,11 @@ class Source(str, enum.Enum):
     AUTOSAPO = "AUTOSAPO"
     CUSTOJUSTO = "CUSTOJUSTO"
     AUTOPT = "AUTOPT"
+    AUTO_UNCLE = "AUTOUNCLE"
     PISCAPISCA = "PISCAPISCA"
     CARPLUS = "CARPLUS"
     AUTOSCOUT24 = "AUTOSCOUT24"
+    IMOVIRTUAL = "IMOVIRTUAL"
     EBAY_MOTORS = "EBAY_MOTORS"
     VPAUTO = "VPAUTO"
     LEILOSOC = "LEILOSOC"
@@ -54,6 +56,52 @@ class Source(str, enum.Enum):
     MARTELO = "MARTELO"
     AUTOLINE = "AUTOLINE"
     PENHORADO = "PENHORADO"
+    # Retalho nacional (2026-08)
+    CAETANO = "CAETANO"
+    SANTOGAL = "SANTOGAL"
+    # Leilões judiciais eletrónicos
+    ELEILOES = "ELEILOES"
+    # Mercados estrangeiros — arbitragem de importação. Um veículo destas
+    # fontes é sempre um importado: paga ISV e legalização, e é isso que
+    # separa uma margem real de uma margem imaginária.
+    AUTOSCOUT24_DE = "AUTOSCOUT24_DE"
+    AUTOSCOUT24_ES = "AUTOSCOUT24_ES"
+    AUTOSCOUT24_FR = "AUTOSCOUT24_FR"
+    AUTOSCOUT24_PT = "AUTOSCOUT24_PT"
+    # France
+    AUTOHERO = "AUTOHERO"
+    SPOTICAR = "SPOTICAR"
+    LEBONCOIN = "LEBONCOIN"
+    LACENTRALE = "LACENTRALE"
+    ARGUS_FR = "ARGUS_FR"
+    # Spain
+    MILANUNCIOS = "MILANUNCIOS"
+    WALLAPOP = "WALLAPOP"
+    COCHES_NET = "COCHES_NET"
+    IDEALISTA_AUTOS = "IDEALISTA_AUTOS"
+    LACENTRALE_ES = "LACENTRALE_ES"
+    # Portugal (new retail sources)
+    SPOTICAR_PT = "SPOTICAR_PT"
+    COMPRAR_CARRO = "COMPRAR_CARRO"
+    AUTOUNCLE_PT = "AUTOUNCLE_PT"
+
+    @classmethod
+    def foreign(cls) -> "frozenset[Source]":
+        """Fontes fora de Portugal (implicam ISV + legalização)."""
+        return frozenset({
+            cls.AUTOSCOUT24_DE, cls.AUTOSCOUT24_ES, cls.AUTOSCOUT24_FR,
+            cls.AUTOHERO, cls.SPOTICAR, cls.LEBONCOIN, cls.LACENTRALE,
+            cls.ARGUS_FR, cls.MILANUNCIOS, cls.WALLAPOP, cls.COCHES_NET,
+            cls.IDEALISTA_AUTOS, cls.LACENTRALE_ES,
+        })
+
+    @classmethod
+    def auctions(cls) -> "frozenset[Source]":
+        """Fontes de leilão (preço de aquisição, não de retalho)."""
+        return frozenset({
+            cls.LEILOSOC, cls.MANHEIM, cls.AUTOROLA, cls.BCA,
+            cls.MARTELO, cls.AUTOLINE, cls.PENHORADO, cls.ELEILOES, cls.VPAUTO,
+        })
 
 
 class Vehicle(Base):
@@ -89,11 +137,19 @@ class Vehicle(Base):
     location = Column(String(200), nullable=True, index=True)
     district = Column(String(100), nullable=True, index=True)
     
-    # Price and valuation
+    # Price provenance: preserve source text/semantics so stored values are
+    # reconcilable and non-total observations never become retail prices.
     price = Column(Float, nullable=False, index=True)
     estimated_value = Column(Float, nullable=True)
+    price_raw = Column(Text, nullable=True)
+    price_observed_value = Column(Float, nullable=True)
+    currency = Column(String(3), nullable=True)
+    price_kind = Column(String(32), nullable=True)
+    price_evidence = Column(Text, nullable=True)
+    price_rejection_reason = Column(Text, nullable=True)
     deal_score = Column(Float, nullable=True, index=True)  # 0-10 scale
     profit_potential = Column(Float, nullable=True, index=True)  # in EUR (buyer_profit)
+    net_profit = Column(Float, nullable=True, index=True)
     profit_percentage = Column(Float, nullable=True)
     
     # Detailed profit analysis
@@ -107,7 +163,16 @@ class Vehicle(Base):
     total_additional_costs = Column(Float, nullable=True)  # EUR total additional costs
     deal_grade = Column(String(20), nullable=True)  # exceptional, excellent, good, fair, poor
     profit_recommendation = Column(String(200), nullable=True)  # text recommendation
-    
+
+    # Fiabilidade da avaliação (ver valuation/reliability.py)
+    # Corrigem a winner's curse: o ranking por profit_potential bruto
+    # selecciona erro do modelo (MAPE 45,9 % no top-100 vs 15,8 % global).
+    comparables_count = Column(Integer, nullable=True, index=True)  # marca+modelo, ano ±2
+    valuation_confidence = Column(String(16), nullable=True, index=True)  # alta|media|baixa|sem_dados
+    adjusted_estimated_value = Column(Float, nullable=True)  # valor após shrinkage
+    credible_profit = Column(Float, nullable=True, index=True)  # profit após shrinkage + truncatura
+    profit_is_publishable = Column(Boolean, nullable=True, index=True)  # passou todas as portas
+
     # Description and media
     title = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
@@ -178,6 +243,13 @@ class Vehicle(Base):
     num_owners = Column(Integer, nullable=True)
     warranty_months = Column(Integer, nullable=True)
     condition_status = Column(String(50), nullable=True)
+
+    # Data quality (2026-08-01): valid / quarantined / invalid + auditoria
+    quality_status = Column(String(20), nullable=True, default="valid", index=True)
+    quality_reasons = Column(JSON, nullable=True)
+    quality_checked_at = Column(DateTime, nullable=True)
+    normalized_brand = Column(String(100), nullable=True, index=True)
+    normalization_confidence = Column(Float, nullable=True)
     
     # Relationships
     price_history = relationship("PriceHistory", back_populates="vehicle", cascade="all, delete-orphan")
@@ -219,9 +291,18 @@ class Vehicle(Base):
             "location": self.location,
             "district": self.district,
             "price": self.price,
+            "price_raw": self.price_raw,
+            "price_observed_value": self.price_observed_value,
+            "currency": self.currency,
+            "price_kind": self.price_kind,
+            "price_evidence": self.price_evidence,
+            "price_rejection_reason": self.price_rejection_reason,
+            "quality_status": self.quality_status,
+            "quality_reasons": self.quality_reasons,
             "estimated_value": self.estimated_value,
             "deal_score": self.deal_score,
             "profit_potential": self.profit_potential,
+            "net_profit": self.net_profit,
             "profit_percentage": self.profit_percentage,
             "title": self.title,
             "description": self.description,
@@ -286,6 +367,93 @@ class Vehicle(Base):
             "price_anomaly_score": self.price_anomaly_score,
             "demand_signal_score": self.demand_signal_score,
         }
+
+
+def _apply_vehicle_price_contract(target: Vehicle, *, update_quality: bool = True) -> None:
+    """Normalize persisted price provenance and quality on every write.
+
+    Scrapers have several historical direct-save paths. This ORM boundary is
+    the last defense: a non-total observation gets ``price=0`` and remains
+    auditable through its observed value and kind, while only a EUR total can
+    enter retail valuation.
+    """
+    from processing.quality import classify_listing
+    from scrapers.schema import parse_price_evidence
+
+    raw = target.price_raw if target.price_raw is not None else target.price
+    context = " ".join(
+        str(getattr(target, key, "") or "")
+        for key in ("title", "description", "brand", "model", "source")
+    )
+    evidence = parse_price_evidence(
+        raw,
+        context=context,
+        declared_currency=target.currency,
+        declared_kind=target.price_kind,
+    )
+    target.price_raw = evidence.raw
+    target.price_observed_value = evidence.value
+    target.currency = evidence.currency
+    target.price_kind = evidence.kind.value
+    target.price_evidence = evidence.evidence
+    target.price_rejection_reason = evidence.rejection_reason
+    target.price = (
+        float(evidence.value)
+        if evidence.kind.value == "total"
+        and evidence.currency == "EUR"
+        and evidence.value is not None
+        else 0.0
+    )
+    if update_quality:
+        quality = classify_listing(
+            {
+                "price": target.price,
+                "price_kind": target.price_kind,
+                "currency": target.currency,
+                "price_raw": target.price_raw,
+                "price_evidence": target.price_evidence,
+                "price_rejection_reason": target.price_rejection_reason,
+                "year": target.year,
+                "km": target.km,
+                "brand": target.brand,
+                "model": target.model,
+                "title": target.title,
+                "description": target.description,
+                "vehicle_type": (
+                    target.vehicle_type.value
+                    if hasattr(target.vehicle_type, "value")
+                    else target.vehicle_type
+                ),
+                "source": target.source.value if hasattr(target.source, "value") else target.source,
+            }
+        )
+        target.quality_status = quality["quality_status"]
+        target.quality_reasons = quality["quality_reasons"]
+        target.quality_checked_at = datetime.now(timezone.utc)
+
+
+@event.listens_for(Vehicle, "before_insert")
+def _vehicle_before_insert(mapper, connection, target: Vehicle) -> None:
+    _apply_vehicle_price_contract(target)
+
+
+@event.listens_for(Vehicle, "before_update")
+def _vehicle_before_update(mapper, connection, target: Vehicle) -> None:
+    from sqlalchemy import inspect
+
+    state = inspect(target)
+    if (
+        state.attrs.price.history.has_changes()
+        and not state.attrs.price_raw.history.has_changes()
+    ):
+        # Historical direct writers update only ``price`` on a re-scrape.
+        # Treat that new numeric value as the fresh observation.
+        target.price_raw = None
+    preserve_quality = (
+        state.attrs.quality_status.history.has_changes()
+        or state.attrs.quality_reasons.history.has_changes()
+    )
+    _apply_vehicle_price_contract(target, update_quality=not preserve_quality)
 
 
 class PriceHistory(Base):
@@ -426,6 +594,7 @@ class AuctionTransaction(Base):
     adjudication_price = Column(Float, nullable=False, index=True)  # Preço de adjudicação real
     reserve_price = Column(Float, nullable=True)  # Preço de reserva (mínimo)
     starting_price = Column(Float, nullable=True)  # Preço inicial
+    current_bid = Column(Float, nullable=True)  # Lance atual, nunca adjudicação
     retail_price = Column(Float, nullable=True)  # Preço retail estimado (Standvirtual etc)
     
     # Condition assessment from auction

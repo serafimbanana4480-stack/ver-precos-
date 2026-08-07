@@ -1,0 +1,84 @@
+{
+  "started_at": "2026-08-01T19:06:30.804902+00:00",
+  "valuation_version": "v2.3",
+  "before": {
+    "tag": "before",
+    "at": "2026-08-01T19:06:30.912722+00:00",
+    "active_total": 4909,
+    "estimated_500_exact": 12,
+    "estimated_10000_exact": 17,
+    "without_estimate": 0,
+    "estimated_median": 17539.0,
+    "estimated_p10": 4383.0,
+    "estimated_p90": 36569.0,
+    "deal_score_mean": 5.16,
+    "deal_score_lt3": 62,
+    "deal_score_3_7": 4730,
+    "deal_score_gte7": 117,
+    "quality_counts": {
+      "invalid": 21,
+      "quarantined": 345,
+      "valid": 4542,
+      "valid_with_warning": 1
+    }
+  },
+  "normalize_quality": {
+    "normalized": 0,
+    "valid": 4227,
+    "valid_with_warning": 2,
+    "quarantined": 665,
+    "invalid": 15,
+    "price_evidence_backfilled": 4909,
+    "price_recovered_from_text": 1059,
+    "stored_price_reconciled": 44,
+    "models_cleaned": 0,
+    "models_canonicalized": 0
+  },
+  "dedupe": {
+    "duplicates_quarantined": 20,
+    "groups": 20
+  },
+  "revalue": {
+    "valued": 4894,
+    "insufficient": 0,
+    "skipped_invalid": 15,
+    "by_method": {
+      "brand_model_year": 1455,
+      "brand_model": 194,
+      "brand_model_year_pm1": 495,
+      "brand_model_fuel": 555,
+      "brand_segment": 1102,
+      "segment_global": 80,
+      "brand_only": 16,
+      "auction_resale_multiple": 997
+    },
+    "by_confidence": {
+      "high": 2389,
+      "medium": 1798,
+      "low": 622,
+      "insufficient_data": 85
+    }
+  },
+  "after": {
+    "tag": "after",
+    "at": "2026-08-01T19:07:43.420443+00:00",
+    "active_total": 4909,
+    "estimated_500_exact": 14,
+    "estimated_10000_exact": 16,
+    "without_estimate": 15,
+    "estimated_median": 17135.0,
+    "estimated_p10": 4038.0,
+    "estimated_p90": 34870.0,
+    "deal_score_mean": 5.15,
+    "deal_score_lt3": 61,
+    "deal_score_3_7": 4712,
+    "deal_score_gte7": 121,
+    "quality_counts": {
+      "invalid": 15,
+      "quarantined": 506,
+      "valid": 4385,
+      "valid_with_warning": 3
+    }
+  },
+  "finished_at": "2026-08-01T19:07:43.422993+00:00"
+}

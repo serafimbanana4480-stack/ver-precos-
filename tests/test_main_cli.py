@@ -65,7 +65,7 @@ class TestInitCommand:
 
 
 class TestScrapeCommand:
-    def test_scrape_olx_runs_without_crashing(
+    def test_scrape_olx_propagates_empty_source_failure(
         self, cli_runner, monkeypatch, capsys, tmp_path
     ):
         import main
@@ -78,12 +78,14 @@ class TestScrapeCommand:
         mock_browser_pool = MagicMock()
         mock_browser_pool.get_stats.return_value = {"active": 0}
 
-        with patch.object(sys, "argv", ["main.py", "scrape", "--source", "olx", "--max-listings", "1"]), \
-             patch("scrapers.OLXScraper", return_value=mock_scraper), \
-             patch("scrapers.browser_pool.get_browser_pool", return_value=mock_browser_pool), \
-             patch("processing.pipeline.production_pipeline.process_batch", return_value={"total": 0, "success": 0, "error": 0, "avg_score": 0.0, "processing_time": 0.0}), \
-             patch("main.asyncio.run"):
-            main.main()
+        with pytest.raises(SystemExit) as exc_info:
+            with patch.object(sys, "argv", ["main.py", "scrape", "--source", "olx", "--max-listings", "1"]), \
+                 patch("scrapers.OLXScraper", return_value=mock_scraper), \
+                 patch("scrapers.browser_pool.get_browser_pool", return_value=mock_browser_pool), \
+                 patch("processing.pipeline.production_pipeline.process_batch", return_value={"total": 0, "success": 0, "error": 0, "avg_score": 0.0, "processing_time": 0.0}), \
+                 patch("main.asyncio.run"):
+                main.main()
+        assert exc_info.value.code == 1
 
 
 class TestInvalidArgs:

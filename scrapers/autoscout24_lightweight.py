@@ -15,7 +15,7 @@ from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
-
+from scrapers.schema import parse_price_evidence
 logger = logging.getLogger(__name__)
 
 BRANDS = [
@@ -215,7 +215,7 @@ class AutoScout24Lightweight:
             # Fuel
             fuel_type = None
             card_lower = card_text.lower()
-            for f in ["gasolina", "diesel", "elétrico", "eletrico", "híbrido", "hibrido", "gpl"]:
+            for f in ["gasolina", "diesel", "híbrido", "hibrido", "elétrico", "eletrico", "gpl"]:
                 if f in card_lower:
                     fuel_type = f
                     break
@@ -308,19 +308,10 @@ class AutoScout24Lightweight:
         return (parts[0], parts[1]) if len(parts) >= 2 else (title, "")
 
     def _parse_price(self, text: str) -> Optional[float]:
-        try:
-            if not text:
-                return None
-            text = re.sub(r"[^\d.,]", "", text)
-            text = text.strip()
-            if not text:
-                return None
-            if "," in text and "." in text:
-                text = text.replace(".", "")
-            text = text.replace(",", ".")
-            return float(text) if text else None
-        except (ValueError, TypeError):
+        evidence = parse_price_evidence(text)
+        if evidence.kind.value != "total" or evidence.currency != "EUR":
             return None
+        return evidence.value
 
 
 if __name__ == "__main__":

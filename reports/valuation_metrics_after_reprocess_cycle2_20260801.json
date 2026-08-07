@@ -1,0 +1,94 @@
+{
+  "generated_at": "2026-08-01T19:13:05.019181+00:00",
+  "active_listings": 4909,
+  "estimated_value": {
+    "count": 3615,
+    "median": 18529.06,
+    "p10": 8829.19,
+    "p90": 36353.9,
+    "mean": 22726.0,
+    "exact_500": 0,
+    "exact_10000": 2
+  },
+  "deal_score": {
+    "count": 3615,
+    "mean": 4.91,
+    "median": 4.9,
+    "lt3": 58,
+    "gte7": 14
+  },
+  "confidence": {
+    "mean": 0.724,
+    "by_label": {
+      "high": 2230,
+      "medium": 1352,
+      "low": 33
+    }
+  },
+  "inconclusive_valuations": 0,
+  "comparables_per_valuation": {
+    "mean": 46.4,
+    "median": 6
+  },
+  "methods_used": {
+    "brand_model_year": 1431,
+    "skipped_quality": 1294,
+    "brand_segment": 944,
+    "brand_model_fuel": 531,
+    "brand_model_year_pm1": 481,
+    "brand_model": 163,
+    "segment_global": 51,
+    "brand_only": 14
+  },
+  "reference_levels": {
+    "1": 1431,
+    "4": 163,
+    "2": 481,
+    "3": 531,
+    "5": 944,
+    "7": 51,
+    "6": 14
+  },
+  "deal_statuses": {
+    "preco_justo": 3383,
+    "ligeiramente_caro": 107,
+    "bom_preco": 44,
+    "caro": 40,
+    "anuncio_suspeito": 32,
+    "excelente_oportunidade": 8,
+    "provavel_erro_anuncio": 1
+  },
+  "quality": {
+    "counts": {
+      "valid": 3649,
+      "quarantined": 1248,
+      "valid_with_warning": 3,
+      "invalid": 9
+    },
+    "top_reasons": {
+      "preco_zero_ou_ausente()": 1189,
+      "preco_auction_start_nao_retail()": 1184,
+      "preco_zero_ou_negativo()": 1018,
+      "km_ausente()": 302,
+      "ano_ausente()": 171,
+      "anuncio_nao_e_veiculo()": 8,
+      "km_incompativel_com_idade()": 7,
+      "preco_monthly_nao_retail()": 4,
+      "preco_acima_de_400k_verificar()": 3,
+      "preco_entry_nao_retail()": 1,
+      "preco_impossivel_carro()": 1
+    }
+  },
+  "missing_fields": {
+    "transmission": 630,
+    "fuel_type": 153
+  },
+  "ml": {
+    "loaded": true,
+    "model_type": "xgboost",
+    "r2": 0.5913544642033681,
+    "mae": 3521.894591951631,
+    "mape_pct": 10.133397712834396,
+    "load_error": null
+  }
+}

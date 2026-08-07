@@ -8,7 +8,7 @@ from typing import Optional
 class DatabaseConfig(BaseModel):
     """Configuration for database settings."""
     
-    url: str = "sqlite:///./autodeal.db"
+    url: str = "sqlite:///./data/autodeal.db"
     pool_size: int = 5
     max_overflow: int = 10
     pool_timeout: int = 30

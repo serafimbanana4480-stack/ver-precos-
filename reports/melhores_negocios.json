@@ -1,0 +1,56 @@
+{
+  "gerado_em": "2026-08-06T16:24:31.878005+00:00",
+  "analisados": 400,
+  "distribuicao_veredito": {
+    "indeterminado": 46,
+    "marginal": 16,
+    "negocio": 1,
+    "sem_margem": 337
+  },
+  "criterios": {
+    "lucro_minimo": 750.0,
+    "confianca_minima": 0.35,
+    "inclui_suspeitos": false,
+    "tipo": "carros"
+  },
+  "negocios": [
+    {
+      "id": 1163,
+      "fonte": "MCOUTINHO",
+      "url": "https://usados.mcoutinho.pt/carros/usados/ds-automobiles-ds-3-10286",
+      "titulo": "DS Automobiles Ds 3 1.2 Puretech 100 Cv Performance Line",
+      "marca": "DS",
+      "modelo": "Ds 3 1.2 Puretech 100 Cv Performance Line",
+      "ano": 2023,
+      "km": 7625,
+      "preco_pedido": 18483.0,
+      "veredito": "negocio",
+      "lucro_liquido": 5154.74,
+      "lucro_pior_caso": 250.11,
+      "roi_pct": 26.47,
+      "roi_anualizado_pct": 109.79,
+      "venda_realista": 27127.48,
+      "preco_maximo_compra": 23637.74,
+      "custo_aquisicao": 19470.3,
+      "custos": {
+        "registo_propriedade": 55.3,
+        "isv": 0.0,
+        "legalizacao": 0.0,
+        "ipo": 32.0,
+        "recondicionamento": 900.0,
+        "transporte": 0.0,
+        "outros": 0.0,
+        "iuc_anual": 185.58
+      },
+      "iva_margem": 1431.83,
+      "custo_venda": 1070.61,
+      "dias_para_vender": 88,
+      "confianca": 0.56,
+      "razoes": [
+        "Lucro líquido de 5,155 € (26.5% ROI, 110% anualizado) após todos os custos.",
+        "Intervalo de estimativa muito largo (47% do valor)."
+      ],
+      "riscos": []
+    }
+  ]
+}

@@ -1,10 +1,280 @@
+from enum import Enum
+from math import isfinite
 from typing import Optional, List, Any
-from pydantic import BaseModel, Field, field_validator
 import re
+import unicodedata
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+class PriceKind(str, Enum):
+    TOTAL = "total"
+    MONTHLY = "monthly"
+    ENTRY = "entry"
+    INSTALLMENT = "installment"
+    AUCTION_START = "auction_start"
+    AUCTION_CURRENT = "auction_current"
+    AUCTION_ADJUDICATED = "auction_adjudicated"
+    UNKNOWN = "unknown"
+
+
+class PriceEvidence(BaseModel):
+    raw: Optional[str] = None
+    value: Optional[float] = None
+    currency: Optional[str] = None
+    kind: PriceKind = PriceKind.UNKNOWN
+    evidence: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+
+_AMOUNT_TOKEN = (
+    r"[-+]?(?:\d{1,3}(?:[\s.,]\d{3})+(?:[.,]\d{2})?"
+    r"|\d+(?:[.,]\d{1,2})?)"
+)
+_CURRENCY_TOKEN = r"(?:€|EUR|EUROS?|£|GBP|USD|SEK|DKK|CHF|NOK|\$)"
+_PRICE_AFTER_CURRENCY_RE = re.compile(
+    rf"(?<![\w])(?P<number>{_AMOUNT_TOKEN})\s*"
+    rf"(?P<currency>{_CURRENCY_TOKEN})(?!\w)",
+    re.IGNORECASE,
+)
+_PRICE_BEFORE_CURRENCY_RE = re.compile(
+    rf"(?P<currency>{_CURRENCY_TOKEN})\s*"
+    rf"(?P<number>{_AMOUNT_TOKEN})(?!\w)",
+    re.IGNORECASE,
+)
+_PLAIN_AMOUNT_RE = re.compile(rf"^\s*(?P<number>{_AMOUNT_TOKEN})\s*$")
+
+
+def _fold_text(value: str) -> str:
+    return (
+        unicodedata.normalize("NFKD", value or "")
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
+
+
+def _parse_localized_number(value: str) -> Optional[float]:
+    cleaned = (value or "").replace("\xa0", " ").replace(" ", "")
+    if not cleaned:
+        return None
+    sign = -1 if cleaned.startswith("-") else 1
+    cleaned = cleaned.lstrip("+-")
+    if "." in cleaned and "," in cleaned:
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            cleaned = cleaned.replace(".", "").replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        parts = cleaned.split(",")
+        if len(parts) == 2 and len(parts[1]) == 3:
+            cleaned = "".join(parts)
+        else:
+            cleaned = cleaned.replace(",", ".")
+    elif "." in cleaned:
+        parts = cleaned.split(".")
+        if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) == 3):
+            cleaned = "".join(parts)
+    try:
+        number = sign * float(cleaned)
+    except (TypeError, ValueError):
+        return None
+    return number if isfinite(number) else None
+
+
+def _currency_code(token: Optional[str]) -> Optional[str]:
+    if not token:
+        return "EUR"
+    normalized = token.upper()
+    if token == "€" or normalized in {"EUR", "EURO", "EUROS"}:
+        return "EUR"
+    if token == "£" or normalized == "GBP":
+        return "GBP"
+    if token == "$" or normalized == "USD":
+        return "USD"
+    if normalized in {"SEK", "DKK", "CHF", "NOK"}:
+        return normalized
+    return normalized
+
+
+def _infer_price_kind(text: str) -> PriceKind:
+    normalized = _fold_text(text)
+    if any(token in normalized for token in (
+        "licitacao inicial", "lance inicial", "preco de saida",
+        "preco de partida", "preco minimo", "valor de partida",
+        "valor base", "valor de abertura", "v abertura", "v. abertura",
+        "v minimo", "v. minimo", "starting bid", "opening bid",
+        "leilao", "auction", "penhorado", "leilosoc", "martelo", "autoline",
+        "vpauto", "manheim", "autorola", "bca",
+    )):
+        return PriceKind.AUCTION_START
+    if any(token in normalized for token in (
+        "lance atual", "licitacao atual", "current bid",
+    )):
+        return PriceKind.AUCTION_CURRENT
+    if any(token in normalized for token in (
+        "adjudicacao", "adjudicado", "preco final", "hammer price",
+    )):
+        return PriceKind.AUCTION_ADJUDICATED
+    if any(token in normalized for token in (
+        "/mes", "por mes", "mensalidade", "prestacao",
+        "mensal", "desde ", "a partir de",
+    )):
+        return PriceKind.MONTHLY
+    if any(token in normalized for token in (
+        "entrada", "sinal", "down payment", "initial payment",
+    )):
+        return PriceKind.ENTRY
+    if any(token in normalized for token in ("parcel", "installment")):
+        return PriceKind.INSTALLMENT
+    return PriceKind.TOTAL
+
+
+def parse_price_evidence(
+    value: Any,
+    *,
+    context: str = "",
+    declared_currency: Optional[str] = None,
+    declared_kind: Optional[Any] = None,
+) -> PriceEvidence:
+    """Parse a price while retaining its source text and semantic meaning."""
+    if value is None:
+        return PriceEvidence(rejection_reason="preco_ausente")
+    raw = value if isinstance(value, str) else str(value)
+    text = raw.strip()
+    if not text:
+        return PriceEvidence(raw=raw, rejection_reason="preco_ausente")
+
+    combined = f"{text} {context or ''}"
+    kind = _infer_price_kind(combined)
+    match = _PRICE_AFTER_CURRENCY_RE.search(text)
+    if match is None:
+        match = _PRICE_BEFORE_CURRENCY_RE.search(text)
+    currency = _currency_code(match.group("currency")) if match else None
+    evidence = "currency_bound"
+    number_text = match.group("number") if match else None
+
+    if match is None:
+        plain = _PLAIN_AMOUNT_RE.fullmatch(text)
+        if plain is None:
+            return PriceEvidence(
+                raw=raw,
+                kind=PriceKind.UNKNOWN,
+                rejection_reason="preco_sem_evidencia_monetaria",
+            )
+        number_text = plain.group("number")
+        currency = "EUR"
+        evidence = "numeric_value_without_currency"
+
+    parsed = _parse_localized_number(number_text)
+    if parsed is None:
+        return PriceEvidence(
+            raw=raw,
+            currency=currency,
+            kind=PriceKind.UNKNOWN,
+            evidence=evidence,
+            rejection_reason="preco_numero_invalido",
+        )
+    if parsed <= 0:
+        return PriceEvidence(
+            raw=raw,
+            value=parsed,
+            currency=currency,
+            kind=kind,
+            evidence=evidence,
+            rejection_reason="preco_zero_ou_negativo",
+        )
+    # Numeric scraper fields do not carry currency/kind evidence. Honour an
+    # explicit declaration in that case, while retaining an auditable conflict
+    # when the text itself says something different.
+    declared_code = _currency_code(str(declared_currency)) if declared_currency else None
+    provenance_reasons = []
+    if declared_code:
+        if currency in (None, "EUR") and evidence == "numeric_value_without_currency":
+            currency = declared_code
+        elif currency != declared_code:
+            provenance_reasons.append("proveniencia_moeda_inconsistente")
+    if declared_kind not in (None, "", PriceKind.UNKNOWN, "unknown"):
+        try:
+            declared_price_kind = PriceKind(declared_kind)
+        except ValueError:
+            provenance_reasons.append("proveniencia_tipo_preco_invalido")
+        else:
+            if kind is PriceKind.TOTAL and evidence == "numeric_value_without_currency":
+                kind = declared_price_kind
+            elif kind is not declared_price_kind:
+                provenance_reasons.append("proveniencia_tipo_preco_inconsistente")
+
+    if currency != "EUR":
+        reason = "moeda_nao_eur"
+    elif kind is not PriceKind.TOTAL:
+        reason = f"preco_{kind.value}_nao_retail"
+    else:
+        reason = None
+    if provenance_reasons:
+        reason = ";".join([r for r in (reason, *provenance_reasons) if r])
+    return PriceEvidence(
+        raw=raw,
+        value=parsed,
+        currency=currency,
+        kind=kind,
+        evidence=evidence,
+        rejection_reason=reason,
+    )
 
 class VehicleListing(BaseModel):
     title: str
     price: Optional[float] = None
+    price_raw: Optional[str] = None
+    price_observed_value: Optional[float] = None
+    currency: Optional[str] = None
+    price_kind: PriceKind = PriceKind.UNKNOWN
+    price_evidence: Optional[str] = None
+    price_rejection_reason: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_price_contract(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        values = dict(data)
+        raw = values.get("price")
+        if raw is None and "price_raw" in values:
+            raw = values.get("price_raw")
+        if raw is None:
+            return values
+        context = " ".join(
+            str(values.get(key) or "")
+            for key in ("title", "description", "brand", "model")
+        )
+        result = parse_price_evidence(raw, context=context)
+        conflicts = []
+        supplied_currency = values.get("currency")
+        if supplied_currency and result.currency:
+            if str(supplied_currency).upper() != result.currency:
+                conflicts.append("proveniencia_moeda_inconsistente")
+        supplied_kind = values.get("price_kind")
+        if supplied_kind:
+            try:
+                supplied_kind = PriceKind(supplied_kind)
+            except ValueError:
+                conflicts.append("proveniencia_tipo_preco_invalido")
+            else:
+                if supplied_kind is not PriceKind.UNKNOWN and supplied_kind is not result.kind:
+                    conflicts.append("proveniencia_tipo_preco_inconsistente")
+        values["price"] = (
+            result.value
+            if result.kind is PriceKind.TOTAL and result.currency == "EUR"
+            else None
+        )
+        values["price_raw"] = result.raw
+        values["price_observed_value"] = result.value
+        values["currency"] = result.currency
+        values["price_kind"] = result.kind
+        values["price_evidence"] = result.evidence
+        reasons = [reason for reason in (result.rejection_reason, *conflicts) if reason]
+        values["price_rejection_reason"] = ";".join(reasons) or None
+        return values
+
     url: Optional[str] = None
     year: Optional[int] = None
     km: Optional[int] = None
@@ -45,49 +315,9 @@ class VehicleListing(BaseModel):
             return None
         if isinstance(v, (int, float)):
             return float(v)
-        if isinstance(v, str):
-            # Pre-clean: keep only digits, dots and commas
-            v_clean = re.sub(r"[^\d.,]", "", v)
-            
-            # If there is both . and , determine which is decimal
-            if "." in v_clean and "," in v_clean:
-                if v_clean.rfind(",") > v_clean.rfind("."):
-                    # PT Style: 10.500,00
-                    v_clean = v_clean.replace(".", "").replace(",", ".")
-                else:
-                    # EN Style: 10,500.00
-                    v_clean = v_clean.replace(",", "")
-            # If only , we assume it is decimal in PT context
-            elif "," in v_clean:
-                # Unless it looks like a thousands separator (e.g. 10,000)
-                # But in PT 10,000 is 10 with 3 decimal zeros.
-                # Usually car prices don't have 3 decimal places.
-                # If it's something like 15,000 it's likely 15000 in a car context.
-                # Most PT sites use . for thousands.
-                # Let's check if it's followed by 3 digits at the end.
-                parts = v_clean.split(",")
-                if len(parts) == 2 and len(parts[1]) == 3:
-                    # Likely thousands
-                    v_clean = v_clean.replace(",", "")
-                else:
-                    v_clean = v_clean.replace(",", ".")
-            # If only .
-            elif "." in v_clean:
-                # If there are 3 digits after the dot, and no other dots, 
-                # it's likely a thousands separator in PT (e.g., 10.500)
-                parts = v_clean.split(".")
-                if len(parts) == 2 and len(parts[1]) == 3:
-                    v_clean = v_clean.replace(".", "")
-                # If multiple dots, they are definitely thousands separators
-                elif len(parts) > 2:
-                    v_clean = v_clean.replace(".", "")
-            
-            # Final pass to ensure it's a valid float string
-            v_clean = re.sub(r"[^\d.]", "", v_clean)
-            try:
-                return float(v_clean)
-            except ValueError:
-                return None
+        result = parse_price_evidence(v)
+        if result.kind is PriceKind.TOTAL and result.currency == "EUR":
+            return result.value
         return None
 
     @field_validator("km", mode="before")

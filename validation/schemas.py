@@ -39,6 +39,7 @@ class Source(str, Enum):
     PISCAPISCA = "PISCAPISCA"
     CARPLUS = "CARPLUS"
     AUTOSCOUT24 = "AUTOSCOUT24"
+    IMOVIRTUAL = "IMOVIRTUAL"
     EBAY_MOTORS = "EBAY_MOTORS"
     VPAUTO = "VPAUTO"
     LEILOSOC = "LEILOSOC"
@@ -111,6 +112,7 @@ class ScrapedVehicle(BaseModel):
             "carplus": "CARPLUS",
             "autopt": "AUTOPT",
             "autoscout24": "AUTOSCOUT24",
+            "imovirtual": "IMOVIRTUAL",
             "ebay_motors": "EBAY_MOTORS",
             "vpauto": "VPAUTO",
             "leilosoc": "LEILOSOC",

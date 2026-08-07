@@ -22,7 +22,7 @@ class BaseConfig(BaseSettings):
     ENVIRONMENT: str = "production"
     
     # Database
-    DATABASE_URL: str
+    DATABASE_URL: str = "sqlite:///data/autodeal.db"
     
     # Scraping
     SCRAPING_INTERVAL_HOURS: int = 6

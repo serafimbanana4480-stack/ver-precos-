@@ -1,10 +1,12 @@
 """
 OLX Lightweight Scraper — requests only, no Playwright.
-Site: olx.pt — usa a API JSON pública /api/v1/offers/ (categoria 378 = carros).
+Site: olx.pt — usa a API JSON pública /api/v1/offers/ (categoria 378 = carros,
+379 = motos).
 
 MUITO superior ao olx_scraper.py (Playwright): a API expõe ~52.000 anúncios com
 dados estruturados (preço, ano, km, combustível, caixa, potência) sem render.
 Extrai marca do título via lista BRANDS (a API não devolve marca como param).
+Suporta carros (378) e motos (379 = 'Motociclos - Scooters').
 
 Endpoint: https://www.olx.pt/api/v1/offers/?category_id=378&offset=N&limit=50
 """
@@ -13,6 +15,7 @@ import hashlib
 import logging
 import random
 import re
+import sys
 import time
 from typing import Any, Dict, List, Optional
 
@@ -28,6 +31,9 @@ BRANDS = [
     "Mazda", "Mitsubishi", "Suzuki", "Dacia", "Opel", "Mini",
     "Smart", "Jeep", "Porsche", "Jaguar", "Lexus", "Subaru", "Tesla",
     "Cupra", "DS", "Lancia", "MG", "BYD", "Polestar", "Chevrolet", "Chrysler",
+    "Yamaha", "Kawasaki", "Ducati", "KTM", "Aprilia", "Triumph",
+    "Harley Davidson", "Husqvarna", "Vespa", "Piaggio", "SYM", "Keeway",
+    "Zontes", "Royal Enfield", "Moto Guzzi", "Beta", "Gas Gas",
 ]
 
 FUEL_MAP = {
@@ -42,13 +48,15 @@ TRANS_MAP = {"manual": "manual", "automatic": "automatico", "automatica": "autom
 class OLXLightweight:
     """Scraper leve para OLX.pt via API JSON pública.
 
-    A categoria 378 corresponde a 'Carros'. A API devolve páginas de anúncios
-    com params estruturados. Sem Playwright, sem render — rápido e robusto.
+    A categoria 378 corresponde a 'Carros' e 379 a 'Motociclos - Scooters'.
+    A API devolve páginas de anúncios com params estruturados. Sem Playwright,
+    sem render — rápido e robusto.
     """
 
     BASE_URL = "https://www.olx.pt"
     API = "https://www.olx.pt/api/v1/offers/"
     CATEGORY_CARROS = 378
+    CATEGORY_MOTOS = 379  # Motociclos - Scooters (verificado via API)
 
     def __init__(self) -> None:
         self.session = requests.Session()
@@ -76,10 +84,12 @@ class OLXLightweight:
         listings: List[Dict[str, Any]] = []
         offset = 0
         page_size = 50
+        category_id = self._resolve_category(vehicle_type)
+        logger.info(f"[OLX_LIGHT] Using category {category_id} for '{vehicle_type}'")
 
         while len(listings) < max_listings:
             params = {
-                "category_id": self.CATEGORY_CARROS,
+                "category_id": category_id,
                 "offset": offset,
                 "limit": page_size,
             }
@@ -97,7 +107,7 @@ class OLXLightweight:
                 break
 
             for it in items:
-                parsed = self._parse_offer(it)
+                parsed = self._parse_offer(it, vehicle_type)
                 if parsed:
                     listings.append(parsed)
                 if len(listings) >= max_listings:
@@ -127,7 +137,12 @@ class OLXLightweight:
                 time.sleep(1.5)
         return None
 
-    def _parse_offer(self, it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _resolve_category(self, vehicle_type: str) -> int:
+        if str(vehicle_type).lower().startswith("moto"):
+            return self.CATEGORY_MOTOS
+        return self.CATEGORY_CARROS
+
+    def _parse_offer(self, it: Dict[str, Any], vehicle_type: str = "carros") -> Optional[Dict[str, Any]]:
         try:
             title = (it.get("title") or "").strip()
             url = it.get("url") or ""
@@ -139,6 +154,10 @@ class OLXLightweight:
             price = None
             price_p = params.get("price")
             if isinstance(price_p, dict):
+                currency = price_p.get("currency")
+                if currency and currency != "EUR":
+                    logger.warning(f"[OLX_LIGHT] Skipping non-EUR listing {it.get('id')}: {currency}")
+                    return None
                 price = price_p.get("value")
             if not price or float(price) <= 0:
                 return None
@@ -146,6 +165,7 @@ class OLXLightweight:
             year = self._enum_key_int(params.get("year"))
             km = self._enum_key_int(params.get("quilometros"))
             hp = self._enum_key_int(params.get("engine_power"))
+            engine_size = self._enum_label(params.get("cilindrada"))
 
             fuel_type = self._enum_label(params.get("combustivel"))
             fuel_type = self._normalize_fuel(fuel_type)
@@ -169,11 +189,13 @@ class OLXLightweight:
                 "source_id": source_id,
                 "url": url,
                 "title": title,
+                "vehicle_type": vehicle_type,
                 "brand": brand,
                 "model": model,
                 "price": float(price),
                 "year": year,
                 "km": km,
+                "engine_size": engine_size or None,
                 "fuel_type": fuel_type,
                 "transmission": transmission,
                 "horsepower": hp,
@@ -219,6 +241,10 @@ class OLXLightweight:
             "seat": "Seat", "citroen": "Citroën", "citroën": "Citroën",
             "mercedes": "Mercedes-Benz", "mercedes-benz": "Mercedes-Benz",
             "alfa romeo": "Alfa Romeo", "land rover": "Land Rover",
+            "yamaha": "Yamaha", "kawasaki": "Kawasaki", "ducati": "Ducati",
+            "ktm": "KTM", "aprilia": "Aprilia", "triumph": "Triumph",
+            "vespa": "Vespa", "piaggio": "Piaggio", "sym": "SYM",
+            "honda": "Honda", "suzuki": "Suzuki",
         }
         return m.get(raw.lower().strip(), raw.title())
 
@@ -242,7 +268,9 @@ class OLXLightweight:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     s = OLXLightweight()
-    res = s.scrape_listings("carros", max_listings=10)
-    print(f"\n=== Scraped {len(res)} OLX listings (API) ===")
+    vtype = sys.argv[1] if len(sys.argv) > 1 else "carros"
+    res = s.scrape_listings(vtype, max_listings=10)
+    print(f"\n=== Scraped {len(res)} OLX listings (API) for '{vtype}' ===")
     for r in res[:10]:
-        print(f"  {r['brand']} {r['model']} | €{r['price']} | {r['year']} | {r['km']}km | {r['fuel_type']} | {r['location']}")
+        engine = f" | {r['engine_size']}" if r.get("engine_size") else ""
+        print(f"  [{r['vehicle_type']}] {r['brand']} {r['model']} | €{r['price']} | {r['year']} | {r['km']}km | {r['fuel_type']}{engine} | {r['location']}")

@@ -1,0 +1,49 @@
+{
+  "run_at": "2026-08-06T13:42:03.348264+00:00",
+  "db": "data/autodeal.db",
+  "dry_run": false,
+  "columns_added": [
+    "comparables_count",
+    "valuation_confidence",
+    "adjusted_estimated_value",
+    "credible_profit",
+    "profit_is_publishable"
+  ],
+  "phase1_purge": {
+    "vehicles_without_retail_price": 1193,
+    "phantom_profit_eur": 5418638.48
+  },
+  "phase3_reliability": {
+    "lambdas": {
+      "thin": 0.0881,
+      "sparse": 0.2445,
+      "solid": 0.3672,
+      "dense": 1.0
+    },
+    "confidence_distribution": {
+      "alta": 1534,
+      "media": 750,
+      "baixa": 1404,
+      "sem_dados": 1269
+    },
+    "gaps_capped": 6,
+    "publishable_deals": 932
+  },
+  "phase4_scores": {
+    "scored": 932,
+    "grades": {
+      "poor": 559,
+      "fair": 233,
+      "good": 93,
+      "excellent": 37,
+      "exceptional": 10
+    }
+  },
+  "verification": {
+    "total_vehicles": 4957,
+    "remaining_phantom_profit_rows": 0,
+    "deal_grade_null": 0,
+    "deal_score_bunched_at_5": 94,
+    "deal_score_bunched_pct": 2.5
+  }
+}

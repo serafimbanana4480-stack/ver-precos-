@@ -1,0 +1,82 @@
+{
+  "started_at": "2026-08-01T19:11:22.467670+00:00",
+  "valuation_version": "v2.3",
+  "before": {
+    "tag": "before",
+    "at": "2026-08-01T19:11:22.568742+00:00",
+    "active_total": 4909,
+    "estimated_500_exact": 14,
+    "estimated_10000_exact": 16,
+    "without_estimate": 15,
+    "estimated_median": 17135.0,
+    "estimated_p10": 4038.0,
+    "estimated_p90": 34870.0,
+    "deal_score_mean": 5.15,
+    "deal_score_lt3": 61,
+    "deal_score_3_7": 4712,
+    "deal_score_gte7": 121,
+    "quality_counts": {
+      "invalid": 15,
+      "quarantined": 506,
+      "valid": 4385,
+      "valid_with_warning": 3
+    }
+  },
+  "normalize_quality": {
+    "normalized": 0,
+    "valid": 3632,
+    "valid_with_warning": 2,
+    "quarantined": 1266,
+    "invalid": 9,
+    "price_evidence_backfilled": 4909,
+    "price_recovered_from_text": 1059,
+    "stored_price_reconciled": 171,
+    "models_cleaned": 0,
+    "models_canonicalized": 0
+  },
+  "dedupe": {
+    "duplicates_quarantined": 19,
+    "groups": 19
+  },
+  "revalue": {
+    "valued": 3615,
+    "insufficient": 0,
+    "skipped_invalid": 1294,
+    "by_method": {
+      "brand_model_year": 1431,
+      "brand_model": 163,
+      "brand_model_year_pm1": 481,
+      "brand_model_fuel": 531,
+      "brand_segment": 944,
+      "segment_global": 51,
+      "brand_only": 14
+    },
+    "by_confidence": {
+      "high": 2230,
+      "medium": 1352,
+      "low": 33
+    }
+  },
+  "after": {
+    "tag": "after",
+    "at": "2026-08-01T19:12:48.353876+00:00",
+    "active_total": 4909,
+    "estimated_500_exact": 0,
+    "estimated_10000_exact": 2,
+    "without_estimate": 1294,
+    "estimated_median": 18529.0,
+    "estimated_p10": 8829.0,
+    "estimated_p90": 36354.0,
+    "deal_score_mean": 4.91,
+    "deal_score_lt3": 58,
+    "deal_score_3_7": 3543,
+    "deal_score_gte7": 14,
+    "quality_counts": {
+      "invalid": 9,
+      "quarantined": 1248,
+      "valid": 3649,
+      "valid_with_warning": 3
+    }
+  },
+  "finished_at": "2026-08-01T19:12:48.357073+00:00"
+}

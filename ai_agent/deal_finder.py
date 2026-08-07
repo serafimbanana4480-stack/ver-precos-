@@ -47,8 +47,13 @@ class DealFinder:
             # Build query
             query = db.query(Vehicle).filter(
                 Vehicle.is_active == True,
+                Vehicle.profit_is_publishable == True,
                 Vehicle.deal_score.isnot(None),
                 Vehicle.deal_score >= settings.deal_score_threshold,
+                Vehicle.price > 0,
+                Vehicle.price_kind == "total",
+                Vehicle.currency == "EUR",
+                Vehicle.quality_status.in_(("valid", "valid_with_warning")),
                 ~Vehicle.source_id.like("demo_%"),
                 ~Vehicle.url.ilike("%IDE123%"),
                 ~Vehicle.url.ilike("%IDE456%"),
@@ -63,12 +68,13 @@ class DealFinder:
                     query = query.filter(Vehicle.vehicle_type == VehicleType.motos)
             
             if min_profit:
-                query = query.filter(Vehicle.profit_potential >= min_profit)
-            
-            # Order by deal score and profit potential
+                query = query.filter(Vehicle.credible_profit >= min_profit)
+
+            # Order by deal score and credible profit (o profit bruto do modelo
+            # é ruído; o credível já passou pelas portas de fiabilidade)
             query = query.order_by(
                 Vehicle.deal_score.desc(),
-                Vehicle.profit_potential.desc()
+                Vehicle.credible_profit.desc()
             )
             
             # Get top deals
@@ -93,7 +99,7 @@ class DealFinder:
             deals = filtered_deals if filtered_deals else deals
             
             # Sort and limit
-            deals.sort(key=lambda x: (x.deal_score or 0, x.profit_potential or 0), reverse=True)
+            deals.sort(key=lambda x: (x.deal_score or 0, x.credible_profit or 0), reverse=True)
             deals = deals[:limit]
             
             # Convert to dictionaries within session context
@@ -185,7 +191,7 @@ class DealFinder:
         
         # Sort by combined score
         approved_deals.sort(
-            key=lambda x: (x.get("deal_score") or 0, x.get("profit_potential") or 0),
+            key=lambda x: (x.get("deal_score") or 0, x.get("credible_profit") or 0),
             reverse=True
         )
         

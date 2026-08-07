@@ -248,6 +248,7 @@ def main():
         "trained_at": datetime.now().isoformat(),
         "excludes_auctions": sorted(AUCTION_SOURCES),
         "routing": "two_stage_full_prelim",
+        "pipeline_version": "v2",
         "optimizations": {"segmented_low_full": True, "full_log_target": True,
                           "excludes_auctions": True},
     }

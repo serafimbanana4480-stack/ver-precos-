@@ -1,0 +1,119 @@
+{
+  "started_at": "2026-08-01T23:45:38.094755+00:00",
+  "finished_at": "2026-08-01T23:46:15.806945+00:00",
+  "vehicle_type": "carros",
+  "max_listings": 2,
+  "scraper_count": 5,
+  "status_counts": {
+    "failed": 1,
+    "empty": 1,
+    "ok": 1,
+    "timeout": 2
+  },
+  "overall_success": false,
+  "scrapers": [
+    {
+      "name": "OLX:generic-lightweight",
+      "source": "OLX",
+      "website": "https://www.olx.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:45:38.095002+00:00",
+      "status": "failed",
+      "errors": [
+        "NameError: name 'LightweightOLXScraper' is not defined"
+      ],
+      "duration_seconds": 0.0,
+      "finished_at": "2026-08-01T23:45:38.095098+00:00"
+    },
+    {
+      "name": "Carplus:playwright",
+      "source": "CARPLUS",
+      "website": "https://www.carplus.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:45:38.095120+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 7.616,
+      "finished_at": "2026-08-01T23:45:45.711367+00:00"
+    },
+    {
+      "name": "Leilosoc:lightweight",
+      "source": "LEILOSOC",
+      "website": "https://www.leilosoc.com",
+      "category": "auction",
+      "started_at": "2026-08-01T23:45:38.307770+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_non_total": 2,
+        "price_provenance_missing": 2
+      },
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 2,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Peugeot 2008 · Ano 2013",
+          "price": 2300.0,
+          "url": "https://leilosoc.com/pt-PT/lot/42897/169773",
+          "source": "LEILOSOC"
+        },
+        {
+          "title": "BMW 216 D  · Ano 2017",
+          "price": 6500.0,
+          "url": "https://leilosoc.com/pt-PT/lot/42980/169805",
+          "source": "LEILOSOC"
+        }
+      ],
+      "duration_seconds": 0.995,
+      "finished_at": "2026-08-01T23:45:39.302318+00:00"
+    },
+    {
+      "name": "FacebookMarketplace:direct",
+      "source": "FACEBOOK",
+      "website": "https://www.facebook.com/marketplace",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:45:39.302395+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 30.333,
+      "finished_at": "2026-08-01T23:46:09.635360+00:00"
+    },
+    {
+      "name": "Facebook:legacy",
+      "source": "FACEBOOK",
+      "website": "https://www.facebook.com/marketplace",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:45:45.711471+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 30.095,
+      "finished_at": "2026-08-01T23:46:15.806746+00:00"
+    }
+  ]
+}

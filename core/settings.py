@@ -5,6 +5,16 @@ import secrets
 from pathlib import Path
 from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# On Windows, requests/certifi may not contain the enterprise or OS-root CA
+# used by the local network.  Use the platform trust store when available;
+# never fall back to verify=False.
+try:  # pragma: no cover - platform/runtime dependent
+    import truststore
+
+    truststore.inject_into_ssl()
+except ImportError:  # keep minimal installs usable
+    pass
 from pydantic import Field, field_validator
 import logging
 
@@ -41,7 +51,7 @@ class Settings(BaseSettings):
 
     # ==================== DATABASE ====================
     database_url: str = Field(
-        default="sqlite:///autodeal.db",
+        default="sqlite:///data/autodeal.db",
         description="Database connection string (SQLite or PostgreSQL)",
     )
 

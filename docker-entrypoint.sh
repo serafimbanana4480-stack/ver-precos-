@@ -16,7 +16,7 @@ import time
 from sqlalchemy import create_engine, text
 import os
 
-url = os.getenv('DATABASE_URL', 'sqlite:///autodeal.db')
+url = os.getenv('DATABASE_URL', 'sqlite:///data/autodeal.db')
 for i in range(30):
     try:
         engine = create_engine(url)

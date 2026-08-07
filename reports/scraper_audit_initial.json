@@ -1,0 +1,779 @@
+{
+  "started_at": "2026-08-01T23:40:47.373808+00:00",
+  "finished_at": "2026-08-01T23:44:26.335903+00:00",
+  "vehicle_type": "carros",
+  "max_listings": 2,
+  "scraper_count": 35,
+  "status_counts": {
+    "empty": 23,
+    "failed": 3,
+    "timeout": 6,
+    "ok": 2,
+    "blocked_credentials": 1
+  },
+  "overall_success": false,
+  "scrapers": [
+    {
+      "name": "OLX:lightweight",
+      "source": "OLX",
+      "website": "https://www.olx.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:40:47.374154+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 4.723,
+      "finished_at": "2026-08-01T23:40:52.097361+00:00"
+    },
+    {
+      "name": "OLX:generic-lightweight",
+      "source": "OLX",
+      "website": "https://www.olx.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:40:52.097429+00:00",
+      "status": "failed",
+      "errors": [
+        "NameError: name 'LightweightOLXScraper' is not defined"
+      ],
+      "duration_seconds": 0.0,
+      "finished_at": "2026-08-01T23:40:52.097521+00:00"
+    },
+    {
+      "name": "OLX:playwright",
+      "source": "OLX",
+      "website": "https://www.olx.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:40:52.097545+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 113.31,
+      "finished_at": "2026-08-01T23:42:45.407846+00:00"
+    },
+    {
+      "name": "Standvirtual:playwright",
+      "source": "STANDVIRTUAL",
+      "website": "https://www.standvirtual.com",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:40:52.249890+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 26.025,
+      "finished_at": "2026-08-01T23:41:18.275343+00:00"
+    },
+    {
+      "name": "AutoSapo:playwright",
+      "source": "AUTOSAPO",
+      "website": "https://www.autosapo.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:40:52.250545+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_provenance_missing": 2
+      },
+      "field_missing": {
+        "transmission": 2
+      },
+      "price": {
+        "valid_total_eur": 2,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "MINI Countryman102cv - 5P",
+          "price": 27950.0,
+          "url": "https://www.autosapo.pt/carro-usado/69e8d6346966aa627b682182/mini-countryman",
+          "source": "AUTOSAPO"
+        },
+        {
+          "title": "MINI Clubman150cv - 6P",
+          "price": 31950.0,
+          "url": "https://www.autosapo.pt/carro-usado/69d4beaaaf3a95e46c325385/mini-clubman",
+          "source": "AUTOSAPO"
+        }
+      ],
+      "duration_seconds": 6.315,
+      "finished_at": "2026-08-01T23:40:58.565998+00:00"
+    },
+    {
+      "name": "CustoJusto:playwright",
+      "source": "CUSTOJUSTO",
+      "website": "https://www.custojusto.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:40:58.566108+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_provenance_missing": 2
+      },
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 2,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Chevrolet Trax 1.7 VCDi LT - 13",
+          "price": 7600,
+          "url": "https://www.custojusto.pt/braga/veiculos/carros-usados/suv-tt/chevrolet-trax-1-7-vcdi-lt-45007081",
+          "source": "CUSTOJUSTO"
+        },
+        {
+          "title": "Kia Stonic 1.0 - 19",
+          "price": 12500,
+          "url": "https://www.custojusto.pt/setubal/veiculos/carros-usados/utilitario/kia-stonic-1-0-45176779",
+          "source": "CUSTOJUSTO"
+        }
+      ],
+      "duration_seconds": 11.036,
+      "finished_at": "2026-08-01T23:41:09.601985+00:00"
+    },
+    {
+      "name": "PiscaPisca:lightweight",
+      "source": "PISCAPISCA",
+      "website": "https://www.piscapisca.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:41:09.602050+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 6.234,
+      "finished_at": "2026-08-01T23:41:15.836379+00:00"
+    },
+    {
+      "name": "PiscaPisca:playwright",
+      "source": "PISCAPISCA",
+      "website": "https://www.piscapisca.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:41:15.836453+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 11.784,
+      "finished_at": "2026-08-01T23:41:27.620572+00:00"
+    },
+    {
+      "name": "Carplus:lightweight",
+      "source": "CARPLUS",
+      "website": "https://www.carplus.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:41:18.275398+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.137,
+      "finished_at": "2026-08-01T23:41:18.412493+00:00"
+    },
+    {
+      "name": "Carplus:playwright",
+      "source": "CARPLUS",
+      "website": "https://www.carplus.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:41:18.412568+00:00",
+      "status": "failed",
+      "errors": [
+        "AttributeError: 'CarplusScraper' object has no attribute '_fetch_html'"
+      ],
+      "duration_seconds": 0.0,
+      "finished_at": "2026-08-01T23:41:18.413019+00:00"
+    },
+    {
+      "name": "AutoPT:lightweight",
+      "source": "AUTOPT",
+      "website": "https://www.auto.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:41:18.413302+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.249,
+      "finished_at": "2026-08-01T23:41:18.661998+00:00"
+    },
+    {
+      "name": "AutoPT:playwright",
+      "source": "AUTOPT",
+      "website": "https://www.auto.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:41:18.662077+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 69.129,
+      "finished_at": "2026-08-01T23:42:27.791582+00:00"
+    },
+    {
+      "name": "AutoScout24:lightweight",
+      "source": "AUTOSCOUT24",
+      "website": "https://www.autoscout24.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:41:27.620666+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 60.167,
+      "finished_at": "2026-08-01T23:42:27.787496+00:00"
+    },
+    {
+      "name": "AutoScout24:playwright",
+      "source": "AUTOSCOUT24",
+      "website": "https://www.autoscout24.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:42:27.787618+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 45.022,
+      "finished_at": "2026-08-01T23:43:12.809581+00:00"
+    },
+    {
+      "name": "AutoUncle:lightweight",
+      "source": "AUTOUNCLE",
+      "website": "https://www.autouncle.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:42:27.791695+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 6.211,
+      "finished_at": "2026-08-01T23:42:34.002487+00:00"
+    },
+    {
+      "name": "Leilosoc:lightweight",
+      "source": "LEILOSOC",
+      "website": "https://www.leilosoc.com",
+      "category": "auction",
+      "started_at": "2026-08-01T23:42:34.002713+00:00",
+      "status": "failed",
+      "errors": [
+        "TypeError: LeilosocLightweight.scrape_listings() got multiple values for argument 'max_listings'"
+      ],
+      "duration_seconds": 0.001,
+      "finished_at": "2026-08-01T23:42:34.004126+00:00"
+    },
+    {
+      "name": "MCoutinho:lightweight",
+      "source": "MCOUTINHO",
+      "website": "https://usados.mcoutinho.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:42:34.004428+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 5.004,
+      "finished_at": "2026-08-01T23:42:39.007943+00:00"
+    },
+    {
+      "name": "AutoHub:lightweight",
+      "source": "AUTOHUB",
+      "website": "https://www.autohub.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:42:39.008200+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 4.8,
+      "finished_at": "2026-08-01T23:42:43.808410+00:00"
+    },
+    {
+      "name": "Martelo:lightweight",
+      "source": "MARTELO",
+      "website": "https://martelo.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:42:43.808697+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.186,
+      "finished_at": "2026-08-01T23:42:43.994870+00:00"
+    },
+    {
+      "name": "Autoline:lightweight",
+      "source": "AUTOLINE",
+      "website": "https://www.autoline.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:42:43.995138+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.229,
+      "finished_at": "2026-08-01T23:42:44.223808+00:00"
+    },
+    {
+      "name": "Penhorado:lightweight",
+      "source": "PENHORADO",
+      "website": "https://penhorado.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:42:44.224322+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.225,
+      "finished_at": "2026-08-01T23:42:44.449069+00:00"
+    },
+    {
+      "name": "Imovirtual:requests",
+      "source": "IMOVIRTUAL",
+      "website": "https://www.imovirtual.com",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:42:44.449365+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.187,
+      "finished_at": "2026-08-01T23:42:44.635967+00:00"
+    },
+    {
+      "name": "FacebookMarketplace:direct",
+      "source": "FACEBOOK",
+      "website": "https://www.facebook.com/marketplace",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:42:44.636035+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 19.474,
+      "finished_at": "2026-08-01T23:43:04.109679+00:00"
+    },
+    {
+      "name": "Facebook:legacy",
+      "source": "FACEBOOK",
+      "website": "https://www.facebook.com/marketplace",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:42:45.407896+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 2.994,
+      "finished_at": "2026-08-01T23:42:48.401715+00:00"
+    },
+    {
+      "name": "eBayMotors:api",
+      "source": "EBAY_MOTORS",
+      "website": "https://api.ebay.com",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:42:48.402142+00:00",
+      "status": "blocked_credentials",
+      "errors": [
+        "RuntimeError: credential_missing: EBAY_API_KEY"
+      ],
+      "duration_seconds": 0.0,
+      "finished_at": "2026-08-01T23:42:48.402204+00:00"
+    },
+    {
+      "name": "Auction:VPAUTO:legacy",
+      "source": "VPAUTO",
+      "website": "https://www.vpauto.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:42:48.402236+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 24.493,
+      "finished_at": "2026-08-01T23:43:12.894817+00:00"
+    },
+    {
+      "name": "Auction:Leilosoc:legacy",
+      "source": "LEILOSOC",
+      "website": "https://www.leilosoc.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:43:04.109729+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 34.023,
+      "finished_at": "2026-08-01T23:43:38.133008+00:00"
+    },
+    {
+      "name": "AuctionMulti:Manheim",
+      "source": "MANHEIM",
+      "website": "https://www.manheim.com",
+      "category": "auction",
+      "started_at": "2026-08-01T23:43:12.809618+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 27.687,
+      "finished_at": "2026-08-01T23:43:40.496468+00:00"
+    },
+    {
+      "name": "AuctionMulti:Autorola",
+      "source": "AUTOROLA",
+      "website": "https://www.autorola.com",
+      "category": "auction",
+      "started_at": "2026-08-01T23:43:12.894887+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 28.291,
+      "finished_at": "2026-08-01T23:43:41.185449+00:00"
+    },
+    {
+      "name": "AuctionMulti:BCA",
+      "source": "BCA",
+      "website": "https://www.bca.co.uk",
+      "category": "auction",
+      "started_at": "2026-08-01T23:43:38.133050+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 45.009,
+      "finished_at": "2026-08-01T23:44:23.141729+00:00"
+    },
+    {
+      "name": "GroundTruth:VPAuto",
+      "source": "VPAUTO",
+      "website": "https://www.vpauto.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:43:40.496836+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 45.219,
+      "finished_at": "2026-08-01T23:44:25.715903+00:00"
+    },
+    {
+      "name": "GroundTruth:Leilosoc",
+      "source": "LEILOSOC",
+      "website": "https://www.leilosoc.com",
+      "category": "auction",
+      "started_at": "2026-08-01T23:43:41.185524+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 45.15,
+      "finished_at": "2026-08-01T23:44:26.335587+00:00"
+    },
+    {
+      "name": "GroundTruth:BCA",
+      "source": "BCA",
+      "website": "https://www.bcamarketplace.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:44:23.141826+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.003,
+      "finished_at": "2026-08-01T23:44:23.145104+00:00"
+    },
+    {
+      "name": "GroundTruth:Manheim",
+      "source": "MANHEIM",
+      "website": "https://www.manheim.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:44:23.145257+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.0,
+      "finished_at": "2026-08-01T23:44:23.145530+00:00"
+    },
+    {
+      "name": "GroundTruth:Autorola",
+      "source": "AUTOROLA",
+      "website": "https://www.autorola.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:44:23.145576+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.0,
+      "finished_at": "2026-08-01T23:44:23.145741+00:00"
+    }
+  ]
+}

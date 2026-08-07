@@ -16,6 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from database.models import Source, VehicleType
+from scrapers.schema import parse_price_evidence
 from utils.scraping_log import start_scrape_log, finish_scrape_log
 
 logger = logging.getLogger(__name__)
@@ -277,7 +278,7 @@ class AutoPtLightweightScraper:
             full_text = card.get_text(" ", strip=True)
             full_text_lower = full_text.lower()
             if not fuel_type:
-                for f in ["gasolina", "diesel", "elétrico", "eletrico", "híbrido", "hibrido", "gpl"]:
+                for f in ["gasolina", "diesel", "híbrido", "hibrido", "elétrico", "eletrico", "gpl"]:
                     if f in full_text_lower:
                         fuel_type = self._normalize_fuel(f)
                         break
@@ -489,26 +490,10 @@ class AutoPtLightweightScraper:
         return (parts[0], parts[1]) if len(parts) >= 2 else (title, "")
 
     def _parse_price(self, text: str) -> Optional[float]:
-        try:
-            if not text:
-                return None
-            # Remove currency symbols and normalize
-            text = re.sub(r"[^\d.,]", "", text)
-            text = text.strip()
-            if not text:
-                return None
-            # Portuguese format: 1.234,56 or 1234,56 or 1234
-            if "," in text and "." in text:
-                # Check if dots are thousands separators
-                if text.rindex(",") > text.rindex("."):
-                    text = text.replace(".", "")
-                else:
-                    text = text.replace(",", "")
-            elif "," in text:
-                text = text.replace(",", ".")
-            return float(text)
-        except (ValueError, TypeError):
+        evidence = parse_price_evidence(text)
+        if evidence.kind.value != "total" or evidence.currency != "EUR":
             return None
+        return evidence.value
 
     def _normalize_fuel(self, raw: str) -> Optional[str]:
         if not raw:

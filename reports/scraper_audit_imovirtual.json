@@ -1,0 +1,26 @@
+{
+  "started_at": "2026-08-01T23:53:37.605011+00:00",
+  "finished_at": "2026-08-01T23:53:38.251673+00:00",
+  "vehicle_type": "carros",
+  "max_listings": 2,
+  "scraper_count": 1,
+  "status_counts": {
+    "unsupported": 1
+  },
+  "overall_success": true,
+  "scrapers": [
+    {
+      "name": "Imovirtual:requests",
+      "source": "IMOVIRTUAL",
+      "website": "https://www.imovirtual.com",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:53:37.605272+00:00",
+      "status": "unsupported",
+      "errors": [
+        "RuntimeError: source_unavailable: Imovirtual no longer exposes vehicle listings at this route"
+      ],
+      "duration_seconds": 0.644,
+      "finished_at": "2026-08-01T23:53:38.249619+00:00"
+    }
+  ]
+}

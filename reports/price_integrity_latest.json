@@ -1,0 +1,57 @@
+{
+  "checked_at": "2026-08-01T23:57:37.919480+00:00",
+  "rows": 4957,
+  "retail_rows": 3764,
+  "non_retail_rows": 1193,
+  "quality_status": {
+    "valid": 3693,
+    "quarantined": 1252,
+    "valid_with_warning": 3,
+    "invalid": 9
+  },
+  "price_kind": {
+    "total": 3764,
+    "entry": 3,
+    "auction_start": 1186,
+    "monthly": 4
+  },
+  "hard_failures": [],
+  "warnings": [
+    {
+      "id": 272,
+      "source": "OLX",
+      "reason": "high_price_review",
+      "price": 680000.0,
+      "title": "Lamborghini Aventador S"
+    },
+    {
+      "id": 4282,
+      "source": "OLX",
+      "reason": "high_price_review",
+      "price": 550000.0,
+      "title": "Mercedes-Benz AMG GT Black Series"
+    }
+  ],
+  "samples": {
+    "hard_failures": [],
+    "warnings": [
+      {
+        "id": 272,
+        "source": "OLX",
+        "reason": "high_price_review",
+        "price": 680000.0,
+        "title": "Lamborghini Aventador S"
+      },
+      {
+        "id": 4282,
+        "source": "OLX",
+        "reason": "high_price_review",
+        "price": 550000.0,
+        "title": "Mercedes-Benz AMG GT Black Series"
+      }
+    ]
+  },
+  "hard_failure_count": 0,
+  "warning_count": 2,
+  "overall_success": true
+}

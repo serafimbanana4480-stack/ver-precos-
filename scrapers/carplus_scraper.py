@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import asyncio
+import random
 import re
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone
@@ -89,67 +90,41 @@ class CarplusScraper:
         
         if params:
             url += "?" + "&".join(params)
-        
-        async def _fetch_html(self, url: str, retry_count: int = 0) -> Optional[str]:
-            """Fetch HTML using browser pool with retry logic."""
-            if not get_browser_pool:
-                logger.error("[CARPLUS] Browser pool not available")
-                return None
-        
+
+        return url
+
+    async def _fetch_html(self, url: str, retry_count: int = 0) -> Optional[str]:
+        """Fetch HTML using the shared Playwright browser pool."""
+        if not get_browser_pool:
+            logger.error("[CARPLUS] Browser pool not available")
+            return None
+        try:
+            pool = get_browser_pool()
+            page = await pool.new_page("carplus")
             try:
-                pool = get_browser_pool()
-                page = await pool.new_page("carplus")
-            
-                # Use 60s timeout as requested
-                timeout_ms = 60000
-            
+                await page.goto(url, timeout=60000, wait_until="domcontentloaded")
                 try:
-                    await page.goto(url, timeout=timeout_ms, wait_until='networkidle')
-                except Exception as e:
-                    logger.warning(f"[CARPLUS] Navigation timeout on attempt {retry_count + 1}: {e}")
-                    if retry_count < 2:
-                        await page.close()
-                        backoff_time = (2 ** retry_count) * 2 + random.uniform(1, 2)
-                        logger.info(f"[CARPLUS] Retrying after {backoff_time:.1f}s...")
-                        await asyncio.sleep(backoff_time)
-                        return await self._fetch_html(url, retry_count + 1)
-                    await page.close()
-                    return None
-            
-                # Wait for content with retry
-                try:
-                    await page.wait_for_selector('article, .vehicle-card, .car-card', timeout=10000)
+                    await page.wait_for_selector(
+                        "article, .vehicle-card, .car-card", timeout=10000
+                    )
                 except Exception:
-                    logger.debug("[CARPLUS] Timeout waiting for selector, continuing anyway")
-            
-                # Scroll for lazy loading
-                for _ in range(3):
-                    await page.mouse.wheel(0, 800)
-                    await asyncio.sleep(0.2)
-            
+                    pass
                 html = await page.content()
+            finally:
                 await page.close()
-            
-                if html and len(html) > 1000:
-                    return html
-                else:
-                    logger.warning(f"[CARPLUS] HTML too short ({len(html) if html else 0} chars)")
-                    if retry_count < 2:
-                        backoff_time = (2 ** retry_count) * 2 + random.uniform(1, 2)
-                        logger.info(f"[CARPLUS] Retrying after {backoff_time:.1f}s...")
-                        await asyncio.sleep(backoff_time)
-                        return await self._fetch_html(url, retry_count + 1)
-                    return None
-            
-            except Exception as e:
-                logger.error(f"[CARPLUS] Fetch failed: {e}")
-                if retry_count < 2:
-                    backoff_time = (2 ** retry_count) * 2 + random.uniform(1, 2)
-                    logger.info(f"[CARPLUS] Retrying after error in {backoff_time:.1f}s...")
-                    await asyncio.sleep(backoff_time)
-                    return await self._fetch_html(url, retry_count + 1)
-                return None
-    
+            if html and len(html) > 1000:
+                return html
+            if retry_count < 2:
+                await asyncio.sleep((2 ** retry_count) + random.uniform(0.2, 0.8))
+                return await self._fetch_html(url, retry_count + 1)
+            return None
+        except Exception as exc:
+            logger.warning("[CARPLUS] Fetch failed: %s", exc)
+            if retry_count < 2:
+                await asyncio.sleep((2 ** retry_count) + random.uniform(0.2, 0.8))
+                return await self._fetch_html(url, retry_count + 1)
+            return None
+
     def _extract_from_json(self, html: str, max_listings: int) -> List[Dict[str, object]]:
         """Extract from embedded JSON or window.__DATA__."""
         try:

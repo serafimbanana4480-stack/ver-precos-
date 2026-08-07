@@ -296,6 +296,12 @@ class LeilosocLightweight:
         # --- Subcategory ---
         subcat_id = lot.get("batchSubCategoryId", 0)
         subcategory = VEHICLE_SUBCATEGORIES.get(subcat_id, f"subcat_{subcat_id}")
+        vehicle_type = "motos" if subcat_id == 105 else "carros"
+        price_kind = {
+            "adjudicado": "auction_adjudicated",
+            "licitacao_aberta": "auction_current",
+            "valor_base": "auction_start",
+        }.get(price_type, "unknown")
 
         # --- Source ID ---
         source_id = f"leilosoc_{batch_id}"
@@ -311,7 +317,11 @@ class LeilosocLightweight:
             "brand": brand,
             "model": model,
             "price": price,
+            "price_raw": str(price),
+            "currency": "EUR",
+            "price_kind": price_kind,
             "price_type": price_type,
+            "vehicle_type": vehicle_type,
             "year": year,
             "km": km,
             "fuel_type": fuel_type,

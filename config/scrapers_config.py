@@ -62,7 +62,9 @@ class ScrapersConfig(BaseModel):
     standvirtual: StandvirtualConfig = StandvirtualConfig()
     autosapo: AutoSapoConfig = AutoSapoConfig()
     custojusto: ScraperConfig = ScraperConfig(enabled=True)
-    imovirtual: ScraperConfig = ScraperConfig(enabled=True)
+    # Current Imovirtual is a real-estate marketplace; keep the legacy
+    # adapter available for explicit audits but exclude it from car runs.
+    imovirtual: ScraperConfig = ScraperConfig(enabled=False)
     piscapisca: PiscaPiscaConfig = PiscaPiscaConfig()
     carplus: CarplusConfig = CarplusConfig()
     

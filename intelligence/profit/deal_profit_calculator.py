@@ -61,22 +61,16 @@ class DealProfitCalculator:
     Profit definitions (aligned with HybridValuator):
     - buyer_profit / profit_potential: GROSS spread (estimated_market_value - asking_price).
       Used for ranking/scoring. Does NOT include acquisition costs.
-    - net_profit: REALISTIC profit after Portugal vehicle transfer taxes (~15.5%)
-      and estimated repair costs based on condition.
+    - net_profit: REALISTIC profit after Portugal vehicle transfer taxes,
+      computed via valuation.pt_fiscal.calculate_transaction_costs() (2026
+      official tables: registo de propriedade 55,30 € + IPO; ISV only for
+      imports), and estimated repair costs based on condition.
     """
     
     def __init__(self):
         """Initialize deal profit calculator."""
         self.pricing_engine = pricing_engine
         self.scoring_engine = scoring_engine
-        
-        # Portugal vehicle transfer tax rates (aligned with HybridValuator.TRANSFER_TAX_RATE)
-        # ISV 10% + IMT 5% + Stamp Duty 0.5% ≈ 15.5% total
-        self.imt_rate = 0.05   # 5% IMT
-        self.isv_rate = 0.10   # 10% ISV (simplified flat rate)
-        self.stamp_duty = 0.005  # 0.5% Imposto de Selo
-        # Combined rate for convenience (used in net profit calculation)
-        self.total_tax_rate = self.imt_rate + self.isv_rate + self.stamp_duty  # 0.155
         
         # Repair cost estimates by condition score bucket (EUR)
         # Aligned with HybridValuator._REPAIR_COST_BY_CONDITION
@@ -91,6 +85,58 @@ class DealProfitCalculator:
         
         logger.info("Deal profit calculator initialized")
     
+    # Tipos de preço que representam de facto o custo total de aquisição.
+    # Tudo o resto (base de leilão, mensalidade, entrada) não é comparável
+    # com um valor de mercado retail e não pode gerar profit.
+    RETAIL_PRICE_KINDS = frozenset({'total', 'retail', None, ''})
+
+    @staticmethod
+    def _has_retail_price(vehicle: Dict[str, Any]) -> bool:
+        """True apenas quando o preço é um valor retail total e positivo."""
+        price = vehicle.get('price') or 0
+        if price <= 0:
+            return False
+        kind = vehicle.get('price_kind')
+        if kind not in DealProfitCalculator.RETAIL_PRICE_KINDS:
+            return False
+        if vehicle.get('price_rejection_reason'):
+            return False
+        return True
+
+    def _no_price_analysis(self, vehicle: Dict[str, Any]) -> DealProfitAnalysis:
+        """Análise neutra para viaturas sem preço retail utilizável.
+
+        Todos os campos de profit ficam a 0.0 e o grade a ``'N/A'`` — nunca
+        um número que possa ser somado, ordenado ou apresentado como lucro.
+        """
+        kind = vehicle.get('price_kind') or 'desconhecido'
+        return DealProfitAnalysis(
+            listing_price=0.0,
+            estimated_market_price=0.0,
+            price_discount_percentage=0.0,
+            estimated_savings=0.0,
+            buyer_profit=0.0,
+            buyer_profit_margin=0.0,
+            buyer_roi=0.0,
+            buyer_payback_months=None,
+            seller_profit=None,
+            seller_profit_margin=None,
+            seller_roi=None,
+            repair_costs=0.0,
+            taxes=0.0,
+            total_additional_costs=0.0,
+            risk_score=vehicle.get('ai_risk_score', 5.0) or 5.0,
+            risk_level='unknown',
+            deal_score=0.0,
+            deal_grade='N/A',
+            recommendation=(
+                f'Sem preço retail (price_kind={kind}) — profit não calculável. '
+                'Requer preço final de venda para avaliação.'
+            ),
+            calculated_at=datetime.utcnow().isoformat(),
+            calculation_method='no_retail_price_gate',
+        )
+
     def calculate_deal_profit(self, vehicle: Dict[str, Any]) -> DealProfitAnalysis:
         """
         Calculate complete deal profit analysis
@@ -102,18 +148,26 @@ class DealProfitCalculator:
             DealProfitAnalysis with complete profit breakdown
         """
         try:
+            # === PORTA DE PREÇO RETAIL ===
+            # Sem preço retail não existe profit. Antes desta guarda, viaturas
+            # de leilão (price=0, price_kind='auction_start') produziam
+            # buyer_profit = estimated_value - 0, gerando 5,4 M€ de lucro
+            # fantasma em 990 registos. Ver valuation/reliability.py.
+            if not self._has_retail_price(vehicle):
+                return self._no_price_analysis(vehicle)
+
             # Get pricing analysis
             pricing_result = self.pricing_engine.calculate_price(vehicle)
             estimated_value = pricing_result.get('final_price')
             if estimated_value is None:
                 estimated_value = vehicle.get('price', 0) or 0
-            
+
             # Get scoring analysis
             scoring_result = self.scoring_engine.calculate_final_score(vehicle)
             deal_score = scoring_result.final_score
-            
+
             listing_price = vehicle.get('price', 0) or 0
-            
+
             # Calculate price discount
             price_discount_percentage = self._calculate_price_discount_percentage(
                 estimated_value, listing_price
@@ -125,7 +179,7 @@ class DealProfitCalculator:
             repair_costs = self._estimate_repair_costs(condition_score)
             
             # Calculate taxes
-            taxes = self._calculate_taxes(listing_price)
+            taxes = self._calculate_taxes(vehicle, listing_price)
             total_additional_costs = repair_costs + taxes
             
             # Calculate buyer profit
@@ -137,7 +191,7 @@ class DealProfitCalculator:
             # Calculate seller profit (if original purchase price available)
             seller_profit, seller_profit_margin, seller_roi = \
                 self._calculate_seller_profit(
-                    listing_price, vehicle.get('original_purchase_price')
+                    listing_price, vehicle.get('original_purchase_price'), vehicle
                 )
             
             # Determine risk level
@@ -221,14 +275,30 @@ class DealProfitCalculator:
         else:
             return self.repair_cost_estimates['unknown']
     
-    def _calculate_taxes(self, price: float) -> float:
-        """Calculate Portugal vehicle transfer taxes."""
-        # Simplified tax calculation
-        imt = price * self.imt_rate if price > 0 else 0
-        isv = price * self.isv_rate if price > 0 else 0
-        stamp = price * self.stamp_duty if price > 0 else 0
-        total_taxes = imt + isv + stamp
-        return round(total_taxes, 2)
+    def _calculate_taxes(self, vehicle: Dict[str, Any], price: float) -> float:
+        """Real Portuguese acquisition taxes (2026) via pt_fiscal.
+
+        National used vehicle: registo de propriedade (55,30 € online) + IPO.
+        ISV + legalização only apply to imports (is_import=True). IMT and
+        stamp duty do NOT exist for vehicle sales.
+        """
+        from valuation.pt_fiscal import calculate_transaction_costs
+
+        tc = calculate_transaction_costs(
+            asking_price=float(price or 0.0),
+            engine_cc=int(vehicle.get('engine_size') or vehicle.get('engine_cc') or 1500),
+            co2_gkm=vehicle.get('co2_gkm'),
+            fuel_type=vehicle.get('fuel_type') or 'gasolina',
+            year=vehicle.get('year'),
+            vehicle_type=vehicle.get('vehicle_type') or 'carros',
+            is_national=not bool(vehicle.get('is_import', False)),
+            condition_score=vehicle.get('condition_score'),
+            repair_costs=0.0,  # repairs are tracked separately (repair_costs field)
+        )
+        # Tax component only: registo + ISV + legalização + IPO. Reconditioning
+        # (tc.reconditioning) and annual IUC are NOT acquisition taxes and are
+        # accounted elsewhere.
+        return round(tc.registo_propriedade + tc.isv + tc.legalization + tc.ipo, 2)
     
     def _calculate_buyer_profit(self,
                                listing_price: float,
@@ -266,7 +336,8 @@ class DealProfitCalculator:
     
     def _calculate_seller_profit(self, 
                                  listing_price: float, 
-                                 original_purchase_price: Optional[float]) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+                                 original_purchase_price: Optional[float],
+                                 vehicle: Dict[str, Any]) -> Tuple[Optional[float], Optional[float], Optional[float]]:
         """
         Calculate seller profit metrics
         
@@ -277,7 +348,7 @@ class DealProfitCalculator:
             return None, None, None
         
         # Profit = listing price - original purchase price - taxes
-        taxes = self._calculate_taxes(listing_price)
+        taxes = self._calculate_taxes(vehicle, listing_price)
         profit = listing_price - original_purchase_price - taxes
         
         # Profit margin = profit / listing price

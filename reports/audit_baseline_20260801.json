@@ -1,0 +1,76 @@
+{
+  "captured_at": "2026-08-01T17:28:00Z",
+  "database": {
+    "path": "C:\\Users\\rodri\\Desktop\\ver-precos-\\data\\autodeal.db",
+    "backup": "C:\\Users\\rodri\\Desktop\\ver-precos-\\data\\backups\\audit_baseline_20260801_172700.db",
+    "backup_sha256": "69b4d388a6a328dec9809352d9d2382f27e78d7b67af92cf2f426e812bc00193",
+    "backup_size_bytes": 10805248,
+    "backup_integrity": "ok"
+  },
+  "vehicle_count": 4908,
+  "active_count": 4908,
+  "price_null": 0,
+  "price_zero": 0,
+  "price_negative": 0,
+  "price_lt_100": 21,
+  "price_lt_500": 162,
+  "price_gt_500k": 2,
+  "price_gt_1m": 0,
+  "estimated_exact_500": 12,
+  "estimated_exact_10000": 17,
+  "estimated_null": 0,
+  "deal_score_null": 0,
+  "deal_score_extreme_low": 0,
+  "deal_score_extreme_high": 0,
+  "quarantine_count": 16,
+  "quality_status": {
+    "invalid": 16,
+    "quarantined": 287,
+    "valid": 4605
+  },
+  "source_counts": {
+    "AUTOHUB": 31,
+    "AUTOLINE": 1000,
+    "AUTOPT": 1036,
+    "CARPLUS": 16,
+    "CUSTOJUSTO": 102,
+    "LEILOSOC": 158,
+    "MARTELO": 14,
+    "MCOUTINHO": 1000,
+    "OLX": 1539,
+    "PENHORADO": 12
+  },
+  "missing_fields": {
+    "year": 171,
+    "km": 302,
+    "fuel_type": 1054,
+    "transmission": 1711,
+    "brand": 0,
+    "model": 0
+  },
+  "missing_any_required": 1861,
+  "complete_required": 3047,
+  "duplicate_source_id_groups": 0,
+  "duplicate_url_groups": 0,
+  "duplicate_fingerprint_groups": 36,
+  "deal_score_buckets": {
+    "0-10": 4892,
+    "10-25": 16
+  },
+  "deal_score_summary": {
+    "count": 4908,
+    "min": 0.0,
+    "median": 5.0,
+    "max": 10.0
+  },
+  "price_related_columns": [
+    "price",
+    "price_discount_percentage",
+    "price_anomaly_score"
+  ],
+  "notes": [
+    "Schema has no persisted raw-price or currency field; source reconciliation must be added or proven from scraper payloads.",
+    "quarantine_count is the explicit invalid/rejected subset; quality_status=quarantined contains 287 rows.",
+    "36 exact fingerprint duplicate groups remain despite zero duplicate source_id and URL groups."
+  ]
+}

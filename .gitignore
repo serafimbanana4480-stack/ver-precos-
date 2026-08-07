@@ -222,3 +222,6 @@ mlruns/
 .env/
 
 catboost_info/
+
+# ── FUSE mount artifacts (local-only, regenerable) ──
+.fuse_hidden*

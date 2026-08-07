@@ -205,6 +205,9 @@ async def get_top_deals(
         with get_db_context() as db:
             vehicles = db.query(Vehicle).filter(
                 Vehicle.is_active == True,
+                Vehicle.profit_is_publishable == True,
+                Vehicle.credible_profit.isnot(None),
+                Vehicle.credible_profit > 0,
                 Vehicle.deal_score >= min_score
             ).order_by(Vehicle.deal_score.desc()).limit(limit).all()
             
@@ -213,8 +216,11 @@ async def get_top_deals(
                 deal = DealResponse.from_orm(v)
                 # Calculate savings
                 if v.estimated_value and v.price:
-                    deal.price_savings = v.estimated_value - v.price
-                    deal.price_savings_percent = ((v.estimated_value - v.price) / v.estimated_value) * 100
+                    # Savings on the reliability-adjusted value when available;
+                    # the raw estimate still contains model noise (winner's curse).
+                    base = v.adjusted_estimated_value or v.estimated_value
+                    deal.price_savings = base - v.price
+                    deal.price_savings_percent = ((base - v.price) / base) * 100
                 deals.append(deal)
             
             return deals

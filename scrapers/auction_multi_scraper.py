@@ -24,7 +24,7 @@ from utils.production_safeguards import (
     _bca_circuit_breaker,
 )
 from utils.observability import track_scrape
-
+from scrapers.schema import parse_price_evidence
 logger = logging.getLogger(__name__)
 
 _HTTP_BROWSER_HEADERS = {
@@ -56,6 +56,11 @@ class AuctionScraper:
         self._session: Optional[Any] = None
         self.headers = dict(_HTTP_BROWSER_HEADERS)
         self.headers.setdefault("Referer", self.REFERER or self.BASE_URL)
+        # Categoria pedida no scrape em curso. Os parsers de HTML são
+        # síncronos e não recebem o argumento, mas precisam de o marcar em
+        # cada anúncio — sem isto o runner rejeita todas as linhas por
+        # ``vehicle_type`` não corresponder ao pedido.
+        self._vehicle_type: str = "carros"
 
     async def __aenter__(self) -> "AuctionScraper":
         await self.initialize()
@@ -139,6 +144,54 @@ class AuctionScraper:
     def _parse_listings(self, html: str, base_url: str, max_items: int) -> List[Dict[str, Any]]:
         return []
 
+    def _extract_cards(
+        self, html: str, base_url: str, max_items: int, *, source_prefix: str
+    ) -> List[Dict[str, Any]]:
+        """Generic card parser shared by Autorola/BCA and future layouts."""
+        listings: List[Dict[str, Any]] = []
+        try:
+            soup = BeautifulSoup(html, "lxml")
+            cards = soup.select(
+                "div[class*='result'], div[class*='card'], li[class*='result'], "
+                "article[class*='result'], [class*='listing'], [class*='vehicle']"
+            )
+            for card in cards[:max_items]:
+                title_node = card.select_one(
+                    "h2, h3, h4, [class*='title'], [class*='name']"
+                )
+                link = card.select_one("a[href]")
+                title = title_node.get_text(" ", strip=True) if title_node else ""
+                href = link.get("href", "") if link else ""
+                if not title or not href:
+                    continue
+                url = urljoin(base_url, href)
+                price_text = ""
+                for node in card.select("[class*='price'], [class*='cost'], [class*='bid'], span, p"):
+                    candidate = node.get_text(" ", strip=True)
+                    if any(ch.isdigit() for ch in candidate):
+                        price_text = candidate
+                        break
+                evidence = parse_price_evidence(price_text, context=card.get_text(" ", strip=True))
+                if evidence.kind.value != "auction_adjudicated" or evidence.value is None:
+                    continue
+                item = {
+                    "source_id": f"{source_prefix}_{abs(hash(title + url)) % 10_000_000}",
+                    "title": title,
+                    "adjudication_price": evidence.value,
+                    "source": self.source,
+                    "auction_type": "dealer",
+                    "vehicle_type": VehicleType.carros,
+                    "url": url,
+                    "description": "",
+                    "images": [],
+                    "scraped_at": datetime.now(timezone.utc),
+                }
+                item.update(_shared_brand_model(title))
+                listings.append(item)
+        except Exception as exc:
+            logger.error("[%s] HTML parse error: %s", source_prefix.upper(), exc)
+        return listings
+
     @with_circuit_breaker(_manheim_circuit_breaker, "manheim-scrape")
     async def _scrape_manheim(self, vehicle_type: str, max_listings: int) -> List[Dict[str, Any]]:
         return await self._safe_scrape("manheim", vehicle_type, max_listings, paths=[
@@ -221,7 +274,7 @@ class AuctionScraper:
                         auction_type=item.get("auction_type"),
                         adjudication_price=price,
                         starting_price=item.get("starting_price"),
-                        title=item.get("title", ""),
+                        current_bid=item.get("current_bid"),
                         description=item.get("description", ""),
                         images=item.get("images"),
                         scraped_at=item.get("scraped_at"),
@@ -258,6 +311,7 @@ class ManheimScraper(AuctionScraper):
         scrape_details: bool = False,
     ) -> List[Dict[str, object]]:
         logger.info(f"[MANHEIM] Starting scrape (type={vehicle_type}, max={max_listings})")
+        self._vehicle_type = vehicle_type
         return await self._scrape_manheim(vehicle_type, max_listings)
 
     def _parse_listings(self, html: str, base_url: str, max_items: int) -> List[Dict[str, Any]]:
@@ -284,13 +338,41 @@ class ManheimScraper(AuctionScraper):
                     if not title or len(title) < 5 or not url:
                         continue
                     price_text = ""
+                    price_class = ""
                     price_elems = card.select("[class*='price'], [class*='cost'], [class*='bid'], span, p")
                     for price_elem in price_elems:
                         candidate = price_elem.get_text(strip=True)
                         if any(ch.isdigit() for ch in candidate):
                             price_text = candidate
+                            price_class = " ".join(price_elem.get("class", []))
                             break
-                    adjudication_price = self._parse_price(price_text)
+                    evidence = parse_price_evidence(
+                        price_text,
+                        context=(
+                            card.get_text(" ", strip=True)
+                            + " "
+                            + price_class
+                        ),
+                    )
+                    adjudication_price = (
+                        evidence.value
+                        if evidence.kind.value == "auction_adjudicated"
+                        else None
+                    )
+                    starting_price = (
+                        evidence.value
+                        if evidence.kind.value == "auction_start"
+                        else None
+                    )
+                    current_bid = (
+                        evidence.value
+                        if evidence.kind.value == "auction_current"
+                        or (
+                            evidence.kind.value == "total"
+                            and "bid" in price_class.lower()
+                        )
+                        else None
+                    )
                     location = ""
                     loc_elems = card.select("[class*='location'], [class*='city'], [class*='state']")
                     if loc_elems:
@@ -299,11 +381,11 @@ class ManheimScraper(AuctionScraper):
                         "source_id": f"{source_prefix}_{abs(hash(title + url)) % 10_000_000}",
                         "title": title,
                         "adjudication_price": adjudication_price,
-                        "starting_price": None,
-                        "url": url,
+                        "starting_price": starting_price,
+                        "current_bid": current_bid,
                         "source": self.source,
                         "auction_type": "dealer",
-                        "vehicle_type": VehicleType.carros if vehicle_type == "carros" else VehicleType.motos,
+                        "vehicle_type": VehicleType.carros if self._vehicle_type == "carros" else VehicleType.motos,
                         "location": location,
                         "description": "",
                         "images": [],
@@ -342,18 +424,10 @@ class ManheimScraper(AuctionScraper):
 
     @staticmethod
     def _parse_price(text: Optional[str]) -> Optional[float]:
-        if not text:
+        evidence = parse_price_evidence(text)
+        if evidence.kind.value != "total" or evidence.currency != "EUR":
             return None
-        text = text.replace("€", "").replace("EUR", "").replace("&euro;", "").strip()
-        import re
-        match = re.search(r"[\d.,]+", text.replace(" ", ""))
-        if match:
-            price_str = match.group().replace(".", "").replace(",", ".")
-            try:
-                return float(price_str)
-            except ValueError:
-                return None
-        return None
+        return evidence.value
 
     @staticmethod
     def _parse_int(text: str) -> Optional[int]:
@@ -391,6 +465,7 @@ class AutorolaScraper(AuctionScraper):
         scrape_details: bool = False,
     ) -> List[Dict[str, object]]:
         logger.info(f"[AUTOROLA] Starting scrape (type={vehicle_type}, max={max_listings})")
+        self._vehicle_type = vehicle_type
         return await self._scrape_autorola(vehicle_type, max_listings)
 
     def _parse_listings(self, html: str, base_url: str, max_items: int) -> List[Dict[str, Any]]:
@@ -418,6 +493,7 @@ class BCAScraper(AuctionScraper):
         scrape_details: bool = False,
     ) -> List[Dict[str, object]]:
         logger.info(f"[BCA] Starting scrape (type={vehicle_type}, max={max_listings})")
+        self._vehicle_type = vehicle_type
         return await self._scrape_bca(vehicle_type, max_listings)
 
     def _parse_listings(self, html: str, base_url: str, max_items: int) -> List[Dict[str, Any]]:

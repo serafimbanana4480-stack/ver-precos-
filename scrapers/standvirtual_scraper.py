@@ -51,7 +51,14 @@ class StandvirtualScraper:
         self.base_url = settings.standvirtual_base_url
         self.headless = settings.playwright_headless
         self.timeout = settings.playwright_timeout
-        self.managed_client = get_managed_client() if get_managed_client else None
+        # SeleniumBase/Chrome is an optional fallback.  Do not initialize it
+        # for every run when Apify/managed scraping is disabled; local
+        # Playwright/Chromium is the supported default in this project.
+        self.managed_client = (
+            get_managed_client()
+            if get_managed_client and getattr(settings, "apify_enabled", False)
+            else None
+        )
         self.selector_manager = get_selector_manager()
         self.proxy_pool = get_proxy_pool()
         
@@ -1020,10 +1027,10 @@ class StandvirtualScraper:
                                     vehicle.fuel_type = FuelType.GASOLINE
                                 elif "diesel" in fuel_type_lower:
                                     vehicle.fuel_type = FuelType.DIESEL
-                                elif "eletrico" in fuel_type_lower or "eléctrico" in fuel_type_lower:
-                                    vehicle.fuel_type = FuelType.ELECTRIC
                                 elif "hibrido" in fuel_type_lower or "híbrido" in fuel_type_lower:
                                     vehicle.fuel_type = FuelType.HYBRID
+                                elif "eletrico" in fuel_type_lower or "eléctrico" in fuel_type_lower:
+                                    vehicle.fuel_type = FuelType.ELECTRIC
                                 elif "gpl" in fuel_type_lower:
                                     vehicle.fuel_type = FuelType.GPL
 

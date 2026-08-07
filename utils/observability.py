@@ -295,6 +295,7 @@ def setup_structured_logging():
 def setup_sentry():
     """Setup Sentry error tracking"""
     try:
+        from core.settings import settings
         import sentry_sdk
         from sentry_sdk.integrations.logging import LoggingIntegration
         

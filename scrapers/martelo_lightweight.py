@@ -176,6 +176,7 @@ class MarteloLightweight:
                     price = lance or base
                     if not price or price <= 0:
                         continue
+                    price_kind = "auction_current" if lance else "auction_start"
                     brand = _detect_brand(clean) or "Unknown"
                     ym = YEAR_RE.search(clean)
                     year = int(ym.group(0)) if ym else None
@@ -190,6 +191,10 @@ class MarteloLightweight:
                         "year": year,
                         "km": km,
                         "price": price,
+                        "price_raw": str(price),
+                        "currency": "EUR",
+                        "price_kind": price_kind,
+                        "vehicle_type": vehicle_type,
                         "title": clean[:500],
                         "location": None,
                         "is_auction": True,

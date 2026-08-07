@@ -1,0 +1,294 @@
+...F........................................FFFE.F.....EEEEssssss....... [ 16%]
+..........sssssssss.ssssssss.ssssssss.....sss................s.......... [ 33%]
+..............................s......................................... [ 50%]
+.................sss.................................................... [ 67%]
+........................................................................ [ 84%]
+............sss............................................E.....        [100%]
+=================================== ERRORS ====================================
+_ ERROR at setup of TestCircuitBreakerBlocksAtThreshold.test_circuit_breaker_opens_on_threshold _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Function test_circuit_breaker_opens_on_threshold>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] Acesso negado: 'C:\\Users\\rodri\\AppData\\Local\\Temp\\pytest-of-rodri'
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:926: PermissionError
+_ ERROR at setup of TestHealthCheck.test_health_check_returns_healthy_exit_code _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Function test_health_check_returns_healthy_exit_code>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] Acesso negado: 'C:\\Users\\rodri\\AppData\\Local\\Temp\\pytest-of-rodri'
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:926: PermissionError
+_____ ERROR at setup of TestInitCommand.test_init_creates_database_tables _____
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Function test_init_creates_database_tables>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] Acesso negado: 'C:\\Users\\rodri\\AppData\\Local\\Temp\\pytest-of-rodri'
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:926: PermissionError
+__ ERROR at setup of TestScrapeCommand.test_scrape_olx_runs_without_crashing __
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Function test_scrape_olx_runs_without_crashing>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] Acesso negado: 'C:\\Users\\rodri\\AppData\\Local\\Temp\\pytest-of-rodri'
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:926: PermissionError
+______ ERROR at setup of TestInvalidArgs.test_invalid_args_are_rejected _______
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Function test_invalid_args_are_rejected>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] Acesso negado: 'C:\\Users\\rodri\\AppData\\Local\\Temp\\pytest-of-rodri'
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:926: PermissionError
+_ ERROR at setup of TestMLIntegration.test_missing_artifact_disables_ml_explicitly _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Function test_missing_artifact_disables_ml_explicitly>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] Acesso negado: 'C:\\Users\\rodri\\AppData\\Local\\Temp\\pytest-of-rodri'
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:926: PermissionError
+================================== FAILURES ===================================
+_____________________________ test_scraping_flow ______________________________
+
+    @pytest.mark.e2e
+    async def test_scraping_flow():
+        """Test complete scraping flow."""
+        scraper = OLXScraper()
+        fake = [{"source": "OLX", "source_id": "t1", "url": "https://www.olx.pt/d/x.html", "price": 10000, "year": 2020}]
+        with patch.object(scraper, "scrape_listings", AsyncMock(return_value=fake)):
+>           listings = await scraper.scrape(max_listings=5)
+                             ^^^^^^^^^^^^^^
+E           AttributeError: 'OlxScraper' object has no attribute 'scrape'
+
+tests\e2e\test_scraping_flow.py:15: AttributeError
+________ TestScrapeListings.test_manheim_scrape_listings_returns_list _________
+
+self = <tests.test_auction_multi_scraper.TestScrapeListings object at 0x0000022910152850>
+
+    def test_manheim_scrape_listings_returns_list(self):
+        module = _import_scrapers_module()
+        scraper = module.ManheimScraper()
+        result = scraper.scrape_listings()
+>       assert isinstance(result, list)
+E       assert False
+E        +  where False = isinstance(<coroutine object ManheimScraper.scrape_listings at 0x0000022912CD6040>, list)
+
+tests\test_auction_multi_scraper.py:66: AssertionError
+________ TestScrapeListings.test_autorola_scrape_listings_returns_list ________
+
+self = <tests.test_auction_multi_scraper.TestScrapeListings object at 0x0000022910152990>
+
+    def test_autorola_scrape_listings_returns_list(self):
+        module = _import_scrapers_module()
+        scraper = module.AutorolaScraper()
+        result = scraper.scrape_listings()
+>       assert isinstance(result, list)
+E       assert False
+E        +  where False = isinstance(<coroutine object AutorolaScraper.scrape_listings at 0x0000022912E3F840>, list)
+
+tests\test_auction_multi_scraper.py:72: AssertionError
+__________ TestScrapeListings.test_bca_scrape_listings_returns_list ___________
+
+self = <tests.test_auction_multi_scraper.TestScrapeListings object at 0x000002290FFEB950>
+
+    def test_bca_scrape_listings_returns_list(self):
+        module = _import_scrapers_module()
+        scraper = module.BCAScraper()
+        result = scraper.scrape_listings()
+>       assert isinstance(result, list)
+E       assert False
+E        +  where False = isinstance(<coroutine object BCAScraper.scrape_listings at 0x0000022927165F40>, list)
+
+tests\test_auction_multi_scraper.py:78: AssertionError
+___________ TestHttpResponses.test_manheim_handles_blocked_response ___________
+
+self = <tests.test_auction_multi_scraper.TestHttpResponses object at 0x0000022910152D50>
+
+    def test_manheim_handles_blocked_response(self):
+        module = _import_scrapers_module()
+        scraper = module.ManheimScraper()
+    
+        mock_response = MagicMock()
+        mock_response.status = 403
+        mock_response.text = MagicMock()
+    
+        with patch("aiohttp.ClientSession.get", return_value=mock_response):
+            result = scraper.scrape_listings()
+>       assert result == []
+E       assert <coroutine object ManheimScraper.scrape_listings at 0x000002292735D840> == []
+
+tests\test_auction_multi_scraper.py:114: AssertionError
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\rodri\Desktop\ver-precos-\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+SKIPPED [1] tests\test_system.py:8: Moved to scripts/verify_imports.py (avoids sys.exit during pytest collection)
+SKIPPED [1] tests\unit\test_managed_client.py:10: managed_client module not available in simplified version
+SKIPPED [1] tests\test_new_architecture.py:26: This is a standalone test script, run with: python tests/test_new_architecture.py
+SKIPPED [1] tests\test_new_architecture.py:32: This is a standalone test script, run with: python tests/test_new_architecture.py
+SKIPPED [4] tests\test_new_architecture.py: This is a standalone test script, run with: python tests/test_new_architecture.py
+SKIPPED [1] tests\unit\test_app_dependencies_ai.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_dependencies_alerts.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_dependencies_cache.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_dependencies_dashboard.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_dependencies_db.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_dependencies_ml.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_dependencies_queue.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_dependencies_scheduler.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_dependencies_scrapers.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_middleware_auth.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_middleware_cors.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_middleware_error.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_middleware_logging.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_routers_deals.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_routers_health.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_routers_listings.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_routers_metrics.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_services_deal_service.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_services_listing_service.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_v1_config.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_v1_deals.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_v1_endpoints.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_v1_health.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_v1_metrics.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_app_v1_scrapers.py: Legacy app._compat placeholder (use -m compat_placeholder to include)
+SKIPPED [1] tests\unit\test_config.py:35: Port validation not implemented in Settings class
+SKIPPED [1] tests\unit\test_config.py:39: Positive float validation not implemented in Settings class
+SKIPPED [1] tests\unit\test_config.py:43: Database URL validation not implemented in Settings class
+SKIPPED [1] tests\unit\test_config.py:152: List to string conversion not implemented in Settings class
+SKIPPED [1] tests\unit\test_database_db.py:22: init_db mutates production DB file; run via main.py init
+SKIPPED [1] tests\unit\test_olx_scraper.py:24: _scrape_with_resilient_flow method refactored in OLXScraper
+SKIPPED [1] tests\unit\test_olx_scraper.py:29: _parse_soup_to_listings method refactored in OLXScraper
+SKIPPED [1] tests\unit\test_olx_scraper.py:34: _fetch_html_with_playwright method doesn't exist in OLXScraper
+SKIPPED [1] tests\unit\test_standvirtual_scraper.py:23: _scrape_with_resilient_flow method refactored in StandvirtualScraper
+SKIPPED [1] tests\unit\test_standvirtual_scraper.py:28: _parse_soup_to_listings method refactored in StandvirtualScraper
+SKIPPED [1] tests\unit\test_standvirtual_scraper.py:33: _fetch_html_with_playwright method doesn't exist in StandvirtualScraper
+ERROR tests/test_auction_multi_scraper.py::TestCircuitBreakerBlocksAtThreshold::test_circuit_breaker_opens_on_threshold
+ERROR tests/test_main_cli.py::TestHealthCheck::test_health_check_returns_healthy_exit_code
+ERROR tests/test_main_cli.py::TestInitCommand::test_init_creates_database_tables
+ERROR tests/test_main_cli.py::TestScrapeCommand::test_scrape_olx_runs_without_crashing
+ERROR tests/test_main_cli.py::TestInvalidArgs::test_invalid_args_are_rejected
+ERROR tests/unit/test_valuation_v2.py::TestMLIntegration::test_missing_artifact_disables_ml_explicitly
+FAILED tests/e2e/test_scraping_flow.py::test_scraping_flow - AttributeError: ...
+FAILED tests/test_auction_multi_scraper.py::TestScrapeListings::test_manheim_scrape_listings_returns_list
+FAILED tests/test_auction_multi_scraper.py::TestScrapeListings::test_autorola_scrape_listings_returns_list
+FAILED tests/test_auction_multi_scraper.py::TestScrapeListings::test_bca_scrape_listings_returns_list
+FAILED tests/test_auction_multi_scraper.py::TestHttpResponses::test_manheim_handles_blocked_response
+5 failed, 372 passed, 44 skipped, 1 warning, 6 errors in 64.19s (0:01:04)

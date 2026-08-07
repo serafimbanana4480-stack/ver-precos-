@@ -2,11 +2,33 @@
 Unified Deal Scorer for Portuguese Used Vehicle Market
 Single source of truth for deal score calculation.
 Replaces: predict.py calculate_deal_score, hybrid_valuator.py, deal_scorer.py
+
+2026 revision
+-------------
+* Transfer taxes now delegate to :mod:`valuation.pt_fiscal`, which implements
+  the official ISV/IUC tables. The previous implementation charged **IMT**
+  (a real-estate tax that does not exist for vehicles) plus a 0.6% stamp duty,
+  inflating acquisition cost by 6.5-8% of the price on every national car and
+  hiding real deals.
+* The fuel adjustment used to add a *percentage* directly to a 0-10 score
+  (a -0.15 price effect became -0.15 points). It is now converted explicitly.
+* Profit potential now accounts for reconditioning, IPO, registration and
+  selling costs — not just taxes.
 """
 from typing import Dict, Optional
 
+from valuation.pt_fiscal import (
+    calculate_iuc,
+    calculate_isv,
+    calculate_selling_costs,
+    calculate_transaction_costs,
+    estimate_reconditioning,
+    normalize_fuel,
+)
+
 # ── Market Margins by Seller Type ──
-# Based on Portuguese market reality (2026)
+# Gap between the transaction value and the price actually asked, observed in
+# the Portuguese market (2026).
 # Stands: 15-25% gross margin (warranty, inspection, financing)
 # Particulares: 5-15% (no added value)
 # Unknown: default to professional
@@ -22,20 +44,25 @@ _SELLER_MARGINS = {
 }
 
 # ── Fuel Market Adjustments (PT 2026) ──
-# Relative to gasoline baseline
+# Expressed as a **price** effect relative to the petrol baseline. Converted to
+# score points via _FUEL_SCORE_WEIGHT below — never added to the score raw.
 _FUEL_ADJUSTMENTS = {
-    "diesel": -0.15,           # ZAL restrictions, higher circulation taxes
+    "diesel": -0.06,           # ZER Lisboa/Porto, IUC agravado, procura em queda
     "gasolina": 0.0,           # baseline
-    "gasoleo": -0.15,          # same as diesel
-    "eletrico": 0.10,          # growing market, incentives
-    "electric": 0.10,
-    "hibrido": 0.08,           # partial IMT exemption
-    "hybrid": 0.08,
-    "plug_in_hybrid": 0.15,    # subsidies, exemptions
-    "plug-in": 0.15,
-    "gpl": -0.12,              # niche, ZAL restrictions
-    "gas natural": -0.05,
+    "gasoleo": -0.06,          # same as diesel
+    "eletrico": 0.04,          # isento de ISV e IUC, procura crescente
+    "electric": 0.04,
+    "hibrido": 0.05,           # segmento mais procurado do usado em 2026
+    "hybrid": 0.05,
+    "plug_in_hybrid": 0.06,    # ISV a 25%, incentivos
+    "plug-in": 0.06,
+    "gpl": -0.06,              # nicho, revenda lenta
+    "gas natural": -0.07,      # rede de abastecimento limitada
 }
+
+# A 1% price effect is worth this many points on the 0-10 deal score, so the
+# fuel signal can move the score by at most ±0.4 points.
+_FUEL_SCORE_WEIGHT = 6.0
 
 # ── Depreciation Curve (Non-linear, PT reality) ──
 # Cumulative depreciation % from new value
@@ -66,11 +93,27 @@ def _depreciation_factor(age: int) -> float:
     return max(0.10, 0.25 - (age - 12) * 0.01)
 
 
-def _km_adjustment(km: int, age: int) -> float:
-    """KM adjustment factor. PT average: ~17,000 km/year."""
+def _km_adjustment(km: int, age: int, fuel_type: str = "gasolina") -> float:
+    """
+    KM adjustment factor, fuel-aware.
+
+    Portuguese annual mileage differs sharply by fuel: a diesel doing 18.000
+    km/year is normal, a petrol city car doing the same is not. Using a single
+    17.000 km/year figure systematically over-penalised diesels and
+    under-penalised petrol cars.
+    """
     if age <= 0 or km <= 0:
         return 1.0
-    expected_km = age * 17000
+    expected_per_year = {
+        "diesel": 18000,
+        "gasolina": 12000,
+        "hibrido": 14000,
+        "phev": 14000,
+        "eletrico": 13000,
+        "gpl": 16000,
+        "gnc": 16000,
+    }.get(normalize_fuel(fuel_type), 14000)
+    expected_km = age * expected_per_year
     if expected_km <= 0:
         return 1.0
     ratio = km / expected_km
@@ -147,14 +190,19 @@ def calculate_deal_score(
     adjustments = {}
 
     # 4. KM adjustment (±0.5 points)
-    km_factor = _km_adjustment(km, age)
+    km_factor = _km_adjustment(km, age, fuel_type)
     if km_factor != 1.0:
         km_adj = (km_factor - 1.0) * 5.0  # scale to ±0.5 points
         deal_score += km_adj
         adjustments["km"] = round(km_adj, 2)
 
-    # 5. Fuel type adjustment (±0.3 points)
-    fuel_adj = _FUEL_ADJUSTMENTS.get(fuel_type.lower(), 0.0)
+    # 5. Fuel type adjustment (±0.4 points)
+    # _FUEL_ADJUSTMENTS holds a *price* effect; convert it to score points
+    # instead of adding a percentage straight onto a 0-10 scale.
+    fuel_price_effect = _FUEL_ADJUSTMENTS.get(fuel_type.lower(), 0.0)
+    if fuel_price_effect == 0.0:
+        fuel_price_effect = _FUEL_ADJUSTMENTS.get(normalize_fuel(fuel_type), 0.0)
+    fuel_adj = fuel_price_effect * _FUEL_SCORE_WEIGHT
     deal_score += fuel_adj
     if fuel_adj != 0.0:
         adjustments["fuel"] = round(fuel_adj, 2)
@@ -225,66 +273,67 @@ def calculate_transfer_taxes(
     fuel_type: str = "gasolina",
     age_years: int = 5,
     is_national: bool = True,
+    vehicle_type: str = "carros",
+    from_eu: bool = True,
+    online_registration: bool = True,
 ) -> Dict:
     """
-    Calculate realistic vehicle transfer taxes for Portugal (2026).
+    Real cost of transferring a vehicle in Portugal (2026).
 
-    Args:
-        price: vehicle price in EUR
-        engine_cc: engine displacement in cm³
-        co2_gkm: CO2 emissions in g/km
-        fuel_type: fuel type
-        age_years: vehicle age
-        is_national: whether first registered in Portugal
+    .. warning::
+       There is **no IMT and no stamp duty** on a vehicle sale in Portugal.
+       IMT applies only to real estate; stamp duty only appears inside a car
+       *credit* contract. Both keys are kept in the payload (always 0.0) so
+       existing callers and stored records do not break, but they no longer
+       inflate the total.
+
+    What a buyer actually pays on top of the price:
+      * registo de propriedade — 55,30 € online / 65 € presencial;
+      * ISV — only when the vehicle receives its first Portuguese plate
+        (i.e. imports), computed from the official 2026 tables with the
+        age reduction for EU/EEA vehicles;
+      * legalização — despachante/customs paperwork on imports.
 
     Returns:
-        dict with IMT, ISV, stamp duty, fixed costs, total
+        dict with ``registo``, ``isv``, ``legalization``, ``imt`` (0),
+        ``stamp_duty`` (0), ``fixed_costs``, ``total`` and ``iuc_annual``.
     """
+    year_now = __import__("datetime").datetime.now().year
+    first_reg_year = year_now - int(age_years or 0)
+
+    costs = calculate_transaction_costs(
+        asking_price=price,
+        engine_cc=engine_cc,
+        co2_gkm=co2_gkm,
+        fuel_type=fuel_type,
+        year=first_reg_year,
+        vehicle_type=vehicle_type,
+        is_national=is_national,
+        from_eu=from_eu,
+        online_registration=online_registration,
+        repair_costs=0.0,       # reconditioning is accounted separately
+        needs_ipo=True,
+    )
+
     taxes = {
+        # Legally zero for vehicles — kept for backwards compatibility.
         "imt": 0.0,
-        "isv": 0.0,
         "stamp_duty": 0.0,
-        "fixed_costs": 0.0,
-        "total": 0.0,
+        # Real costs
+        "isv": costs.isv,
+        "registo": costs.registo_propriedade,
+        "legalization": costs.legalization,
+        "ipo": costs.ipo,
+        "fixed_costs": round(costs.registo_propriedade + costs.ipo, 2),
+        "iuc_annual": costs.iuc_year,
+        "notes": costs.notes,
+        "isv_breakdown": costs.breakdown_isv,
+        "iuc_breakdown": costs.breakdown_iuc,
     }
-
-    # ── IMT (escalonado) ──
-    if price <= 1000:
-        taxes["imt"] = 0.0
-    elif price <= 1250:
-        taxes["imt"] = (price - 1000) * 0.02
-    elif price <= 1734:
-        taxes["imt"] = 5.0 + (price - 1250) * 0.035
-    elif price <= 2499:
-        taxes["imt"] = 21.79 + (price - 1734) * 0.045
-    elif price <= 3623:
-        taxes["imt"] = 56.72 + (price - 2499) * 0.055
-    else:
-        base_rate = 0.065 if price <= 25000 else 0.08
-        if fuel_type.lower() in ("diesel", "gasoleo"):
-            base_rate += 0.01
-        elif fuel_type.lower() in ("eletrico", "electric", "hibrido", "hybrid", "plug_in_hybrid", "plug-in"):
-            base_rate = max(0.0, base_rate - 0.02)
-        taxes["imt"] = price * base_rate
-
-    # ── ISV (only for imports or first registration) ──
-    if not is_national:
-        # Simplified ISV = (cc * rate_cc) + (co2 * rate_co2)
-        # Age reduction: 10% per year up to 80% (max 10 years)
-        reduction = min(0.80, age_years * 0.10)
-        taxa_cc = 0.50   # €/cm³ (simplified, varies by bracket)
-        taxa_co2 = 2.0   # €/g/km (simplified)
-        isv_base = (engine_cc * taxa_cc) + (co2_gkm * taxa_co2)
-        taxes["isv"] = isv_base * (1 - reduction)
-
-    # ── Imposto de Selo: 0.6% ──
-    taxes["stamp_duty"] = price * 0.006
-
-    # ── Fixed costs (notary, registration, IPO, etc.) ──
-    taxes["fixed_costs"] = 250.0  # escritura + matrícula + despesas
-
-    taxes["total"] = sum(taxes.values())
-    return {k: round(v, 2) for k, v in taxes.items()}
+    taxes["total"] = round(
+        costs.isv + costs.registo_propriedade + costs.legalization + costs.ipo, 2
+    )
+    return taxes
 
 
 def calculate_profit_potential(
@@ -296,31 +345,98 @@ def calculate_profit_potential(
     age_years: int = 5,
     is_national: bool = True,
     repair_costs: float = 0.0,
+    vehicle_type: str = "carros",
+    condition_score: Optional[float] = None,
+    from_eu: bool = True,
+    days_to_sell: int = 45,
+    transport_cost: float = 0.0,
+    include_selling_costs: bool = True,
 ) -> Dict:
     """
-    Calculate realistic profit potential including all Portuguese transfer costs.
+    Realistic profit potential, buy-side **and** sell-side.
+
+    Three figures are returned because they answer different questions:
+
+    ``gross_spread``
+        estimated_value − asking_price. What naive tools call "profit".
+    ``net_profit``
+        after acquisition costs (registo, ISV, legalização, IPO,
+        recondicionamento, transporte).
+    ``net_profit_after_sale``
+        also after the cost of selling: statutory warranty provision and the
+        capital tied up while the vehicle sits in stock. This is the number a
+        reseller actually banks.
     """
-    taxes = calculate_transfer_taxes(
-        price=asking_price,
+    year_now = __import__("datetime").datetime.now().year
+    first_reg_year = year_now - int(age_years or 0)
+
+    recon = (
+        float(repair_costs)
+        if repair_costs
+        else estimate_reconditioning(condition_score, vehicle_type, asking_price)
+    )
+
+    costs = calculate_transaction_costs(
+        asking_price=asking_price,
         engine_cc=engine_cc,
         co2_gkm=co2_gkm,
         fuel_type=fuel_type,
-        age_years=age_years,
+        year=first_reg_year,
+        vehicle_type=vehicle_type,
         is_national=is_national,
+        from_eu=from_eu,
+        condition_score=condition_score,
+        repair_costs=recon,
+        transport_cost=transport_cost,
     )
 
-    total_cost = asking_price + taxes["total"] + repair_costs
-    gross_profit = estimated_value - total_cost
-    profit_percentage = (gross_profit / asking_price * 100.0) if asking_price > 0 else 0.0
+    selling = (
+        calculate_selling_costs(
+            estimated_value, days_to_sell=days_to_sell, vehicle_type=vehicle_type
+        )
+        if include_selling_costs
+        else {"total": 0.0, "warranty_provision": 0.0, "holding_cost": 0.0, "listing_fees": 0.0}
+    )
+
+    gross_spread = estimated_value - asking_price
+    net_profit = estimated_value - costs.total_cost
+    net_after_sale = net_profit - selling["total"]
+
+    invested = costs.total_cost
+    roi = (net_after_sale / invested * 100.0) if invested > 0 else 0.0
+
+    # Annualised return: capital recycled every `days_to_sell` days.
+    turns_per_year = 365.0 / max(1, days_to_sell)
+    roi_annualized = roi * turns_per_year
 
     return {
-        "gross_profit": round(gross_profit, 2),
-        "profit_percentage": round(profit_percentage, 2),
-        "total_cost": round(total_cost, 2),
+        "gross_spread": round(gross_spread, 2),
+        "gross_profit": round(net_profit, 2),  # backwards-compatible key
+        "net_profit": round(net_profit, 2),
+        "net_profit_after_sale": round(net_after_sale, 2),
+        "profit_percentage": round(
+            (net_after_sale / asking_price * 100.0) if asking_price > 0 else 0.0, 2
+        ),
+        "roi_percentage": round(roi, 2),
+        "roi_annualized_percentage": round(roi_annualized, 2),
+        "total_cost": costs.total_cost,
+        "acquisition_costs": costs.acquisition_costs,
         "asking_price": asking_price,
         "estimated_value": round(estimated_value, 2),
-        "taxes": taxes,
-        "repair_costs": repair_costs,
+        "taxes": {
+            "imt": 0.0,
+            "stamp_duty": 0.0,
+            "isv": costs.isv,
+            "registo": costs.registo_propriedade,
+            "legalization": costs.legalization,
+            "ipo": costs.ipo,
+            "total": round(costs.isv + costs.registo_propriedade + costs.legalization + costs.ipo, 2),
+        },
+        "repair_costs": costs.reconditioning,
+        "selling_costs": selling,
+        "iuc_annual": costs.iuc_year,
+        "days_to_sell": days_to_sell,
+        "notes": costs.notes,
     }
 
 

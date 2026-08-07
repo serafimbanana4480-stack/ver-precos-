@@ -464,7 +464,7 @@ class CarplusLightweightScraper:
 
                 card_lower = card_text.lower()
                 fuel = None
-                for f in ["gasolina", "diesel", "elétrico", "eletrico", "híbrido", "hibrido", "gpl", "electrico"]:
+                for f in ["gasolina", "diesel", "híbrido", "hibrido", "elétrico", "eletrico", "gpl", "electrico"]:
                     if f in card_lower:
                         fuel = f.replace("electrico", "eletrico")
                         break

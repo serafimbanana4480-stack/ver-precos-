@@ -1,0 +1,150 @@
+{
+  "started_at": "2026-08-01T23:47:08.553629+00:00",
+  "finished_at": "2026-08-01T23:47:21.485771+00:00",
+  "vehicle_type": "carros",
+  "max_listings": 2,
+  "scraper_count": 5,
+  "status_counts": {
+    "empty": 4,
+    "ok": 1
+  },
+  "overall_success": true,
+  "scrapers": [
+    {
+      "name": "OLX:generic-lightweight",
+      "source": "OLX",
+      "website": "https://www.olx.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:47:08.553900+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 1.044,
+      "finished_at": "2026-08-01T23:47:09.598086+00:00"
+    },
+    {
+      "name": "Carplus:playwright",
+      "source": "CARPLUS",
+      "website": "https://www.carplus.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:47:09.078569+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 5.015,
+      "finished_at": "2026-08-01T23:47:14.093595+00:00"
+    },
+    {
+      "name": "Leilosoc:lightweight",
+      "source": "LEILOSOC",
+      "website": "https://www.leilosoc.com",
+      "category": "auction",
+      "started_at": "2026-08-01T23:47:09.598154+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_non_total": 2,
+        "price_provenance_missing": 2
+      },
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 2,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Peugeot 2008 · Ano 2013",
+          "price": 2300.0,
+          "url": "https://leilosoc.com/pt-PT/lot/42897/169773",
+          "source": "LEILOSOC"
+        },
+        {
+          "title": "BMW 216 D  · Ano 2017",
+          "price": 6500.0,
+          "url": "https://leilosoc.com/pt-PT/lot/42980/169805",
+          "source": "LEILOSOC"
+        }
+      ],
+      "duration_seconds": 0.499,
+      "finished_at": "2026-08-01T23:47:10.097207+00:00"
+    },
+    {
+      "name": "FacebookMarketplace:direct",
+      "source": "FACEBOOK",
+      "website": "https://www.facebook.com/marketplace",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:47:10.097349+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 11.388,
+      "finished_at": "2026-08-01T23:47:21.485487+00:00"
+    },
+    {
+      "name": "Facebook:legacy",
+      "source": "FACEBOOK",
+      "website": "https://www.facebook.com/marketplace",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:47:14.093694+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 1.977,
+      "finished_at": "2026-08-01T23:47:16.070624+00:00"
+    }
+  ]
+}

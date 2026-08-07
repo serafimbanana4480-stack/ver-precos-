@@ -41,6 +41,7 @@ class Source(str, Enum):
     CARPLUS = "CARPLUS"
     AUTOPT = "AUTOPT"
     AUTOSCOUT24 = "AUTOSCOUT24"
+    IMOVIRTUAL = "IMOVIRTUAL"
     EBAY_MOTORS = "EBAY_MOTORS"
     VPAUTO = "VPAUTO"
     LEILOSOC = "LEILOSOC"
@@ -102,7 +103,7 @@ class ScrapedVehicle(BaseModel):
     def validate_source(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
-        valid_sources = ["OLX", "STANDVIRTUAL", "AUTOSAPO", "IMOVIRL", "PISCAPISCA", "CUSTOJUSTO", "CARPLUS", "AUTOPT",
+        valid_sources = ["OLX", "STANDVIRTUAL", "AUTOSAPO", "IMOVIRTUAL", "PISCAPISCA", "CUSTOJUSTO", "CARPLUS", "AUTOPT",
                         "EBAY_MOTORS", "VPAUTO", "LEILOSOC", "MANHEIM", "AUTOROLA", "BCA"]
         v_upper = v.upper().replace(" ", "_")
         # Normalize common lowercase variants
@@ -110,7 +111,7 @@ class ScrapedVehicle(BaseModel):
             "olx": "OLX",
             "standvirtual": "STANDVIRTUAL",
             "autosapo": "AUTOSAPO",
-            "imovirtual": "IMOVIRL",
+            "imovirtual": "IMOVIRTUAL",
             "piscapisca": "PISCAPISCA",
             "custojusto": "CUSTOJUSTO",
             "carplus": "CARPLUS",

@@ -51,7 +51,11 @@ class AutoSapoScraper:
         self.timeout = getattr(settings, 'playwright_timeout', 30000)
         self.proxy_pool = get_proxy_pool()
         self.selector_manager = get_selector_manager()
-        self.managed_client = get_managed_client() if get_managed_client else None
+        self.managed_client = (
+            get_managed_client()
+            if get_managed_client and getattr(settings, "apify_enabled", False)
+            else None
+        )
         
     @track_scrape(source='autosapo')
     @with_circuit_breaker(_autosapo_circuit_breaker, "AutoSapo scraping")
@@ -282,8 +286,8 @@ class AutoSapoScraper:
             # Extract fuel_type and transmission from full text
             full_text_lower = (text_block + " " + title).lower()
             fallback_fuel = None
-            if any(f in full_text_lower for f in ['gasolina', 'diesel', 'elétrico', 'eletrico', 'eléctrico', 'híbrido', 'hibrido', 'gpl']):
-                for f in ['gasolina', 'diesel', 'elétrico', 'eletrico', 'eléctrico', 'híbrido', 'hibrido', 'gpl']:
+            if any(f in full_text_lower for f in ['gasolina', 'diesel', 'híbrido', 'hibrido', 'elétrico', 'eletrico', 'eléctrico', 'gpl']):
+                for f in ['gasolina', 'diesel', 'híbrido', 'hibrido', 'elétrico', 'eletrico', 'eléctrico', 'gpl']:
                     if f in full_text_lower:
                         fallback_fuel = f
                         break

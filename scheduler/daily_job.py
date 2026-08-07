@@ -4,7 +4,7 @@ Daily job scheduler for automated scraping, analysis, and watchlist checking
 from __future__ import annotations
 import logging
 import asyncio
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from typing import Dict
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -130,29 +130,37 @@ class DailyJob:
                     logger.info(f"[{source_name}] Adicionados: {added}, Atualizados: {updated}")
                     return added + updated
 
+                scraper_failures = []
+
+                def record_source(name, listings, saved):
+                    if not listings:
+                        scraper_failures.append(name)
+                        logger.error("[%s] devolveu 0 anúncios; ciclo marcado como falhado", name)
+                    logger.info("[%s] encontrados=%d persistidos=%d", name, len(listings or []), saved)
+
                 logger.info("Scraping OLX...")
                 olx_listings = await self.olx_scraper.scrape_listings("carros", max_listings=50, scrape_details=True)
-                save_deduped(olx_listings, "OLX", "carros")
+                record_source("OLX:carros", olx_listings, save_deduped(olx_listings, "OLX", "carros"))
 
                 olx_motos = await self.olx_scraper.scrape_listings("motos", max_listings=30, scrape_details=True)
-                save_deduped(olx_motos, "OLX", "motos")
+                record_source("OLX:motos", olx_motos, save_deduped(olx_motos, "OLX", "motos"))
 
                 logger.info("Scraping Standvirtual...")
                 sv_listings = await self.standvirtual_scraper.scrape_listings("carros", max_listings=50, scrape_details=True)
-                save_deduped(sv_listings, "STANDVIRTUAL", "carros")
+                record_source("STANDVIRTUAL", sv_listings, save_deduped(sv_listings, "STANDVIRTUAL", "carros"))
 
                 logger.info("Scraping AutoSapo...")
                 as_listings = await self.autosapo_scraper.scrape_listings("carros", max_listings=50, scrape_details=True)
-                save_deduped(as_listings, "AUTOSAPO", "carros")
+                record_source("AUTOSAPO", as_listings, save_deduped(as_listings, "AUTOSAPO", "carros"))
+                if scraper_failures:
+                    raise RuntimeError("Fontes sem anúncios ou bloqueadas: " + ", ".join(scraper_failures))
 
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(_run_async_scraping())
-                else:
-                    asyncio.run(_run_async_scraping())
+                asyncio.get_running_loop()
             except RuntimeError:
                 asyncio.run(_run_async_scraping())
+            else:
+                raise RuntimeError("run_scraping_job não pode ser chamado dentro de um event loop ativo")
             
             # Update valuations
             logger.info("Updating vehicle valuations...")
@@ -210,6 +218,99 @@ class DailyJob:
                 
         except Exception as e:
             logger.error(f"Error in watchlist checker: {e}")
+
+    # ── Re-treino periódico controlado ───────────────────────────────────────
+    RETRAIN_STATE_PATH = "models/retrain_state.json"
+    RETRAIN_MIN_NEW_LISTINGS = 500  # só re-treina com pelo menos este volume novo
+
+    def run_retrain_job(self) -> None:
+        """Re-treino semanal CONTROLADO do modelo de avaliação.
+
+        Só re-treina se houver >= RETRAIN_MIN_NEW_LISTINGS anúncios novos desde
+        o último treino (evita re-treinos vazios e oscilação do modelo).
+        Ordem: treino segmentado (LOW/FULL) -> treino HIGH -> ligação do routing
+        HIGH aos metadados -> re-avaliação -> métricas de observabilidade.
+        """
+        import json
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        logger.info("=" * 60)
+        logger.info("Re-treino periódico controlado — verificação")
+        logger.info("=" * 60)
+
+        try:
+            from database.db import get_db_context
+            from database.models import Vehicle
+
+            state_path = Path(self.RETRAIN_STATE_PATH)
+            state = {}
+            if state_path.exists():
+                try:
+                    state = json.loads(state_path.read_text(encoding="utf-8"))
+                except Exception:
+                    state = {}
+
+            with get_db_context() as db:
+                current_n = db.query(Vehicle).filter(Vehicle.is_active == True).count()  # noqa: E712
+
+            last_n = int(state.get("n_listings_at_train", 0))
+            new_since = current_n - last_n
+            logger.info("Anúncios ativos: %d | no último treino: %d | novos: %d",
+                        current_n, last_n, new_since)
+
+            if last_n > 0 and new_since < self.RETRAIN_MIN_NEW_LISTINGS:
+                logger.info("Re-treino adiado: apenas %d novos (< %d mínimo)",
+                            new_since, self.RETRAIN_MIN_NEW_LISTINGS)
+                return
+
+            py = sys.executable
+            for script in ("scripts/train_segmented.py", "scripts/train_high.py"):
+                logger.info("A correr %s ...", script)
+                proc = subprocess.run([py, "-u", script], capture_output=True, text=True)
+                if proc.returncode != 0:
+                    logger.error("Falha em %s:\n%s", script, proc.stderr[-2000:])
+                    return
+                logger.info("%s OK", script)
+
+            # Ligar modelo HIGH aos metadados de produção
+            mdir = Path(settings.models_dir)
+            meta = json.loads((mdir / "best_model_carros.json").read_text(encoding="utf-8"))
+            high_meta = json.loads((mdir / "model_carros_high.meta.json").read_text(encoding="utf-8"))
+            meta.update({
+                "high_model_path": "model_carros_high.json",
+                "high_threshold": high_meta["high_threshold"],
+                "high_log_target": high_meta["high_log_target"],
+                "high_cat_features": high_meta["high_cat_features"],
+                "high_metrics_true_ge_20k": high_meta["metrics_true_ge_20k_after"],
+            })
+            (mdir / "best_model_carros.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+            # Re-avaliação incremental (só quem não tem a versão atual)
+            total = 0
+            while True:
+                n = update_vehicle_valuations(batch_size=300)
+                total += n
+                if n == 0:
+                    break
+            logger.info("Re-avaliados %d anúncios", total)
+
+            # Métricas de observabilidade
+            subprocess.run([py, "-u", "scripts/valuation_metrics.py"],
+                           capture_output=True, text=True)
+
+            state_path.write_text(json.dumps({
+                "n_listings_at_train": current_n,
+                "trained_at": datetime.now().isoformat(),
+                "r2": meta.get("metrics", {}).get("r2"),
+                "mape_pct": meta.get("metrics", {}).get("mape_pct"),
+            }, indent=2), encoding="utf-8")
+            logger.info("Re-treino controlado concluído (R²=%s)",
+                        meta.get("metrics", {}).get("r2"))
+
+        except Exception as e:
+            logger.error(f"Error in retrain job: {e}")
     
     def send_notifications(self, deals: list[dict[str, object]]) -> None:
         """Send notifications via configured channels"""
@@ -384,7 +485,16 @@ class DailyJob:
             name='Watchlist Match Checker',
             replace_existing=True
         )
-        
+
+        # Re-treino semanal controlado (domingo de madrugada, minuto fora da hora cheia)
+        self.scheduler.add_job(
+            self.run_retrain_job,
+            trigger=CronTrigger(day_of_week='sun', hour=4, minute=17),
+            id='weekly_retrain',
+            name='Weekly Controlled Model Retrain',
+            replace_existing=True
+        )
+
         self.scheduler.start()
         logger.info("Scheduler started successfully")
     

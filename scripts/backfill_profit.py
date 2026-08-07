@@ -54,7 +54,7 @@ SELO_RATE = 0.005        # Imposto de Selo
 COMMISSION_RATE = 0.07   # comissão de venda (stand/portal) sobre revenda
 FIXED_EXPENSES = 250.0  # despesas fixas (transporte, registo, publicidade)
 
-AUCTION_SOURCES = {"LEILOSOC", "VPAUTO", "MANHEIM", "AUTOROLA", "BCA"}
+AUCTION_SOURCES = {"LEILOSOC", "VPAUTO", "MANHEIM", "AUTOROLA", "BCA", "AUTOLINE", "MARTELO", "PENHORADO"}
 
 REPAIR_BY_CONDITION = [
     (8.0, 0), (6.0, 500), (4.0, 1500), (2.0, 3000), (0.0, 5000),
@@ -137,7 +137,8 @@ def get_resale_valuator():
 def fetch_targets(conn: sqlite3.Connection, limit: Optional[int]) -> list:
     cur = conn.cursor()
     q = """
-        SELECT id, price, estimated_value, source, condition_score, km, year
+        SELECT id, price, estimated_value, source, condition_score, km, year,
+               brand, model, fuel_type
         FROM vehicles
         WHERE is_active = 1 AND price > 0 AND buyer_profit IS NULL
     """
@@ -163,7 +164,7 @@ def run(limit: Optional[int], dry_run: bool, verbose: bool = True) -> dict:
     processed = 0
     cur = conn.cursor()
 
-    for vid, price, est, source, cond, km, year in targets:
+    for vid, price, est, source, cond, km, year, brand, model, fuel in targets:
         # Preço de revenda: usa estimated_value se presente (já do HybridValuator),
         # senão recalcula. estimated_value não inclui CUSTOS, só valor de mercado.
         if est:
@@ -171,7 +172,8 @@ def run(limit: Optional[int], dry_run: bool, verbose: bool = True) -> dict:
         else:
             resale = valuator.estimate_value({
                 "price": price, "source": source, "condition_score": cond,
-                "km": km, "year": year,
+                "km": km, "year": year, "brand": brand, "model": model,
+                "fuel_type": fuel,
             }) or price
 
         res = compute_net_profit(price, resale, source, cond, km, year)

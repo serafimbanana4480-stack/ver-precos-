@@ -17,7 +17,7 @@ import aiohttp
 from config import settings
 from database.models import AuctionTransaction, Source, VehicleType, FuelType, Transmission
 from database.db import get_db_context
-
+from scrapers.schema import parse_price_evidence
 logger = logging.getLogger(__name__)
 
 
@@ -230,13 +230,21 @@ class AuctionScraper:
                         continue
 
                     price_text = price_elem.get_text(strip=True) if price_elem else ""
-                    adjudication_price = self._parse_price(price_text)
-
-                    if not adjudication_price:
-                        starting_price = self._parse_price(price_text.replace("mínimo", "").replace("partida", "").replace("valor", ""))
-                        if starting_price:
-                            adjudication_price = starting_price
-                            starting_price = None
+                    evidence = parse_price_evidence(
+                        price_text,
+                        context=card.get_text(" ", strip=True),
+                    )
+                    adjudication_price = (
+                        evidence.value
+                        if evidence.kind.value == "auction_adjudicated"
+                        else None
+                    )
+                    starting_price = (
+                        evidence.value
+                        if evidence.value is not None
+                        and evidence.kind.value != "auction_adjudicated"
+                        else None
+                    )
 
                     link = card.select_one("a")
                     url = ""
@@ -435,18 +443,11 @@ class AuctionScraper:
         return result
 
     def _parse_price(self, text: str) -> Optional[float]:
-        """Parse price from text like '12.500 €' or '€12.500'"""
-        if not text:
+        """Parse a total EUR auction amount with locale-aware separators."""
+        evidence = parse_price_evidence(text)
+        if evidence.kind.value != "total" or evidence.currency != "EUR":
             return None
-        text = text.replace("€", "").replace("EUR", "").replace("&euro;", "").strip()
-        match = re.search(r"[\d.,]+", text.replace(" ", ""))
-        if match:
-            price_str = match.group().replace(".", "").replace(",", ".")
-            try:
-                return float(price_str)
-            except ValueError:
-                return None
-        return None
+        return evidence.value
 
     def _parse_int(self, text: str) -> Optional[int]:
         """Parse integer from text like '45.000 km'"""
@@ -487,16 +488,14 @@ class AuctionScraper:
                     vehicle_type=item["vehicle_type"],
                     brand=item.get("brand", ""),
                     model=item.get("model", ""),
-                    year=item.get("year", 2020),
-                    km=item.get("km"),
-                    fuel_type=item.get("fuel_type"),
+                    adjudication_price=price,
+                    starting_price=item.get("starting_price"),
+                    current_bid=item.get("current_bid"),
                     transmission=item.get("transmission"),
                     horsepower=item.get("horsepower"),
                     engine_size=item.get("engine_size"),
                     location=item.get("location", ""),
                     auction_type=item.get("auction_type"),
-                    adjudication_price=price,
-                    starting_price=item.get("starting_price"),
                     title=item.get("title", ""),
                     description=item.get("description", ""),
                     images=item.get("images"),

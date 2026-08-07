@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from scrapers.base import PlaywrightScraper
+from scrapers.schema import parse_price_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -127,11 +128,10 @@ class AutoScout24Scraper(PlaywrightScraper):
             return None
 
     def _parse_price(self, text: str) -> float:
-        text = re.sub(r"[^\d,]", "", text).replace(",", ".")
-        try:
-            return float(text) if text else 0.0
-        except ValueError:
-            return 0.0
+        evidence = parse_price_evidence(text)
+        if evidence.kind.value == "total" and evidence.currency == "EUR":
+            return evidence.value or 0.0
+        return 0.0
 
     def _parse_int(self, text: str) -> Optional[int]:
         nums = re.findall(r"[\d\s]+", text)

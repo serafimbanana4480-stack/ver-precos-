@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import random
 import re
 from typing import Any, Dict, List, Optional
@@ -20,7 +21,7 @@ from datetime import datetime, timezone
 from urllib.parse import urljoin, urlencode, quote
 
 import httpx
-
+from scrapers.schema import parse_price_evidence
 logger = logging.getLogger(__name__)
 
 FACEBOOK_BASE = "https://www.facebook.com"
@@ -48,6 +49,9 @@ class FacebookMarketplaceScraper:
         self.base_url = FACEBOOK_BASE
         self.marketplace_url = MARKETPLACE_URL
         self.olx_fallback_url = "https://www.olx.pt"
+        self.allow_cross_source_fallback = os.getenv(
+            "FACEBOOK_ALLOW_OLX_FALLBACK", "0"
+        ).lower() in {"1", "true", "yes"}
 
     async def scrape_listings(
         self,
@@ -83,12 +87,16 @@ class FacebookMarketplaceScraper:
             logger.info(f"[FACEBOOK] Strategy 2 (API) returned {len(listings)} listings")
             return listings
 
-        # Strategy 3: Fallback to OLX.pt (Facebook Marketplace PT has scarce listings)
-        logger.info("[FACEBOOK] Facebook blocked, falling back to OLX.pt")
-        listings = await self._fallback_olx(vehicle_type, max_listings, filters)
-        if listings:
-            logger.info(f"[FACEBOOK] Fallback OLX returned {len(listings)} listings")
-            return listings
+        # A cross-source fallback must never be presented as Facebook data.
+        # It is opt-in for explicit comparison jobs only.
+        if self.allow_cross_source_fallback:
+            logger.info("[FACEBOOK] Facebook blocked, falling back to OLX.pt")
+            listings = await self._fallback_olx(vehicle_type, max_listings, filters)
+            if listings:
+                logger.info(f"[FACEBOOK] Fallback OLX returned {len(listings)} listings")
+                return listings
+        else:
+            logger.warning("[FACEBOOK] Blocked/auth required; OLX fallback disabled")
 
         # Strategy 4: Last resort - try Playwright for Facebook
         listings = await self._try_facebook_playwright(vehicle_type, max_listings, filters)
@@ -211,7 +219,7 @@ class FacebookMarketplaceScraper:
             logger.info("[FACEBOOK_OLX] Using project OLXScraper as fallback")
             olx = OLXScraper()
             olx_listings = await olx.scrape_listings(
-                vehicle_type=vehicle_type,
+                vtype=vehicle_type,
                 max_listings=max_listings,
                 filters=filters,
                 scrape_details=False,
@@ -1000,20 +1008,11 @@ class FacebookMarketplaceScraper:
         }
 
     def _parse_price(self, value: Any) -> Optional[float]:
-        """Parse price from various formats."""
-        if value is None:
+        """Parse only a total EUR price with locale-aware separators."""
+        evidence = parse_price_evidence(value)
+        if evidence.kind.value != "total" or evidence.currency != "EUR":
             return None
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            # Remove currency symbols and clean
-            value = re.sub(r"[€$£EUR\s]", "", value, flags=re.IGNORECASE).strip()
-            value = value.replace(".", "").replace(",", ".")
-            try:
-                return float(value)
-            except ValueError:
-                return None
-        return None
+        return evidence.value
 
     def _parse_year(self, value: Any) -> Optional[int]:
         """Parse year from various formats."""

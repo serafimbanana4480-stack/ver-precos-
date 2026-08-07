@@ -67,26 +67,38 @@ def _run(cmd: list[str]) -> tuple[int, str]:
         return 1, str(e)
 
 
-def job_scrape() -> None:
+def job_scrape() -> dict:
     """Scrape de todas as fontes configuradas + gravaçào de falhas."""
     logger.info("=== JOB: scrape diário ===")
     failed: list[str] = []
+    summary: dict = {}
     try:
-        # parallel_runner cobre Carplus/AutoUncle/PiscaPisca (otimizado)
-        rc, out = _run([_python(), "-m", "scrapers.parallel_runner"])
-        if rc != 0:
-            failed.append("parallel_runner")
-        # scrapers complementares do daily_job (OLX/Standvirtual/AutoSapo)
-        for mod, name in [
-            ("scrapers.olx_scraper", "OLX"),
-            ("scrapers.standvirtual_scraper", "STANDVIRTUAL"),
-            ("scrapers.autosapo_scraper", "AUTOSAPO"),
+        # Chamada direta devolve métricas por fonte e evita declarar sucesso
+        # só porque o subprocesso terminou com código 0.
+        from scrapers.parallel_runner import run_all_scrapers
+        summary["lightweight"] = run_all_scrapers(
+            max_per_scraper=200,
+            save_to_db=True,
+            max_workers=4,
+            vehicle_type="carros",
+        )
+        failed.extend(summary["lightweight"].get("failed_sources", []))
+
+        # Fontes Playwright complementares; cada retorno vazio/bloqueio é falha
+        # explícita. Não há tentativa de contornar CAPTCHA/WAF/login.
+        for mod, cls, name in [
+            ("scrapers.olx_scraper", "OlxScraper", "OLX_PLAYWRIGHT"),
+            ("scrapers.standvirtual_scraper", "StandvirtualScraper", "STANDVIRTUAL"),
+            ("scrapers.autosapo_scraper", "AutoSapoScraper", "AUTOSAPO"),
         ]:
-            try:
-                _run([_python(), "-c",
-                      f"import asyncio,sys; from {mod} import *; "
-                      f"sys.exit(0 if asyncio.run({name.lower()+'_scraper' if False else 'OLXScraper'}().scrape_listings('carros', max_listings=50)) else 1)"])
-            except Exception:  # noqa: BLE001
+            code = (
+                f"import asyncio,sys; from {mod} import {cls}; "
+                f"rows=asyncio.run({cls}().scrape_listings('carros', max_listings=50)); "
+                "sys.exit(0 if rows else 1)"
+            )
+            rc, output = _run([_python(), "-c", code])
+            summary[name] = {"returncode": rc, "output_tail": output[-1000:]}
+            if rc != 0:
                 failed.append(name)
     except Exception as e:  # noqa: BLE001
         logger.error("Scrape falhou globalmente: %s", e)
@@ -98,6 +110,9 @@ def job_scrape() -> None:
         _alert("Scrapers falhados: " + ", ".join(failed))
     else:
         logger.info("Scrape concluído sem falhas registadas.")
+    summary["failed_scrapers"] = failed
+    summary["success"] = not failed
+    return summary
 
 
 def job_retrain() -> None:

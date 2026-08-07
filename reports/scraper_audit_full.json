@@ -1,0 +1,991 @@
+{
+  "started_at": "2026-08-01T23:48:42.765479+00:00",
+  "finished_at": "2026-08-01T23:51:53.747247+00:00",
+  "vehicle_type": "carros",
+  "max_listings": 2,
+  "scraper_count": 35,
+  "status_counts": {
+    "ok": 12,
+    "empty": 17,
+    "timeout": 5,
+    "blocked_credentials": 1
+  },
+  "overall_success": false,
+  "scrapers": [
+    {
+      "name": "OLX:lightweight",
+      "source": "OLX",
+      "website": "https://www.olx.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:48:42.765790+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_provenance_missing": 2
+      },
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 2,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Porsche Panamera 3.0 Diesel 250 CV Ano 2012",
+          "price": 29999.0,
+          "url": "https://www.olx.pt/d/anuncio/porsche-panamera-3-0-diesel-250-cv-ano-2012-IDJuPmi.html",
+          "source": "OLX"
+        },
+        {
+          "title": "Peugeot 2008 1.2 PureTech Style EAT6",
+          "price": 10990.0,
+          "url": "https://www.olx.pt/d/anuncio/peugeot-2008-1-2-puretech-style-eat6-IDJtujE.html",
+          "source": "OLX"
+        }
+      ],
+      "duration_seconds": 0.861,
+      "finished_at": "2026-08-01T23:48:43.626337+00:00"
+    },
+    {
+      "name": "OLX:generic-lightweight",
+      "source": "OLX",
+      "website": "https://www.olx.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:48:43.626386+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 1.051,
+      "finished_at": "2026-08-01T23:48:44.677512+00:00"
+    },
+    {
+      "name": "OLX:playwright",
+      "source": "OLX",
+      "website": "https://www.olx.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:48:43.925416+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 108.414,
+      "finished_at": "2026-08-01T23:50:32.339380+00:00"
+    },
+    {
+      "name": "Standvirtual:playwright",
+      "source": "STANDVIRTUAL",
+      "website": "https://www.standvirtual.com",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:48:44.149636+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 7.296,
+      "finished_at": "2026-08-01T23:48:51.445933+00:00"
+    },
+    {
+      "name": "AutoSapo:playwright",
+      "source": "AUTOSAPO",
+      "website": "https://www.autosapo.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:48:44.677638+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_provenance_missing": 2
+      },
+      "field_missing": {
+        "transmission": 2
+      },
+      "price": {
+        "valid_total_eur": 2,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "MINI Countryman102cv - 5P",
+          "price": 27950.0,
+          "url": "https://www.autosapo.pt/carro-usado/69e8d6346966aa627b682182/mini-countryman",
+          "source": "AUTOSAPO"
+        },
+        {
+          "title": "MINI Clubman150cv - 6P",
+          "price": 31950.0,
+          "url": "https://www.autosapo.pt/carro-usado/69d4beaaaf3a95e46c325385/mini-clubman",
+          "source": "AUTOSAPO"
+        }
+      ],
+      "duration_seconds": 5.558,
+      "finished_at": "2026-08-01T23:48:50.235868+00:00"
+    },
+    {
+      "name": "CustoJusto:playwright",
+      "source": "CUSTOJUSTO",
+      "website": "https://www.custojusto.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:48:50.235936+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_provenance_missing": 2
+      },
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 2,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Renault Clio 1.2 Dynamic - 07",
+          "price": 2400,
+          "url": "https://www.custojusto.pt/porto/veiculos/carros-usados/citadino/renault-clio-1-2-dynamic-45176785",
+          "source": "CUSTOJUSTO"
+        },
+        {
+          "title": "Chevrolet Trax 1.7 VCDi LT - 13",
+          "price": 7600,
+          "url": "https://www.custojusto.pt/braga/veiculos/carros-usados/suv-tt/chevrolet-trax-1-7-vcdi-lt-45007081",
+          "source": "CUSTOJUSTO"
+        }
+      ],
+      "duration_seconds": 23.606,
+      "finished_at": "2026-08-01T23:49:13.842371+00:00"
+    },
+    {
+      "name": "PiscaPisca:lightweight",
+      "source": "PISCAPISCA",
+      "website": "https://www.piscapisca.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:48:51.445995+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 16.611,
+      "finished_at": "2026-08-01T23:49:08.056516+00:00"
+    },
+    {
+      "name": "PiscaPisca:playwright",
+      "source": "PISCAPISCA",
+      "website": "https://www.piscapisca.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:49:08.056598+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 13.132,
+      "finished_at": "2026-08-01T23:49:21.188133+00:00"
+    },
+    {
+      "name": "Carplus:lightweight",
+      "source": "CARPLUS",
+      "website": "https://www.carplus.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:49:13.842421+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_provenance_missing": 2
+      },
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 2,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Mercedes-Benz Classe CLA 200d DCT Urban",
+          "price": 22500.0,
+          "url": "https://www.carplus.pt/veiculo/mercedes-benz-classe-cla-200d-dct-urban-wdd1173081n399278/",
+          "source": "CARPLUS"
+        },
+        {
+          "title": "Volkswagen Tiguan 1.6 TDI 115cv Trendline",
+          "price": 19500.0,
+          "url": "https://www.carplus.pt/veiculo/volkswagen-tiguan-16-tdi-115cv-trendline-wvgzzz5nzhw837810/",
+          "source": "CARPLUS"
+        }
+      ],
+      "duration_seconds": 1.396,
+      "finished_at": "2026-08-01T23:49:15.238126+00:00"
+    },
+    {
+      "name": "Carplus:playwright",
+      "source": "CARPLUS",
+      "website": "https://www.carplus.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:49:15.238220+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 2.661,
+      "finished_at": "2026-08-01T23:49:17.899692+00:00"
+    },
+    {
+      "name": "AutoPT:lightweight",
+      "source": "AUTOPT",
+      "website": "https://www.auto.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:49:17.899815+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_provenance_missing": 2
+      },
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 2,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Renault Clio 8 990 €",
+          "price": 8990.0,
+          "url": "https://www.auto.pt/carros-usados/renault-clio-0-9-tce-limited-edition-id-D7XhpbHz",
+          "source": "AUTOPT"
+        },
+        {
+          "title": "Renault Captur 17 990 €",
+          "price": 17990.0,
+          "url": "https://www.auto.pt/carros-usados/renault-captur-1-0-tce-rs-line-id-yYuL0tcr",
+          "source": "AUTOPT"
+        }
+      ],
+      "duration_seconds": 0.643,
+      "finished_at": "2026-08-01T23:49:18.543172+00:00"
+    },
+    {
+      "name": "AutoPT:playwright",
+      "source": "AUTOPT",
+      "website": "https://www.auto.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:49:18.543253+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 62.892,
+      "finished_at": "2026-08-01T23:50:21.435396+00:00"
+    },
+    {
+      "name": "AutoScout24:lightweight",
+      "source": "AUTOSCOUT24",
+      "website": "https://www.autoscout24.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:49:21.188233+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 60.24,
+      "finished_at": "2026-08-01T23:50:21.428450+00:00"
+    },
+    {
+      "name": "AutoScout24:playwright",
+      "source": "AUTOSCOUT24",
+      "website": "https://www.autoscout24.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:50:21.428889+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 45.053,
+      "finished_at": "2026-08-01T23:51:06.481564+00:00"
+    },
+    {
+      "name": "AutoUncle:lightweight",
+      "source": "AUTOUNCLE",
+      "website": "https://www.autouncle.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:50:21.435524+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_provenance_missing": 2
+      },
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 2,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Usado (2019) Opel Crossland X Elegance 110 HP | Super Preço",
+          "price": 13700.0,
+          "url": "https://www.autouncle.pt/pt/d/6580851-usado-2019-opel-crossland-x-elegance-110-cv",
+          "source": "AUTOUNCLE"
+        },
+        {
+          "title": "Usado (2025) Opel Mokka Edition 136 HP | Bom preço",
+          "price": 19588.0,
+          "url": "https://www.autouncle.pt/pt/d/6520636-usado-2025-opel-mokka-edition-136-cv",
+          "source": "AUTOUNCLE"
+        }
+      ],
+      "duration_seconds": 0.704,
+      "finished_at": "2026-08-01T23:50:22.139251+00:00"
+    },
+    {
+      "name": "Leilosoc:lightweight",
+      "source": "LEILOSOC",
+      "website": "https://www.leilosoc.com",
+      "category": "auction",
+      "started_at": "2026-08-01T23:50:22.139447+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_non_total": 2,
+        "price_provenance_missing": 2
+      },
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 2,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Peugeot 2008 · Ano 2013",
+          "price": 2300.0,
+          "url": "https://leilosoc.com/pt-PT/lot/42897/169773",
+          "source": "LEILOSOC"
+        },
+        {
+          "title": "BMW 216 D  · Ano 2017",
+          "price": 6500.0,
+          "url": "https://leilosoc.com/pt-PT/lot/42980/169805",
+          "source": "LEILOSOC"
+        }
+      ],
+      "duration_seconds": 0.239,
+      "finished_at": "2026-08-01T23:50:22.378416+00:00"
+    },
+    {
+      "name": "MCoutinho:lightweight",
+      "source": "MCOUTINHO",
+      "website": "https://usados.mcoutinho.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:50:22.378635+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_provenance_missing": 2
+      },
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 2,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Mercedes-Benz Classe E (214) 53e Hybrid 4MATIC Station AMG Premium Plus",
+          "price": 102500.0,
+          "url": "https://usados.mcoutinho.pt/carros/usados/mercedes-benz-classe-e-214-7865",
+          "source": "MCOUTINHO"
+        },
+        {
+          "title": "Land Rover Defender X-Dynamic SE P300e",
+          "price": 107000.0,
+          "url": "https://usados.mcoutinho.pt/carros/usados/land-rover-defender-10891",
+          "source": "MCOUTINHO"
+        }
+      ],
+      "duration_seconds": 0.539,
+      "finished_at": "2026-08-01T23:50:22.917471+00:00"
+    },
+    {
+      "name": "AutoHub:lightweight",
+      "source": "AUTOHUB",
+      "website": "https://www.autohub.pt",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:50:22.917621+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_provenance_missing": 2
+      },
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 2,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Fiat 500 Silver",
+          "price": 10950.0,
+          "url": "https://www.autohub.pt/listings/fiat-500/",
+          "source": "AUTOHUB"
+        },
+        {
+          "title": "Skoda Fabia 1.0 TSI Silver",
+          "price": 12790.0,
+          "url": "https://www.autohub.pt/listings/skoda-fabia-1-0-tsi/",
+          "source": "AUTOHUB"
+        }
+      ],
+      "duration_seconds": 4.673,
+      "finished_at": "2026-08-01T23:50:27.590982+00:00"
+    },
+    {
+      "name": "Martelo:lightweight",
+      "source": "MARTELO",
+      "website": "https://martelo.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:50:27.591345+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_non_total": 2,
+        "price_provenance_missing": 2
+      },
+      "field_missing": {
+        "year": 1,
+        "km": 2,
+        "fuel_type": 2,
+        "transmission": 2
+      },
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 2,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "Veículo Equip. Panificação + Viatura V. Mínimo 14.683 € V. Abertura - LEIL_CAPITAL_13413_144658",
+          "price": 14683.0,
+          "url": "https://martelo.pt/leilao/LEIL_CAPITAL_13413_144658.html",
+          "source": ""
+        },
+        {
+          "title": "Veículo FORD TRANSIT COURIER - 2014 V. Mínimo 2.500 € V. Abertura 1.470 € ⏱️ Termina em 1d 10h 39m LEIL_EXCLUSIVAGORA_13",
+          "price": 2500.0,
+          "url": "https://martelo.pt/leilao/LEIL_EXCLUSIVAGORA_1322.html",
+          "source": ""
+        }
+      ],
+      "duration_seconds": 1.083,
+      "finished_at": "2026-08-01T23:50:28.674313+00:00"
+    },
+    {
+      "name": "Autoline:lightweight",
+      "source": "AUTOLINE",
+      "website": "https://www.autoline.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:50:28.674606+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_non_total": 2,
+        "price_provenance_missing": 2
+      },
+      "field_missing": {
+        "year": 2,
+        "km": 2,
+        "fuel_type": 2,
+        "transmission": 2
+      },
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 2,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "BMW 4-serien 28 BMW 4-serien 18 120 € 200 500 SEK Liftback 2020 43 370 km Potência 190 cv (140 kW)",
+          "price": 18120.0,
+          "url": "https://autoline.pt/-/leilao/carros/BMW/4-serien--26080115280409546400",
+          "source": ""
+        },
+        {
+          "title": "BMW 2-serien 33 BMW 2-serien 15 360 € 169 900 SEK Crossover 2020 138 650 km Potência 88 cv (64.68 kW)",
+          "price": 15360.0,
+          "url": "https://autoline.pt/-/leilao/carros/BMW/2-serien--26080115252158517200",
+          "source": ""
+        }
+      ],
+      "duration_seconds": 2.185,
+      "finished_at": "2026-08-01T23:50:30.859601+00:00"
+    },
+    {
+      "name": "Penhorado:lightweight",
+      "source": "PENHORADO",
+      "website": "https://penhorado.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:50:30.859899+00:00",
+      "status": "ok",
+      "errors": [],
+      "count": 2,
+      "issues": {
+        "price_non_total": 2,
+        "price_provenance_missing": 2
+      },
+      "field_missing": {
+        "year": 2,
+        "km": 2,
+        "fuel_type": 2,
+        "transmission": 2
+      },
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 2,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 2,
+        "samples": []
+      },
+      "samples": [
+        {
+          "title": "VW Sharan",
+          "price": 350.0,
+          "url": "https://penhorado.pt/vw-sharan-penhorada-em-leilao-por-350e/",
+          "source": ""
+        },
+        {
+          "title": "BMW Série 1",
+          "price": 1750.0,
+          "url": "https://penhorado.pt/bmw-serie-1-penhorado-por-1750-euros/",
+          "source": ""
+        }
+      ],
+      "duration_seconds": 1.396,
+      "finished_at": "2026-08-01T23:50:32.255550+00:00"
+    },
+    {
+      "name": "Imovirtual:requests",
+      "source": "IMOVIRTUAL",
+      "website": "https://www.imovirtual.com",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:50:32.255944+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.644,
+      "finished_at": "2026-08-01T23:50:32.900176+00:00"
+    },
+    {
+      "name": "FacebookMarketplace:direct",
+      "source": "FACEBOOK",
+      "website": "https://www.facebook.com/marketplace",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:50:32.339421+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 11.989,
+      "finished_at": "2026-08-01T23:50:44.328022+00:00"
+    },
+    {
+      "name": "Facebook:legacy",
+      "source": "FACEBOOK",
+      "website": "https://www.facebook.com/marketplace",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:50:32.900366+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 1.668,
+      "finished_at": "2026-08-01T23:50:34.568103+00:00"
+    },
+    {
+      "name": "eBayMotors:api",
+      "source": "EBAY_MOTORS",
+      "website": "https://api.ebay.com",
+      "category": "marketplace",
+      "started_at": "2026-08-01T23:50:34.568823+00:00",
+      "status": "blocked_credentials",
+      "errors": [
+        "RuntimeError: credential_missing: EBAY_API_KEY"
+      ],
+      "duration_seconds": 0.0,
+      "finished_at": "2026-08-01T23:50:34.568937+00:00"
+    },
+    {
+      "name": "Auction:VPAUTO:legacy",
+      "source": "VPAUTO",
+      "website": "https://www.vpauto.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:50:34.569054+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 11.445,
+      "finished_at": "2026-08-01T23:50:46.013948+00:00"
+    },
+    {
+      "name": "Auction:Leilosoc:legacy",
+      "source": "LEILOSOC",
+      "website": "https://www.leilosoc.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:50:44.328061+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 14.885,
+      "finished_at": "2026-08-01T23:50:59.212839+00:00"
+    },
+    {
+      "name": "AuctionMulti:Manheim",
+      "source": "MANHEIM",
+      "website": "https://www.manheim.com",
+      "category": "auction",
+      "started_at": "2026-08-01T23:50:46.014364+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 12.515,
+      "finished_at": "2026-08-01T23:50:58.529158+00:00"
+    },
+    {
+      "name": "AuctionMulti:Autorola",
+      "source": "AUTOROLA",
+      "website": "https://www.autorola.com",
+      "category": "auction",
+      "started_at": "2026-08-01T23:50:58.529262+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 10.006,
+      "finished_at": "2026-08-01T23:51:08.535331+00:00"
+    },
+    {
+      "name": "AuctionMulti:BCA",
+      "source": "BCA",
+      "website": "https://www.bca.co.uk",
+      "category": "auction",
+      "started_at": "2026-08-01T23:50:59.212882+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 37.176,
+      "finished_at": "2026-08-01T23:51:36.389088+00:00"
+    },
+    {
+      "name": "GroundTruth:VPAuto",
+      "source": "VPAUTO",
+      "website": "https://www.vpauto.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:51:06.481603+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 45.11,
+      "finished_at": "2026-08-01T23:51:51.591900+00:00"
+    },
+    {
+      "name": "GroundTruth:Leilosoc",
+      "source": "LEILOSOC",
+      "website": "https://www.leilosoc.com",
+      "category": "auction",
+      "started_at": "2026-08-01T23:51:08.535404+00:00",
+      "status": "timeout",
+      "errors": [
+        "TimeoutError: "
+      ],
+      "duration_seconds": 45.212,
+      "finished_at": "2026-08-01T23:51:53.747075+00:00"
+    },
+    {
+      "name": "GroundTruth:BCA",
+      "source": "BCA",
+      "website": "https://www.bcamarketplace.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:51:36.389173+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.0,
+      "finished_at": "2026-08-01T23:51:36.389474+00:00"
+    },
+    {
+      "name": "GroundTruth:Manheim",
+      "source": "MANHEIM",
+      "website": "https://www.manheim.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:51:36.389517+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.0,
+      "finished_at": "2026-08-01T23:51:36.389667+00:00"
+    },
+    {
+      "name": "GroundTruth:Autorola",
+      "source": "AUTOROLA",
+      "website": "https://www.autorola.pt",
+      "category": "auction",
+      "started_at": "2026-08-01T23:51:36.389696+00:00",
+      "status": "empty",
+      "errors": [],
+      "count": 0,
+      "issues": {},
+      "field_missing": {},
+      "price": {
+        "valid_total_eur": 0,
+        "missing": 0,
+        "non_total": 0,
+        "mismatch": 0,
+        "suspicious_range": 0,
+        "provenance_missing": 0,
+        "samples": []
+      },
+      "samples": [],
+      "duration_seconds": 0.0,
+      "finished_at": "2026-08-01T23:51:36.389813+00:00"
+    }
+  ]
+}

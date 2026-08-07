@@ -1,0 +1,60 @@
+{
+  "started_at": "2026-08-06T21:26:33.651310+00:00",
+  "valuation_version": "v2.3",
+  "before": {
+    "tag": "before",
+    "at": "2026-08-06T21:26:33.752088+00:00",
+    "active_total": 5755,
+    "estimated_500_exact": 1,
+    "estimated_10000_exact": 39,
+    "without_estimate": 3613,
+    "with_estimate": 2142,
+    "publishable": 33,
+    "estimated_median": 18500.0,
+    "estimated_p10": 10000.0,
+    "estimated_p90": 33000.0,
+    "deal_score_mean": 5.01,
+    "deal_score_lt3": 49,
+    "deal_score_3_7": 2045,
+    "deal_score_gte7": 41,
+    "quality_counts": {
+      "invalid": 11,
+      "quarantined": 1593,
+      "valid": 4147,
+      "valid_with_warning": 4
+    }
+  },
+  "revalue": {
+    "valued": 2142,
+    "insufficient": 2090,
+    "excluded": 9,
+    "excellent": 23,
+    "good": 83,
+    "needs_review": 431,
+    "errors": 0
+  },
+  "after": {
+    "tag": "after",
+    "at": "2026-08-06T21:26:41.728626+00:00",
+    "active_total": 5755,
+    "estimated_500_exact": 1,
+    "estimated_10000_exact": 39,
+    "without_estimate": 3613,
+    "with_estimate": 2142,
+    "publishable": 33,
+    "estimated_median": 18500.0,
+    "estimated_p10": 10000.0,
+    "estimated_p90": 33000.0,
+    "deal_score_mean": 5.01,
+    "deal_score_lt3": 49,
+    "deal_score_3_7": 2045,
+    "deal_score_gte7": 41,
+    "quality_counts": {
+      "invalid": 11,
+      "quarantined": 1593,
+      "valid": 4147,
+      "valid_with_warning": 4
+    }
+  },
+  "finished_at": "2026-08-06T21:26:41.748191+00:00"
+}

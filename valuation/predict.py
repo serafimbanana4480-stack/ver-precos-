@@ -1,12 +1,21 @@
 """
 Unified vehicle valuation prediction module.
 Uses FeatureStore for consistent feature computation with dynamic brand index.
+
+v2 (2026-08-01): carregamento defensivo do modelo.
+* Se o artefacto estiver em falta ou for incompatível, ``model`` fica None e
+  ``load_error`` explica a causa — nunca um regressor vazio que rebenta com
+  ``Check failed: num_feature != 0`` em cada previsão.
+* Validação de contagem de features antes de prever.
+* ``update_vehicle_valuations`` escreve o resultado estruturado em
+  ``valuation_details`` e é seguro para anúncios sem estimativa (marca como
+  avaliados em vez de ciclar para sempre).
 """
 from __future__ import annotations
 import json
 import logging
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,6 +36,8 @@ class PricePredictor:
         self.scaler = None
         self.feature_names: List[str] = []
         self.metrics: Dict[str, float] = {}
+        self.low_metrics: Dict[str, float] = {}
+        self.high_metrics: Dict[str, float] = {}
         self.fs = FeatureStore()
         # Segmented (low-end) model for two-stage routing
         self.low_model = None
@@ -39,65 +50,145 @@ class PricePredictor:
         self.high_log_target: bool = False
         self.high_cat_features: List[int] = []
         self.full_log_target: bool = False
+        # Estado de carregamento (v2)
+        self.model_loaded_ok: bool = False
+        self.load_error: Optional[str] = None
         self._load_model()
+
+    def _fail(self, msg: str) -> None:
+        """Regista a falha e garante estado ML desativado e explícito."""
+        self.load_error = msg
+        self.model = None
+        self.model_loaded_ok = False
+        logger.error("Modelo %s indisponível: %s", self.vehicle_type, msg)
 
     def _load_model(self) -> None:
         model_dir = Path(settings.models_dir)
         metadata_path = model_dir / f"best_model_{self.vehicle_type}.json"
         if not metadata_path.exists():
-            logger.warning(f"No model metadata at {metadata_path}")
+            self._fail(f"metadados em falta: {metadata_path}")
             return
         try:
-            with open(metadata_path) as f:
+            with open(metadata_path, encoding="utf-8") as f:
                 meta = json.load(f)
-            self.model_name = meta.get("model_type", "xgboost")
-            self.metrics = meta.get("metrics", {})
-            self.feature_names = meta.get("feature_names", [])
-            self.low_threshold = meta.get("low_threshold")
-            self.high_threshold = meta.get("high_threshold")
-            self.high_log_target = meta.get("high_log_target", False)
-            self.high_cat_features = meta.get("high_cat_features", [])
-            self.full_log_target = meta.get("full_log_target", False)
+        except Exception as e:
+            self._fail(f"metadados ilegíveis ({type(e).__name__}: {e})")
+            return
 
+        self.model_name = meta.get("model_type", "xgboost")
+        self.metrics = meta.get("metrics", {})
+        # Métricas por segmento (intervalos band-aware no HybridValuator)
+        self.low_metrics = meta.get("low_metrics", {})
+        self.high_metrics = meta.get("high_metrics_true_ge_20k", {})
+        self.feature_names = meta.get("feature_names", [])
+        self.low_threshold = meta.get("low_threshold")
+        self.high_threshold = meta.get("high_threshold")
+        self.high_log_target = meta.get("high_log_target", False)
+        self.high_cat_features = meta.get("high_cat_features", [])
+        self.full_log_target = meta.get("full_log_target", False)
+
+        try:
             self.fs.load_index(model_dir / meta.get("brand_index_path", f"brand_index_{self.vehicle_type}.json"))
+        except Exception as e:
+            logger.warning("Brand index não carregado (%s); encoding dinâmico ficará vazio", e)
 
-            import_path = model_dir / meta["model_path"]
+        # --- modelo principal: ficheiro tem de existir e carregar sem erro ---
+        import_path = model_dir / meta.get("model_path", "")
+        if not import_path.exists():
+            self._fail(
+                f"artefacto em falta: {import_path.name} referenciado nos metadados "
+                f"mas não existe em {model_dir}. É preciso re-treinar "
+                f"(ex.: `python main.py train --force`)."
+            )
+            return
+        try:
             if self.model_name == "xgboost":
                 import xgboost as xgb
-                self.model = xgb.XGBRegressor()
-                self.model.load_model(str(import_path))
+                candidate = xgb.XGBRegressor()
+                candidate.load_model(str(import_path))
+                n_feat = int(candidate.get_booster().num_features())
+                if n_feat == 0:
+                    raise ValueError("booster carregado tem 0 features (artefacto vazio/corrompido)")
+                if self.feature_names and n_feat != len(self.feature_names):
+                    raise ValueError(
+                        f"modelo espera {n_feat} features mas os metadados declaram "
+                        f"{len(self.feature_names)} — pipeline treino/inferência desalinhado"
+                    )
+                self.model = candidate
             elif self.model_name == "lightgbm":
                 import lightgbm as lgb
                 self.model = lgb.Booster(model_file=str(import_path))
+                try:
+                    n_feat = int(self.model.num_feature())
+                except Exception:
+                    n_feat = int(self.model.dump_model().get("max_feature_idx", -1)) + 1
+                if n_feat > 0 and self.feature_names and n_feat != len(self.feature_names):
+                    raise ValueError(
+                        f"modelo espera {n_feat} features mas os metadados declaram "
+                        f"{len(self.feature_names)} — pipeline treino/inferência desalinhado"
+                    )
             elif self.model_name == "catboost":
                 from catboost import CatBoostRegressor
                 self.model = CatBoostRegressor()
                 self.model.load_model(str(import_path))
+            elif self.model_name in ("random_forest", "extra_trees", "huber") or str(import_path).endswith(".joblib"):
+                self.model = load(str(import_path))
+                n_in = getattr(self.model, "n_features_in_", None)
+                if n_in and self.feature_names and int(n_in) != len(self.feature_names):
+                    raise ValueError(
+                        f"modelo espera {n_in} features mas os metadados declaram "
+                        f"{len(self.feature_names)} — pipeline treino/inferência desalinhado"
+                    )
             else:
-                logger.error(f"Unknown model type: {self.model_name}")
+                self._fail(f"tipo de modelo desconhecido: {self.model_name}")
                 return
+        except Exception as e:
+            self._fail(
+                f"falha a carregar {import_path.name} ({type(e).__name__}: {e}). "
+                "Provável incompatibilidade de versão ou artefacto corrompido — "
+                "re-treinar o modelo."
+            )
+            return
 
-            scaler_path = model_dir / meta.get("scaler_path", f"scaler_{self.vehicle_type}.joblib")
-            if scaler_path.exists():
+        # --- scaler ---
+        scaler_path = model_dir / meta.get("scaler_path", f"scaler_{self.vehicle_type}.joblib")
+        if scaler_path.exists():
+            try:
                 self.scaler = load(str(scaler_path))
+                n_in = getattr(self.scaler, "n_features_in_", None)
+                if n_in and self.feature_names and int(n_in) != len(self.feature_names):
+                    logger.warning(
+                        "Scaler espera %s features, metadados declaram %d — scaler ignorado",
+                        n_in, len(self.feature_names),
+                    )
+                    self.scaler = None
+            except Exception as e:
+                logger.warning("Scaler não carregado (%s); previsões sem scaling", e)
+                self.scaler = None
 
-            # --- Load optional LOW-end model for two-stage routing ---
-            low_model_path = meta.get("low_model_path")
-            if low_model_path:
-                low_path = model_dir / low_model_path
-                if low_path.exists():
+        # --- modelo LOW opcional (não bloqueia o principal) ---
+        low_model_path = meta.get("low_model_path")
+        if low_model_path:
+            low_path = model_dir / low_model_path
+            if low_path.exists():
+                try:
                     import xgboost as xgb
                     self.low_model = xgb.XGBRegressor()
                     self.low_model.load_model(str(low_path))
                     low_scaler_path = model_dir / meta.get("low_scaler_path", f"scaler_{self.vehicle_type}_low.joblib")
                     if low_scaler_path.exists():
                         self.low_scaler = load(str(low_scaler_path))
+                except Exception as e:
+                    logger.warning("Modelo LOW não carregado (%s); routing low-end desativado", e)
+                    self.low_model = None
+                    self.low_scaler = None
 
-            # --- Load optional HIGH-end model (CatBoost) for three-way routing ---
-            high_model_path = meta.get("high_model_path")
-            if high_model_path:
-                high_path = model_dir / high_model_path
-                if high_path.exists():
+        # --- modelo HIGH opcional ---
+        high_model_path = meta.get("high_model_path")
+        if high_model_path:
+            high_path = model_dir / high_model_path
+            if high_path.exists():
+                try:
                     from catboost import CatBoostRegressor
                     self.high_model = CatBoostRegressor()
                     high_fmt = "json" if str(high_path).endswith(".json") else "cbm"
@@ -105,21 +196,35 @@ class PricePredictor:
                     high_scaler_path = model_dir / meta.get("high_scaler_path", f"scaler_{self.vehicle_type}_high.joblib")
                     if high_scaler_path.exists():
                         self.high_scaler = load(str(high_scaler_path))
+                except Exception as e:
+                    logger.warning("Modelo HIGH não carregado (%s); routing high-end desativado", e)
+                    self.high_model = None
 
-            logger.info(f"Loaded {self.model_name} for {self.vehicle_type} (R²={self.metrics.get('r2', 'N/A')})"
-                        f"{' + LOW model' if self.low_model else ''}"
-                        f"{' + HIGH model' if self.high_model else ''}")
-        except Exception as e:
-            logger.error(f"Failed to load model: {e}")
+        self.model_loaded_ok = True
+        logger.info(
+            "Loaded %s for %s (R²=%s)%s%s",
+            self.model_name, self.vehicle_type, self.metrics.get("r2", "N/A"),
+            " + LOW model" if self.low_model else "",
+            " + HIGH model" if self.high_model else "",
+        )
 
     def predict(self, vehicle_data: Dict[str, Any]) -> Optional[float]:
-        if self.model is None:
+        if self.model is None or not self.model_loaded_ok:
             return None
         try:
             features = self.fs.compute_features(vehicle_data)
-            X = np.array([[features.get(f, 0.0) for f in self.feature_names]])
+            X = np.array([[features.get(f, 0.0) for f in self.feature_names]], dtype=float)
 
-            # --- Three-way routing (LOW / FULL / HIGH) ---
+            # Validação explícita treino/inferência
+            if self.feature_names and X.shape[1] != len(self.feature_names):
+                logger.error(
+                    "Feature mismatch: inferência produziu %d colunas, modelo espera %d",
+                    X.shape[1], len(self.feature_names),
+                )
+                return None
+            if not np.isfinite(X).all():
+                X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+
             if self.scaler:
                 X_full = self.scaler.transform(X)
             else:
@@ -129,9 +234,7 @@ class PricePredictor:
                 full_pred = float(np.expm1(full_pred))
             full_pred = max(full_pred, 0.0)
 
-            # High-end: use CatBoost dedicated model for expensive cars.
-            # This model uses native categorical features (string cols) and an
-            # optional log-target; no scaler. Falls back to scaler if configured.
+            # High-end routing
             if self.high_model is not None and self.high_threshold and full_pred >= self.high_threshold:
                 if self.high_cat_features:
                     X_high = X.astype(object)
@@ -146,7 +249,7 @@ class PricePredictor:
                     high_pred = float(np.expm1(high_pred))
                 return max(high_pred, 0.0)
 
-            # Low-end: use dedicated model for cheap cars (< low_threshold)
+            # Low-end routing
             if (self.low_model is not None and self.low_scaler is not None
                     and self.low_threshold and full_pred < self.low_threshold):
                 X_low = self.low_scaler.transform(X)
@@ -155,7 +258,10 @@ class PricePredictor:
 
             return full_pred
         except Exception as e:
-            logger.error(f"Prediction error: {e}")
+            logger.error(
+                "Prediction error (%s: %s) | modelo=%s | anúncio=%s",
+                type(e).__name__, e, self.model_name, vehicle_data.get("id"),
+            )
             return None
 
     def predict_with_interval(self, vehicle_data: Dict[str, Any]) -> Optional[Tuple[float, float, float]]:
@@ -167,36 +273,67 @@ class PricePredictor:
         return (pred - margin, pred, pred + margin)
 
 
-def update_vehicle_valuations(batch_size: int = 100) -> int:
+def _vehicle_to_data(v) -> Dict[str, Any]:
+    return {
+        "id": v.id,
+        "year": v.year, "km": v.km, "horsepower": v.horsepower,
+        "engine_size": v.engine_size, "doors": v.doors,
+        "fuel_type": v.fuel_type.value if v.fuel_type else "unknown",
+        "transmission": v.transmission.value if v.transmission else "unknown",
+        "brand": v.brand or "Unknown", "model": v.model or "",
+        "version": v.version or "",
+        "location": v.location or "", "district": v.district or "",
+        "source": v.source.value if v.source else "",
+        "vehicle_type": v.vehicle_type.value if v.vehicle_type else "carros",
+        "title": v.title or "",
+        "price": v.price or 0,
+        "condition_score": v.condition_score or 3.0,
+        "is_national": v.is_national,
+    }
+
+
+def update_vehicle_valuations(batch_size: int = 100, force: bool = False) -> int:
+    """Reavalia anúncios com o motor coerente (valuation/service).
+
+    Substitui a escrita legada (que só gravava 4 campos e deixava as colunas
+    ``credible_profit``/``deal_grade``/``profit_is_publishable``/… congeladas,
+    origem das «vantagens» falsas no dashboard). Agora **todos** os campos
+    derivados nascem do mesmo bloco e são escritos em conjunto.
+
+    Retomável e idempotente: por omissão só processa quem ainda não tem a
+    versão atual; ``force=True`` reprocessa tudo (limitado a ``batch_size``).
+    """
     from database.db import get_db_context
     from database.models import Vehicle
-    from valuation.hybrid_valuator import get_valuator
-
-    valuator = get_valuator()
-    updated = 0
+    from sqlalchemy import or_
+    from valuation.service import (
+        VALUATION_VERSION, ValuationService, load_market_rows, vehicle_to_dict,
+    )
 
     with get_db_context() as db:
-        vehicles = db.query(Vehicle).filter(Vehicle.estimated_value.is_(None)).limit(batch_size).all()
+        query = db.query(Vehicle).filter(Vehicle.is_active == True)  # noqa: E712
+        if not force:
+            query = query.filter(
+                or_(
+                    Vehicle.valuation_details.is_(None),
+                    Vehicle.valuation_details["valuation_version"].as_string() != VALUATION_VERSION,
+                )
+            )
+        vehicles = query.limit(batch_size).all()
+        if not vehicles:
+            return 0
+
+        rows = [vehicle_to_dict(v) for v in vehicles]
+        svc = ValuationService.from_rows([r for r in rows], apply_dedupe=False)
+        by_id = {r["id"]: r for r in rows}
+        updated = 0
         for v in vehicles:
-            ft = v.fuel_type.value if v.fuel_type else "unknown"
-            tr = v.transmission.value if v.transmission else "unknown"
-            data = {
-                "year": v.year, "km": v.km, "horsepower": v.horsepower,
-                "engine_size": v.engine_size, "doors": v.doors,
-                "fuel_type": ft, "transmission": tr,
-                "brand": v.brand or "Unknown", "model": v.model or "",
-                "location": v.location or "",
-                "source": v.source.value if v.source else "",
-                "vehicle_type": v.vehicle_type.value if v.vehicle_type else "carros",
-                "title": v.title or "",
-                "price": v.price or 0,
-                "condition_score": v.condition_score or 3.0,
-            }
-            pred = valuator.estimate_value(data)
-            if pred is not None:
-                v.estimated_value = round(pred, 2)
-                updated += 1
+            res = svc.evaluate(by_id[v.id])
+            fields = res.derived_fields()
+            for k, val in fields.items():
+                setattr(v, k, val)
+            updated += 1
         db.commit()
 
-    logger.info(f"Updated {updated} vehicle valuations")
+    logger.info("Updated %d vehicle valuations (v%s)", updated, VALUATION_VERSION)
     return updated

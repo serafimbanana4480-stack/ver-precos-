@@ -1,0 +1,39 @@
+{
+  "model_type": "xgboost",
+  "model_path": "model_motos.json",
+  "scaler_path": "scaler_motos.joblib",
+  "brand_index_path": "brand_index_motos.json",
+  "vehicle_type": "motos",
+  "feature_names": [
+    "year",
+    "km",
+    "horsepower",
+    "engine_size",
+    "doors",
+    "age",
+    "km_per_year",
+    "fuel_type",
+    "transmission",
+    "brand",
+    "model",
+    "district",
+    "depreciation_factor",
+    "fuel_premium",
+    "location_premium",
+    "log_km",
+    "km_excess",
+    "km_extreme"
+  ],
+  "metrics": {
+    "r2": 0.8491288385417866,
+    "mae": 4817.985190651633,
+    "mape_pct": 29.375807773927594
+  },
+  "n_samples": 218,
+  "trained_at": "2026-07-14T14:56:14.900790",
+  "optimizations": {
+    "optuna_tuning": false,
+    "fast_retrain": true,
+    "isolation_forest": true
+  }
+}

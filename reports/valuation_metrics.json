@@ -1,0 +1,92 @@
+{
+  "generated_at": "2026-08-01T05:02:00.587565+00:00",
+  "active_listings": 4908,
+  "estimated_value": {
+    "count": 4908,
+    "median": 17538.52,
+    "p10": 4382.53,
+    "p90": 36569.03,
+    "mean": 21522.0,
+    "exact_500": 12,
+    "exact_10000": 17
+  },
+  "deal_score": {
+    "count": 4908,
+    "mean": 5.16,
+    "median": 5.0,
+    "lt3": 62,
+    "gte7": 117
+  },
+  "confidence": {
+    "mean": 0.646,
+    "by_label": {
+      "high": 2323,
+      "medium": 1820,
+      "low": 667,
+      "insufficient_data": 98
+    }
+  },
+  "inconclusive_valuations": 0,
+  "comparables_per_valuation": {
+    "mean": 37.2,
+    "median": 4
+  },
+  "methods_used": {
+    "brand_model_year": 1464,
+    "auction_resale_multiple": 1184,
+    "brand_segment": 978,
+    "brand_model_fuel": 549,
+    "brand_model_year_pm1": 491,
+    "brand_model": 168,
+    "segment_global": 61,
+    "brand_only": 13
+  },
+  "reference_levels": {
+    "1": 1464,
+    "4": 168,
+    "2": 491,
+    "3": 549,
+    "5": 978,
+    "7": 61,
+    "6": 13,
+    "0": 1184
+  },
+  "deal_statuses": {
+    "preco_justo": 3831,
+    "anuncio_suspeito": 468,
+    "provavel_erro_anuncio": 214,
+    "bom_preco": 145,
+    "ligeiramente_caro": 118,
+    "excelente_oportunidade": 90,
+    "caro": 42
+  },
+  "quality": {
+    "counts": {
+      "valid": 4605,
+      "quarantined": 287,
+      "invalid": 16
+    },
+    "top_reasons": {
+      "preco_provavel_mensalidade_ou_entrada()": 238,
+      "preco_muito_acima_da_referencia()": 38,
+      "preco_impossivel_carro()": 16,
+      "duplicado_provavel()": 6,
+      "preco_acima_de_400k_verificar()": 3,
+      "km_incompativel_com_idade()": 3
+    }
+  },
+  "missing_fields": {
+    "transmission": 1711,
+    "fuel_type": 1054,
+    "km": 302,
+    "year": 171
+  },
+  "ml": {
+    "loaded": true,
+    "model_type": "xgboost",
+    "r2": 0.5913544642033681,
+    "mae": 3521.894591951631,
+    "mape_pct": 10.133397712834396,
+    "load_error": null
+  }
+}

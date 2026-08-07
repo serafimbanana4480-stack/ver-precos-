@@ -1,0 +1,95 @@
+{
+  "generated_at": "2026-08-01T19:20:35.156296+00:00",
+  "active_listings": 4947,
+  "estimated_value": {
+    "count": 3688,
+    "median": 18613.68,
+    "p10": 8829.26,
+    "p90": 36208.35,
+    "mean": 22746.0,
+    "exact_500": 0,
+    "exact_10000": 2
+  },
+  "deal_score": {
+    "count": 3688,
+    "mean": 4.94,
+    "median": 4.9,
+    "lt3": 35,
+    "gte7": 18
+  },
+  "confidence": {
+    "mean": 0.725,
+    "by_label": {
+      "high": 2285,
+      "medium": 1362,
+      "low": 41
+    }
+  },
+  "inconclusive_valuations": 1259,
+  "quality_excluded_from_valuation": 1259,
+  "comparables_per_valuation": {
+    "mean": 47.2,
+    "median": 6
+  },
+  "methods_used": {
+    "brand_model_year": 1464,
+    "skipped_quality": 1259,
+    "brand_segment": 972,
+    "brand_model_fuel": 532,
+    "brand_model_year_pm1": 487,
+    "brand_model": 169,
+    "segment_global": 51,
+    "brand_only": 13
+  },
+  "reference_levels": {
+    "1": 1464,
+    "4": 169,
+    "2": 487,
+    "3": 532,
+    "5": 972,
+    "7": 51,
+    "6": 13
+  },
+  "deal_statuses": {
+    "preco_justo": 3510,
+    "ligeiramente_caro": 59,
+    "bom_preco": 42,
+    "anuncio_suspeito": 35,
+    "caro": 30,
+    "excelente_oportunidade": 10,
+    "provavel_erro_anuncio": 2
+  },
+  "quality": {
+    "counts": {
+      "valid": 3685,
+      "quarantined": 1250,
+      "valid_with_warning": 3,
+      "invalid": 9
+    },
+    "top_reasons": {
+      "preco_zero_ou_ausente()": 1191,
+      "preco_auction_start_nao_retail()": 1184,
+      "preco_zero_ou_negativo()": 1018,
+      "km_ausente()": 302,
+      "ano_ausente()": 171,
+      "anuncio_nao_e_veiculo()": 8,
+      "km_incompativel_com_idade()": 7,
+      "preco_monthly_nao_retail()": 4,
+      "preco_acima_de_400k_verificar()": 3,
+      "preco_entry_nao_retail()": 3,
+      "preco_impossivel_carro()": 1
+    }
+  },
+  "missing_fields": {
+    "transmission": 661,
+    "fuel_type": 168
+  },
+  "ml": {
+    "loaded": true,
+    "model_type": "extra_trees",
+    "r2": 0.7044342485609971,
+    "mae": 4996.993824296989,
+    "mape_pct": 19.586523941407002,
+    "load_error": null
+  }
+}

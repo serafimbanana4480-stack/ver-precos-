@@ -3,7 +3,7 @@ Tests for multi-auction scrapers: Manheim, Autorola, BCA.
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -59,22 +59,25 @@ class TestScraperInstantiation:
 
 
 class TestScrapeListings:
-    def test_manheim_scrape_listings_returns_list(self):
+    @pytest.mark.asyncio
+    async def test_manheim_scrape_listings_returns_list(self):
         module = _import_scrapers_module()
         scraper = module.ManheimScraper()
-        result = scraper.scrape_listings()
+        result = await scraper.scrape_listings()
         assert isinstance(result, list)
 
-    def test_autorola_scrape_listings_returns_list(self):
+    @pytest.mark.asyncio
+    async def test_autorola_scrape_listings_returns_list(self):
         module = _import_scrapers_module()
         scraper = module.AutorolaScraper()
-        result = scraper.scrape_listings()
+        result = await scraper.scrape_listings()
         assert isinstance(result, list)
 
-    def test_bca_scrape_listings_returns_list(self):
+    @pytest.mark.asyncio
+    async def test_bca_scrape_listings_returns_list(self):
         module = _import_scrapers_module()
         scraper = module.BCAScraper()
-        result = scraper.scrape_listings()
+        result = await scraper.scrape_listings()
         assert isinstance(result, list)
 
 
@@ -101,7 +104,8 @@ class TestCircuitBreakerBlocksAtThreshold:
 
 
 class TestHttpResponses:
-    def test_manheim_handles_blocked_response(self):
+    @pytest.mark.asyncio
+    async def test_manheim_handles_blocked_response(self):
         module = _import_scrapers_module()
         scraper = module.ManheimScraper()
 
@@ -109,6 +113,7 @@ class TestHttpResponses:
         mock_response.status = 403
         mock_response.text = MagicMock()
 
-        with patch("aiohttp.ClientSession.get", return_value=mock_response):
-            result = scraper.scrape_listings()
+        with patch.object(scraper, "_playwright_fetch", new=AsyncMock(return_value=None)), \
+             patch.object(scraper, "_fetch_text", new=AsyncMock(return_value=None)):
+            result = await scraper.scrape_listings()
         assert result == []

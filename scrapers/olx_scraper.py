@@ -4,6 +4,7 @@ Site: olx.pt — React-based, requires JavaScript rendering.
 Extracts: title, price, year, km, fuel_type, transmission, location, images
 """
 from __future__ import annotations
+import asyncio
 import hashlib
 import logging
 import re
@@ -11,6 +12,7 @@ import random
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
+from core.settings import settings
 from utils.scraping_log import start_scrape_log, finish_scrape_log
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,17 @@ class OlxScraper:
             listings = await self._enrich_listings_with_details(listings)
         
         return listings[:max_listings]
+
+    async def scrape(
+        self,
+        max_listings: int = 50,
+        vehicle_type: str = "carros",
+        **kwargs,
+    ) -> List[Dict[str, object]]:
+        """Compatibility alias for the historical e2e/service API."""
+        return await self.scrape_listings(
+            vehicle_type, max_listings=max_listings, **kwargs
+        )
     
     async def _enrich_listings_with_details(self, listings: List[Dict[str, object]], max_concurrent: int = 5) -> List[Dict[str, object]]:
         """Enrich OLX listing cards with details - concurrent for speed."""
@@ -556,7 +569,7 @@ class OlxScraper:
                 except ValueError:
                     pass
         if not fuel_type:
-            for f in ["gasolina", "diesel", "elétrico", "eletrico", "híbrido", "hibrido", "gpl"]:
+            for f in ["gasolina", "diesel", "híbrido", "hibrido", "elétrico", "eletrico", "gpl"]:
                 if f in full_text_lower:
                     fuel_type = self._normalize_fuel(f)
                     break
@@ -700,7 +713,7 @@ class OlxScraper:
 
             fuel_type = None
             full_lower = full_text.lower()
-            for f in ["gasolina", "diesel", "elétrico", "eletrico", "híbrido", "hibrido", "gpl"]:
+            for f in ["gasolina", "diesel", "híbrido", "hibrido", "elétrico", "eletrico", "gpl"]:
                 if f in full_lower:
                     fuel_type = self._normalize_fuel(f)
                     break

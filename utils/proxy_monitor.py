@@ -49,7 +49,10 @@ class ProxyMonitor:
                 'message': f'High number of degraded proxies: {degraded_count}/{stats["total_proxies"]}',
                 'timestamp': datetime.now(timezone.utc).isoformat()
             })
-            logger.warning(f"[PROXY ALERT] High number of degraded proxies: {degraded_count}/{stats["total_proxies"]}")
+            logger.warning(
+                "[PROXY ALERT] High number of degraded proxies: %s/%s",
+                degraded_count, stats['total_proxies'],
+            )
         
         # Check for blacklisted proxies
         blacklisted_count = stats['blacklisted_proxies']

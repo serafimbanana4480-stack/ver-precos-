@@ -15,7 +15,12 @@ class ScrapeArgs(BaseModel):
     @field_validator('source')
     @classmethod
     def validate_source(cls, v: str) -> str:
-        valid_sources = ["olx", "standvirtual", "autosapo", "custojusto", "all"]
+        valid_sources = [
+            "olx", "standvirtual", "autosapo", "custojusto", "piscapisca",
+            "carplus", "autopt", "autouncle", "leilosoc", "mcoutinho",
+            "autohub", "martelo", "autoline", "penhorado", "autoscout24",
+            "imovirtual", "all",
+        ]
         if v not in valid_sources:
             raise ValueError(f"source must be one of {valid_sources}")
         return v

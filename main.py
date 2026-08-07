@@ -89,7 +89,11 @@ def main():
     
     # Scrape command
     scrape_parser = subparsers.add_parser("scrape", help="Run scrapers")
-    scrape_parser.add_argument("--source", choices=["olx", "standvirtual", "autosapo", "custojusto", "piscapisca", "carplus", "autopt", "autoscout24", "all"], 
+    scrape_parser.add_argument("--source", choices=[
+        "olx", "standvirtual", "autosapo", "custojusto", "piscapisca",
+        "carplus", "autopt", "autouncle", "leilosoc", "mcoutinho",
+        "autohub", "martelo", "autoline", "penhorado", "autoscout24", "imovirtual", "all"
+    ],
                               default="all", help="Source to scrape")
     scrape_parser.add_argument("--vehicle-type", choices=["carros", "motos", "all"],
                               default="all", help="Vehicle type to scrape")
@@ -97,6 +101,9 @@ def main():
                               help="Maximum listings to scrape per source")
     scrape_parser.add_argument("--scrape-details", action="store_true",
                               help="Scrape detailed info from each listing (slower but more complete)")
+    scrape_parser.add_argument("--engine", choices=["lightweight", "playwright"],
+                              default="lightweight",
+                              help="lightweight (rápido, API/requests — recomendado) ou playwright (pesado, browser; fallback para fontes sem scraper leve)")
     
     # Train command
     train_parser = subparsers.add_parser("train", help="Train ML model")
@@ -280,8 +287,54 @@ def main():
         logger.info("Database initialized successfully!")
     
     elif args.command == 'scrape':
-        logger.info(f"Starting scraping: {args.source}, {args.vehicle_type}")
-        
+        logger.info(f"Starting scraping: {args.source}, {args.vehicle_type}, engine={args.engine}")
+
+        # Lightweight engine (default): fast requests/API scrapers with DB
+        # persistence and dedup built in. Playwright scrapers remain as
+        # fallback via --engine playwright.
+        if args.engine == "lightweight":
+            from scrapers.parallel_runner import run_all_scrapers
+
+            lightweight_map = {
+                "olx": "OLX", "custojusto": "CustoJusto", "piscapisca": "PiscaPisca",
+                "carplus": "Carplus", "autopt": "AutoPT", "autouncle": "AutoUncle",
+                "leilosoc": "Leilosoc", "mcoutinho": "MCoutinho", "autohub": "AutoHub",
+                "martelo": "Martelo", "autoline": "Autoline", "penhorado": "Penhorado",
+                "autoscout24": "AutoScout24", "imovirtual": "Imovirtual",
+            }
+            if args.source == "all":
+                selected = None  # every lightweight scraper
+            elif args.source in lightweight_map:
+                selected = [lightweight_map[args.source]]
+            else:
+                logger.warning(
+                    f"Fonte '{args.source}' não tem scraper lightweight — "
+                    "usar --engine playwright (ex.: standvirtual, autosapo, autoscout24)."
+                )
+                selected = []
+
+            if selected is None or selected:
+                summary = run_all_scrapers(
+                    max_per_scraper=args.max_listings,
+                    save_to_db=True,
+                    max_workers=6,
+                    sources=selected,
+                    vehicle_type=args.vehicle_type,
+                )
+                logger.info(
+                    f"Lightweight scrape done: {summary['total_listings']} listings, "
+                    f"{summary['total_saved']} novos na BD, {summary['total_duration']:.1f}s"
+                )
+                if not summary.get("overall_success", False):
+                    logger.error(
+                        "Scrape incompleto; fontes falhadas: %s",
+                        summary.get("failed_sources", []),
+                    )
+                    sys.exit(1)
+            else:
+                sys.exit(2)
+            return
+
         async def run_scraping():
             # Import scrapers using the correct class names
             from scrapers.olx_scraper import OlxScraper
@@ -395,65 +448,39 @@ def main():
         asyncio.run(run_scraping())
     
     elif args.command == "train":
-        logger.info("Training ML models (vehicle-type-aware)...")
-        from valuation.train import train_all_models
-        results = train_all_models(force_retrain=args.force)
-        for vtype, meta in results.items():
-            if meta:
-                metrics = meta.get("metrics", {})
-                logger.info(f"  {vtype}: {meta['model_type']} R²={metrics.get('r2', 'N/A'):.4f}, "
-                            f"MAE=€{metrics.get('mae', 'N/A'):.0f}, n={meta.get('n_samples', 0)}")
+        logger.info("Training ML models (pipeline v2: sem skew treino/inferência, "
+                    "comparação XGBoost/LightGBM/CatBoost/RF/ExtraTrees/Huber)...")
+        from valuation.train_v2 import train_all
+        results = train_all(force=args.force)
+        for vtype, res in results.items():
+            if res and res.get("status") == "ok":
+                m = res["metrics"]
+                logger.info(f"  {vtype}: {res['best']} R²={m['r2']:.4f}, "
+                            f"MAE=€{m['mae']:.0f}, MedAE=€{m['median_ae']:.0f}, "
+                            f"MAPE={m['mape_pct']:.1f}%")
+            elif res and res.get("status") == "below_threshold":
+                logger.warning(f"  {vtype}: melhor R² abaixo do mínimo — ML fica desativado")
+            elif res and res.get("status") == "skipped_existing":
+                logger.info(f"  {vtype}: artefacto existente — use --force para re-treinar")
             else:
                 logger.warning(f"  {vtype}: training failed or insufficient data")
     
     elif args.command == "valuate":
-        logger.info("Recomputing vehicle valuations with HybridValuator (ML + segment + auction adjustment)...")
-        from database.db import get_db_context
-        from database.models import Vehicle
-        from valuation.predict import update_vehicle_valuations
-        from valuation.hybrid_valuator import get_valuator
+        logger.info("Recomputando avaliações com o motor coerente "
+                    "(valuation/service): todos os campos derivados num único "
+                    "UPDATE por anúncio, sem valores fixos nem divisão por 3 grupos.")
+        from scripts.reprocess_db import step_revalue_coherent, snapshot
 
-        # Reset so the HybridValuator recomputes every vehicle (this is what
-        # applies the auction adjustment for LEILOSOC/VPAUTO/etc., which the
-        # previous statistical-only path ignored -> false "deals").
-        with get_db_context() as db:
-            db.query(Vehicle).update({Vehicle.estimated_value: None})
-            db.commit()
-
-        total = 0
-        while True:
-            n = update_vehicle_valuations(batch_size=500)
-            total += n
-            if n == 0:
-                break
-
-        valuator = get_valuator()
-        with get_db_context() as db:
-            vehicles = db.query(Vehicle).filter(
-                Vehicle.estimated_value.isnot(None),
-                Vehicle.price.isnot(None),
-            ).all()
-            for v in vehicles:
-                ft = v.fuel_type.value if v.fuel_type else "unknown"
-                tr = v.transmission.value if v.transmission else "unknown"
-                data = {
-                    "year": v.year, "km": v.km, "horsepower": v.horsepower,
-                    "engine_size": v.engine_size, "doors": v.doors,
-                    "fuel_type": ft, "transmission": tr,
-                    "brand": v.brand or "Unknown", "model": v.model or "",
-                    "location": v.location or "",
-                    "source": v.source.value if v.source else "",
-                    "vehicle_type": v.vehicle_type.value if v.vehicle_type else "carros",
-                    "title": v.title or "",
-                    "price": v.price or 0,
-                    "condition_score": v.condition_score or 3.0,
-                }
-                res = valuator.calculate_deal_score(data)
-                v.deal_score = res.get("deal_score")
-                v.profit_potential = res.get("profit_potential")
-                v.profit_percentage = res.get("profit_percentage")
-            db.commit()
-        logger.info(f"Valuations updated for {total} vehicles (HybridValuator with auction adjustment)!")
+        before = snapshot("before_valuate")
+        stats = step_revalue_coherent()
+        after = snapshot("after_valuate")
+        logger.info(
+            "Avaliações atualizadas: %s | com estimativa: %s -> %s | "
+            "publicáveis: %s -> %s",
+            stats,
+            before["with_estimate"], after["with_estimate"],
+            before.get("publishable", "?"), after.get("publishable", "?"),
+        )
     
     elif args.command == "find-deals":
         logger.info("Finding best deals...")
