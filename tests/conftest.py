@@ -1,6 +1,8 @@
 """
 Shared test fixtures and configuration
 """
+import os
+import tempfile
 import pytest
 from typing import Generator
 from pathlib import Path
@@ -8,6 +10,49 @@ import sys
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+def _default_temp_root_usable() -> bool:
+    """True if pytest's default tmp root can actually be written to.
+
+    pytest uses ``<tempdir>/pytest-of-<user>/`` and then numbered children.
+    On some Windows machines that exact folder ends up ACL-locked (elevated
+    processes, AV quarantine) while ``<tempdir>`` itself remains writable.
+    """
+    import getpass
+
+    root = Path(tempfile.gettempdir()) / f"pytest-of-{getpass.getuser()}"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        probe = root / f".probe_{os.getpid()}"
+        probe.touch()
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def pytest_configure(config):
+    """Fallback basetemp when the system temp dir has broken ACLs.
+
+    Some Windows machines end up with an unwritable/ACL-locked
+    ``%TEMP%/pytest-of-<user>`` folder (elevated processes, AV quarantine).
+    Every test using ``tmp_path`` then errors with PermissionError.  When the
+    default temp root cannot be written to, redirect pytest's basetemp into a
+    fresh writable directory instead of failing the suite.
+    """
+    if config.option.basetemp:
+        return
+    if _default_temp_root_usable():
+        return
+    fallback = (
+        Path(tempfile.gettempdir())
+        / f"pytest-basetemp-{os.getpid()}"
+    )
+    fallback.mkdir(parents=True, exist_ok=True)
+    config.option.basetemp = str(fallback)
+
+
 
 # Modules that fail at import/collection (missing models, streamlit, etc.)
 collect_ignore = [

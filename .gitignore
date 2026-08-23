@@ -75,6 +75,10 @@ models/xgboost_*.json
 *.backup
 *.joblib
 *.pkl
+# Production manifests reference these artifacts.  Keep the model payloads
+# visible to Git so a Git-based Docker build cannot silently omit them.
+!models/model_*
+!models/scaler_*.joblib
 
 # Exports
 exports/*
@@ -134,7 +138,9 @@ overnight_runner.py
 .planning/
 
 # ── Test artifacts ──
-pytest.ini              # Se for local-only; se usado em CI, commitar
+.pytest-*/
+.pytest_baseline/
+# pytest.ini É commitado — é a única config de testes (asyncio_mode=auto)
 
 # ── Reports ──
 AUDIT_*.md
@@ -210,6 +216,14 @@ data/
 *.sqlite3
 .catboost_info/
 mlruns/
+
+# Backups locais e artefactos runtime
+backups/
+archived_logs/
+latest_logs/
+reports/*
+!reports/.gitkeep
+!reports/*_latest.json
 
 
 # Ambiente virtual
