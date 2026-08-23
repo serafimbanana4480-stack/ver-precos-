@@ -99,7 +99,10 @@ class BrowserPool:
                 # Check if context is still usable
                 try:
                     # Simple health check
-                    _ = await ctx.pages
+                    # ``BrowserContext.pages`` is a property, not an
+                    # awaitable. Awaiting it raised TypeError and made every
+                    # request recreate a context, defeating the pool.
+                    _ = ctx.pages
                     logger.debug(f"[BROWSER_POOL] Reusing context '{name}'")
                     return ctx
                 except Exception:

@@ -18,6 +18,16 @@ from urllib.parse import urljoin
 import requests
 
 from utils.scraping_log import start_scrape_log, finish_scrape_log
+from scrapers.resilience import (
+    STATUS_BLOCKED,
+    STATUS_BLOCKED_CREDENTIALS,
+    STATUS_DEGRADED,
+    STATUS_EMPTY,
+    STATUS_FAILED,
+    STATUS_OK,
+    STATUS_TIMEOUT,
+    status_for_http,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +58,10 @@ class LeilosocLightweight:
     BASE_URL = "https://leilosoc.com"
     CATEGORY_URL = f"{BASE_URL}/pt-PT/category/{VEHICLE_CATEGORY_ID}-veiculos"
     IMAGE_BASE = "https://s-auctions.devscope.net"
+    REQUEST_TIMEOUT = (2.0, 6.0)
+    MAX_ATTEMPTS = 2
+    RETRY_BACKOFF_SECONDS = 0.10
+    MAX_PAGES = 10
 
     def __init__(self):
         self.session = requests.Session()
@@ -60,6 +74,17 @@ class LeilosocLightweight:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "pt-PT,pt;q=0.9,en;q=0.8",
         })
+        self.last_status = STATUS_EMPTY
+        self.last_error: Optional[str] = None
+        self.requests_made = 0
+        self.retries = 0
+        self._closed = False
+
+    def close(self) -> None:
+        """Close the per-run requests pool, idempotently."""
+        if not self._closed:
+            self.session.close()
+            self._closed = True
 
     def scrape_listings(
         self,
@@ -75,43 +100,112 @@ class LeilosocLightweight:
         Returns:
             List of auction lot dicts with real transaction prices.
         """
+        max_listings = max(0, int(max_listings))
+        self.last_status = STATUS_EMPTY
+        self.last_error = None
+        self.requests_made = 0
+        self.retries = 0
+        if max_listings == 0:
+            return []
         logger.info(f"[LEILOSOC_LIGHT] Starting scrape, max {max_listings}")
         log_id = start_scrape_log("LEILOSOC")
 
         listings = []
         page = 1
-
-        while len(listings) < max_listings:
-            url = f"{self.CATEGORY_URL}?page={page}" if page > 1 else f"{self.CATEGORY_URL}/"
-            logger.info(f"[LEILOSOC_LIGHT] Fetching page {page}")
-
-            try:
-                resp = self.session.get(url, timeout=20)
-                if resp.status_code != 200:
-                    logger.warning(f"[LEILOSOC_LIGHT] HTTP {resp.status_code} on page {page}")
+        try:
+            while len(listings) < max_listings and page <= self.MAX_PAGES:
+                url = f"{self.CATEGORY_URL}?page={page}" if page > 1 else f"{self.CATEGORY_URL}/"
+                logger.info(f"[LEILOSOC_LIGHT] Fetching page {page}")
+                html = self._fetch(url, page)
+                if not html:
                     break
-                html = resp.text
-            except requests.RequestException as e:
-                logger.error(f"[LEILOSOC_LIGHT] Request failed: {e}")
-                break
 
-            page_lots = self._parse_next_data(html)
-            if not page_lots:
-                logger.info(f"[LEILOSOC_LIGHT] No lots on page {page}")
-                break
+                page_lots = self._parse_next_data(html)
+                if not page_lots:
+                    self.last_status = STATUS_EMPTY
+                    logger.info(f"[LEILOSOC_LIGHT] No lots on page {page}")
+                    break
 
-            logger.info(f"[LEILOSOC_LIGHT] Page {page}: {len(page_lots)} lots")
-            listings.extend(page_lots)
-            page += 1
+                logger.info(f"[LEILOSOC_LIGHT] Page {page}: {len(page_lots)} lots")
+                listings.extend(page_lots)
+                page += 1
 
-            if len(page_lots) < 10:
-                break
+                if len(page_lots) < 10:
+                    break
 
-        listings = listings[:max_listings]
-        logger.info(f"[LEILOSOC_LIGHT] Total extracted: {len(listings)}")
-        if log_id:
-            finish_scrape_log(log_id, "completed", listings_found=len(listings))
-        return listings
+            listings = listings[:max_listings]
+            if listings:
+                if self.last_status in {
+                    STATUS_BLOCKED,
+                    STATUS_BLOCKED_CREDENTIALS,
+                    STATUS_TIMEOUT,
+                    STATUS_FAILED,
+                }:
+                    self.last_status = STATUS_DEGRADED
+                else:
+                    self.last_status = STATUS_OK
+            logger.info(f"[LEILOSOC_LIGHT] Total extracted: {len(listings)}")
+            return listings
+        finally:
+            if log_id:
+                finish_scrape_log(
+                    log_id,
+                    self.last_status if self.last_status in {
+                        STATUS_OK,
+                        STATUS_EMPTY,
+                        STATUS_BLOCKED,
+                        STATUS_BLOCKED_CREDENTIALS,
+                        STATUS_TIMEOUT,
+                        STATUS_DEGRADED,
+                        STATUS_FAILED,
+                    } else STATUS_FAILED,
+                    listings_found=len(listings),
+                    error_message=self.last_error,
+                )
+
+    def _fetch(self, url: str, page: int) -> Optional[str]:
+        """Fetch one page; 403/404/auth/DNS return immediately."""
+        for attempt in range(self.MAX_ATTEMPTS):
+            self.requests_made += 1
+            try:
+                response = self.session.get(url, timeout=self.REQUEST_TIMEOUT)
+                if response.status_code == 200:
+                    self.last_status = STATUS_OK
+                    return response.text
+                status, retryable = status_for_http(response.status_code)
+                self.last_status = status
+                self.last_error = f"HTTP {response.status_code} on page {page}"
+                logger.warning(f"[LEILOSOC_LIGHT] HTTP {response.status_code} on page {page}")
+                if retryable and attempt + 1 < self.MAX_ATTEMPTS:
+                    self.retries += 1
+                    time.sleep(self.RETRY_BACKOFF_SECONDS)
+                    continue
+                return None
+            except requests.Timeout as exc:
+                self.last_status = STATUS_TIMEOUT
+                self.last_error = str(exc) or f"timeout on page {page}"
+                logger.warning(f"[LEILOSOC_LIGHT] Timeout on page {page}")
+                if attempt + 1 < self.MAX_ATTEMPTS:
+                    self.retries += 1
+                    time.sleep(self.RETRY_BACKOFF_SECONDS)
+                    continue
+                return None
+            except requests.ConnectionError as exc:
+                text = str(exc).lower()
+                self.last_status = STATUS_FAILED
+                self.last_error = str(exc)
+                logger.error(f"[LEILOSOC_LIGHT] Request failed: {exc}")
+                if "getaddrinfo" not in text and "name resolution" not in text and attempt + 1 < self.MAX_ATTEMPTS:
+                    self.retries += 1
+                    time.sleep(self.RETRY_BACKOFF_SECONDS)
+                    continue
+                return None
+            except requests.RequestException as exc:
+                self.last_status = STATUS_FAILED
+                self.last_error = str(exc)
+                logger.error(f"[LEILOSOC_LIGHT] Request failed: {exc}")
+                return None
+        return None
 
     def _parse_next_data(self, html: str) -> List[Dict[str, Any]]:
         """Extract lot data from __NEXT_DATA__ JSON."""

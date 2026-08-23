@@ -17,6 +17,17 @@ from typing import Any, Dict, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
+from scrapers.resilience import (
+    STATUS_BLOCKED,
+    STATUS_BLOCKED_CREDENTIALS,
+    STATUS_DEGRADED,
+    STATUS_EMPTY,
+    STATUS_FAILED,
+    STATUS_OK,
+    STATUS_TIMEOUT,
+    status_for_http,
+)
+from scrapers.schema import parse_price_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +55,10 @@ class AutohubLightweight:
 
     BASE_URL = "https://www.autohub.pt"
     SITEMAP = "https://www.autohub.pt/listings-sitemap.xml"
+    REQUEST_TIMEOUT = (2.0, 6.0)
+    MAX_ATTEMPTS = 2
+    RETRY_BACKOFF_SECONDS = 0.10
+    DETAIL_DELAY_SECONDS = 0.05
 
     def __init__(self) -> None:
         self.session = requests.Session()
@@ -53,6 +68,17 @@ class AutohubLightweight:
             "Accept-Language": "pt-PT,pt;q=0.9,en;q=0.8",
             "Referer": "https://www.autohub.pt/",
         })
+        self.last_status = STATUS_EMPTY
+        self.last_error: Optional[str] = None
+        self.requests_made = 0
+        self.retries = 0
+        self._closed = False
+
+    def close(self) -> None:
+        """Close the per-run requests pool, idempotently."""
+        if not self._closed:
+            self.session.close()
+            self._closed = True
 
     def scrape_listings(
         self,
@@ -60,24 +86,50 @@ class AutohubLightweight:
         max_listings: int = 50,
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
+        max_listings = max(0, int(max_listings))
+        self.last_status = STATUS_EMPTY
+        self.last_error = None
+        self.requests_made = 0
+        self.retries = 0
+        if max_listings == 0:
+            return []
         logger.info(f"[AUTOHUB_LIGHT] Starting scrape, max {max_listings}")
         urls = self._get_listing_urls()
         if not urls:
+            if self.last_status == STATUS_OK:
+                self.last_status = STATUS_DEGRADED
+                self.last_error = "sitemap contains no listing URLs"
             logger.warning("[AUTOHUB_LIGHT] No listing URLs from sitemap")
             return []
 
         listings: List[Dict[str, Any]] = []
-        for url in urls[:max_listings]:
+        seen_urls: set[str] = set()
+        failed_details = 0
+        for url in urls:
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            if len(seen_urls) > max_listings:
+                break
             html = self._fetch(url)
             if not html:
+                failed_details += 1
                 continue
             parsed = self._parse_detail(html, url)
             if parsed:
                 listings.append(parsed)
+            else:
+                failed_details += 1
             if len(listings) >= max_listings:
                 break
-            time.sleep(0.3)
+            if self.DETAIL_DELAY_SECONDS > 0:
+                time.sleep(self.DETAIL_DELAY_SECONDS)
 
+        if listings:
+            self.last_status = STATUS_DEGRADED if failed_details else STATUS_OK
+        elif self.last_status == STATUS_OK:
+            self.last_status = STATUS_DEGRADED
+            self.last_error = "detail pages returned no parseable listings"
         logger.info(f"[AUTOHUB_LIGHT] Total extracted: {len(listings)}")
         return listings
 
@@ -86,19 +138,56 @@ class AutohubLightweight:
         if not html:
             return []
         locs = re.findall(r"<loc>(.*?)</loc>", html)
-        return [l for l in locs if "/listings/" in l and l.rstrip("/") != f"{self.BASE_URL}/listings"]
+        urls = [
+            l for l in locs
+            if "/listings/" in l and l.rstrip("/") != f"{self.BASE_URL}/listings"
+        ]
+        if not urls:
+            self.last_status = STATUS_DEGRADED
+            self.last_error = "sitemap contains no listing URLs"
+        return urls
 
     def _fetch(self, url: str) -> Optional[str]:
-        for attempt in range(3):
+        for attempt in range(self.MAX_ATTEMPTS):
+            self.requests_made += 1
             try:
-                resp = self.session.get(url, timeout=20)
-                if resp.status_code != 200:
-                    logger.warning(f"[AUTOHUB_LIGHT] HTTP {resp.status_code} {url}")
-                    return None
-                return resp.text
-            except requests.RequestException as e:
-                logger.error(f"[AUTOHUB_LIGHT] Request failed: {e}")
-                time.sleep(1.5)
+                resp = self.session.get(url, timeout=self.REQUEST_TIMEOUT)
+                if resp.status_code == 200:
+                    self.last_status = STATUS_OK
+                    return resp.text
+                status, retryable = status_for_http(resp.status_code)
+                self.last_status = status
+                self.last_error = f"HTTP {resp.status_code}"
+                logger.warning(f"[AUTOHUB_LIGHT] HTTP {resp.status_code} {url}")
+                if retryable and attempt + 1 < self.MAX_ATTEMPTS:
+                    self.retries += 1
+                    time.sleep(self.RETRY_BACKOFF_SECONDS)
+                    continue
+                return None
+            except requests.Timeout as exc:
+                self.last_status = STATUS_TIMEOUT
+                self.last_error = str(exc) or "request timeout"
+                logger.warning(f"[AUTOHUB_LIGHT] Timeout {url}")
+                if attempt + 1 < self.MAX_ATTEMPTS:
+                    self.retries += 1
+                    time.sleep(self.RETRY_BACKOFF_SECONDS)
+                    continue
+                return None
+            except requests.ConnectionError as exc:
+                text = str(exc).lower()
+                self.last_status = STATUS_FAILED
+                self.last_error = str(exc)
+                logger.error(f"[AUTOHUB_LIGHT] Request failed: {exc}")
+                if "getaddrinfo" not in text and "name resolution" not in text and attempt + 1 < self.MAX_ATTEMPTS:
+                    self.retries += 1
+                    time.sleep(self.RETRY_BACKOFF_SECONDS)
+                    continue
+                return None
+            except requests.RequestException as exc:
+                self.last_status = STATUS_FAILED
+                self.last_error = str(exc)
+                logger.error(f"[AUTOHUB_LIGHT] Request failed: {exc}")
+                return None
         return None
 
     def _parse_detail(self, html: str, url: str) -> Optional[Dict[str, Any]]:
@@ -109,12 +198,20 @@ class AutohubLightweight:
             if not title:
                 return None
 
-            price = None
+            price_raw = None
+            price_evidence = None
             pr = soup.select_one(".single-listing-price")
             if pr:
-                price = self._parse_euro(pr.get_text(strip=True))
-            if not price or price <= 0:
-                return None  # "Preço por consulta" ou sem preço
+                price_raw = pr.get_text(strip=True)
+                price_evidence = parse_price_evidence(price_raw)
+            if (
+                price_evidence is None
+                or not price_evidence.value
+                or price_evidence.kind.value != "total"
+                or price_evidence.currency != "EUR"
+            ):
+                return None
+            price = float(price_evidence.value)
 
             txt = soup.get_text(" ", strip=True)
 
@@ -139,6 +236,12 @@ class AutohubLightweight:
                 "brand": brand,
                 "model": model,
                 "price": float(price),
+                "price_raw": price_raw,
+                "price_observed_value": price_evidence.value,
+                "currency": price_evidence.currency,
+                "price_kind": price_evidence.kind.value,
+                "price_evidence": price_evidence.evidence,
+                "price_rejection_reason": price_evidence.rejection_reason,
                 "year": year,
                 "km": km,
                 "fuel_type": self._normalize_fuel(fuel or ""),

@@ -214,6 +214,7 @@ class AutoPtLightweightScraper:
 
             # Price
             price = None
+            price_raw = None
             # Price is in a div with "€" text
             price_elem = card.find("div", string=re.compile(r"[\d\s]+\s*[€€]"))
             if not price_elem:
@@ -221,6 +222,7 @@ class AutoPtLightweightScraper:
                 price_elem = card.select_one("div.rounded-3xl")
             if price_elem:
                 price_text = price_elem.get_text(strip=True)
+                price_raw = price_text
                 price = self._parse_price(price_text)
 
             if not price:
@@ -228,6 +230,7 @@ class AutoPtLightweightScraper:
                 full_text = card.get_text(" ", strip=True)
                 price_m = re.search(r"(\d[\d\s]*(?:[.,]\d{2})?)\s*[€€]", full_text)
                 if price_m:
+                    price_raw = price_m.group(0)
                     price = self._parse_price(price_m.group(1))
 
             if not price:
@@ -398,6 +401,10 @@ class AutoPtLightweightScraper:
                 "brand": brand,
                 "model": model,
                 "price": price,
+                "price_raw": price_raw,
+                "price_observed_value": price,
+                "currency": "EUR",
+                "price_kind": "total",
                 "year": year,
                 "km": km,
                 "fuel_type": fuel_type,

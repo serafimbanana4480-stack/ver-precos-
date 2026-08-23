@@ -278,7 +278,6 @@ class AuctionScraper:
                     self._extract_vehicle_details(card, listing)
 
                     if adjudication_price:
-                        listing["year"] = listing.get("year", 2020)
                         listings.append(listing)
 
                 except Exception as e:
@@ -381,7 +380,6 @@ class AuctionScraper:
 
                     self._extract_vehicle_details(card, listing)
 
-                    listing["year"] = listing.get("year", 2020)
                     listings.append(listing)
 
                 except Exception as e:

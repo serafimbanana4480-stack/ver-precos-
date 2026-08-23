@@ -33,7 +33,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Sequence
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -45,6 +45,16 @@ from scrapers.extractors import (
     iter_jsonld,
 )
 from scrapers.schema import parse_price_evidence
+from scrapers.resilience import (
+    STATUS_BLOCKED,
+    STATUS_BLOCKED_CREDENTIALS,
+    STATUS_DEGRADED,
+    STATUS_EMPTY,
+    STATUS_FAILED,
+    STATUS_OK,
+    STATUS_TIMEOUT,
+    status_for_http,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +117,10 @@ class SourceConfig:
     country: str = "PT"
     requires_js: bool = False
     rate_limit: float = 1.0
-    timeout: int = 25
+    timeout: float = 12.0
+    retry_attempts: int = 2
+    retry_backoff_seconds: float = 0.10
+    max_retry_backoff_seconds: float = 0.40
     #: Gancho opcional para pós-processar cada anúncio (ex.: converter moeda).
     post_process: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
 
@@ -119,6 +132,10 @@ class SourceUnavailable(RuntimeError):
     partido (layout mudou, bloqueio anti-bot), não que não há stock.
     """
 
+    def __init__(self, message: str, *, status: str = STATUS_DEGRADED) -> None:
+        super().__init__(message)
+        self.status = status
+
 
 class GenericSource:
     """Executor HTTP para uma :class:`SourceConfig`."""
@@ -128,6 +145,22 @@ class GenericSource:
         self.session = requests.Session()
         self.session.headers.update(self._headers())
         self.last_coverage: Dict[str, Any] = {}
+        self.last_status = STATUS_EMPTY
+        self.last_error: Optional[str] = None
+        self.requests_made = 0
+        self.retries = 0
+        self._closed = False
+
+    def close(self) -> None:
+        """Fecha o pool HTTP da fonte.
+
+        As fontes são instanciadas por execução. Fechá-las explicitamente
+        evita manter sockets abertos quando um lote percorre muitas fontes e
+        torna o ciclo de vida compatível com auditorias concorrentes.
+        """
+        if not self._closed:
+            self.session.close()
+            self._closed = True
 
     # ── HTTP ──────────────────────────────────────────────────────────────
 
@@ -142,29 +175,68 @@ class GenericSource:
         }
 
     def _fetch(self, url: str, *, attempts: int = 3) -> Optional[str]:
-        """GET com backoff exponencial. Devolve ``None`` em vez de lançar."""
-        for attempt in range(attempts):
+        """GET bounded; terminal HTTP/auth errors return immediately."""
+        max_attempts = max(1, min(int(attempts), int(self.config.retry_attempts)))
+        for attempt in range(max_attempts):
+            self.requests_made += 1
             try:
                 response = self.session.get(url, timeout=self.config.timeout)
                 if response.status_code == 200:
+                    self.last_status = STATUS_OK
                     return response.text
-                if response.status_code in (403, 429, 503):
-                    # Bloqueio/limite: esperar mais e rodar o User-Agent.
-                    wait = (2 ** attempt) * 2 + random.uniform(0.5, 1.5)
-                    logger.warning(
-                        "[%s] HTTP %s em %s — nova tentativa em %.1fs",
-                        self.config.name, response.status_code, url, wait,
-                    )
-                    self.session.headers["User-Agent"] = random.choice(USER_AGENTS)
-                    time.sleep(wait)
-                    continue
+                status, retryable = status_for_http(response.status_code)
+                self.last_status = status
+                self.last_error = f"HTTP {response.status_code}"
                 logger.warning("[%s] HTTP %s em %s", self.config.name, response.status_code, url)
+                if retryable and attempt + 1 < max_attempts:
+                    self.retries += 1
+                    wait = min(
+                        self.config.max_retry_backoff_seconds,
+                        self.config.retry_backoff_seconds * (2 ** attempt),
+                    )
+                    if wait > 0:
+                        time.sleep(wait)
+                    continue
+                return None
+            except requests.Timeout as exc:
+                self.last_status = STATUS_TIMEOUT
+                self.last_error = str(exc) or "request timeout"
+                logger.warning("[%s] timeout em %s", self.config.name, url)
+                if attempt + 1 < max_attempts:
+                    self.retries += 1
+                    wait = min(
+                        self.config.max_retry_backoff_seconds,
+                        self.config.retry_backoff_seconds * (2 ** attempt),
+                    )
+                    if wait > 0:
+                        time.sleep(wait)
+                    continue
+                return None
+            except requests.ConnectionError as exc:
+                text = str(exc).lower()
+                self.last_status = STATUS_FAILED
+                self.last_error = str(exc)
+                # DNS is terminal for this run: retrying it only burns the
+                # source budget and cannot produce anti-bot or listing data.
+                dns_error = any(token in text for token in (
+                    "getaddrinfo", "name or service not known",
+                    "failed to resolve", "name resolution", "dns",
+                ))
+                if not dns_error and attempt + 1 < max_attempts:
+                    self.retries += 1
+                    wait = min(
+                        self.config.max_retry_backoff_seconds,
+                        self.config.retry_backoff_seconds * (2 ** attempt),
+                    )
+                    if wait > 0:
+                        time.sleep(wait)
+                    continue
                 return None
             except requests.RequestException as exc:
-                wait = (2 ** attempt) + random.uniform(0.2, 0.8)
-                logger.warning("[%s] erro de rede (%s) — nova tentativa em %.1fs",
-                               self.config.name, exc, wait)
-                time.sleep(wait)
+                self.last_status = STATUS_FAILED
+                self.last_error = str(exc)
+                logger.warning("[%s] erro de rede (%s)", self.config.name, exc)
+                return None
         return None
 
     def _search_url(self, vehicle_type: str, page: int) -> str:
@@ -177,7 +249,7 @@ class GenericSource:
             params[self.config.page_param] = str(page)
         if params:
             separator = "&" if "?" in url else "?"
-            url = url + separator + "&".join(f"{k}={v}" for k, v in params.items())
+            url = url + separator + urlencode(params)
         return url
 
     # ── Extração ──────────────────────────────────────────────────────────
@@ -309,11 +381,20 @@ class GenericSource:
             SourceUnavailable: se nenhuma página produziu anúncios, o que
                 indica scraper partido e não ausência de stock.
         """
+        max_listings = max(0, int(max_listings))
+        self.last_status = STATUS_EMPTY
+        self.last_error = None
+        self.requests_made = 0
+        self.retries = 0
         if self.config.requires_js:
             raise SourceUnavailable(
                 f"{self.config.name} exige renderização JavaScript; "
-                "usar o scraper Playwright correspondente."
+                "usar o scraper Playwright correspondente.",
+                status="unsupported",
             )
+        if max_listings == 0:
+            self.last_coverage = field_coverage([])
+            return []
 
         listings: List[Dict[str, Any]] = []
         seen_urls: set[str] = set()
@@ -350,17 +431,36 @@ class GenericSource:
                     break
 
             page += 1
-            time.sleep(self.config.rate_limit + random.uniform(0, 0.5))
+            if len(listings) < max_listings and pages_requested < self.config.max_pages:
+                delay = max(0.0, float(self.config.rate_limit))
+                if delay > 0:
+                    time.sleep(delay)
 
         if not listings and pages_parsed:
+            self.last_status = STATUS_DEGRADED
             raise SourceUnavailable(
                 f"{self.config.name}: {pages_parsed} página(s) obtidas mas "
-                "nenhum anúncio extraído — layout provavelmente alterado."
+                "nenhum anúncio extraído — layout provavelmente alterado.",
+                status=STATUS_DEGRADED,
             )
 
         if scrape_details and listings:
             self._enrich_details(listings)
 
+        if listings:
+            if self.last_status in {
+                STATUS_BLOCKED,
+                STATUS_BLOCKED_CREDENTIALS,
+                STATUS_TIMEOUT,
+                STATUS_FAILED,
+            }:
+                # Partial data plus a terminal later page is usable only as a
+                # degraded observation; never silently call it healthy.
+                self.last_status = STATUS_DEGRADED
+            else:
+                self.last_status = STATUS_OK
+        else:
+            self.last_status = self.last_status or STATUS_EMPTY
         self.last_coverage = field_coverage(listings)
         logger.info(
             "[%s] %d anúncios | campos críticos OK=%s",
@@ -416,7 +516,10 @@ class GenericSource:
                 for node in soup.select(selector)
             )
             enrich_listing(listing, extra_text=spec_text or soup.get_text(" ", strip=True))
-            time.sleep(self.config.rate_limit)
+            if listing is not incomplete[-1]:
+                delay = max(0.0, float(self.config.rate_limit))
+                if delay > 0:
+                    time.sleep(delay)
 
 
 def build_scraper(config: SourceConfig) -> GenericSource:

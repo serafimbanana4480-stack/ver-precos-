@@ -287,19 +287,35 @@ class PlaywrightHelper:
                     user_agent=random.choice(settings.user_agents),
                 )
                 page = await context.new_page()
-                await apply_stealth_async(page)
-                await page.goto(url, wait_until="networkidle", timeout=self.timeout)
-                if wait_for_selector:
+                try:
+                    await apply_stealth_async(page)
+                    await page.goto(url, wait_until="networkidle", timeout=self.timeout)
+                    if wait_for_selector:
+                        try:
+                            await page.wait_for_selector(wait_for_selector, timeout=self.timeout // 2)
+                        except Exception:
+                            pass
+                    if extra_wait > 0:
+                        await asyncio.sleep(extra_wait / 1000)
+                    content = await page.content()
+                    logger.info(f"[PLAYWRIGHT] Fetched: {url}")
+                    return content
+                finally:
+                    # Cancellation at the audit/run deadline must not leave a
+                    # Playwright subprocess and pipe alive until interpreter
+                    # shutdown.
                     try:
-                        await page.wait_for_selector(wait_for_selector, timeout=self.timeout // 2)
+                        await page.close()
                     except Exception:
                         pass
-                if extra_wait > 0:
-                    await asyncio.sleep(extra_wait / 1000)
-                content = await page.content()
-                await browser.close()
-                logger.info(f"[PLAYWRIGHT] Fetched: {url}")
-                return content
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
         except Exception as e:
             logger.error(f"[PLAYWRIGHT] Error fetching {url}: {e}")
             return None
@@ -681,7 +697,9 @@ class VPAutoScraper(BaseAuctionScraper):
                 url = f"{self.BASE_URL}/{href}"
 
         brand, model = self.extract_brand_model(title)
-        year = self.parse_year_from_text(title) or 2020
+        # Unknown year stays unknown; a default year would contaminate
+        # valuation and fiscal calculations with invented evidence.
+        year = self.parse_year_from_text(title) or 0
         km = parse_km(
             card.get_text(separator=" ", strip=True)
         )
@@ -906,7 +924,9 @@ class LeilosocScraper(BaseAuctionScraper):
                 url = f"{self.BASE_URL}/{href}"
 
         brand, model = self.extract_brand_model(title)
-        year = self.parse_year_from_text(title) or 2020
+        # Unknown year stays unknown; a default year would contaminate
+        # valuation and fiscal calculations with invented evidence.
+        year = self.parse_year_from_text(title) or 0
         km = parse_km(card.get_text(separator=" ", strip=True))
 
         location_elem = card.select_one(

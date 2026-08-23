@@ -195,6 +195,7 @@ class CarplusLightweightScraper:
             if isinstance(offers, dict):
                 price = self._safe_float(offers.get("price"))
                 url = offers.get("url", "")
+                currency = str(offers.get("priceCurrency") or "EUR").upper()
             else:
                 price = None
                 url = ""
@@ -241,6 +242,9 @@ class CarplusLightweightScraper:
                 "brand": brand,
                 "model": model,
                 "price": price,
+                "price_observed_value": price,
+                "currency": currency,
+                "price_kind": "total",
                 "year": year,
                 "km": km,
                 "fuel_type": self._normalize_fuel(fuel_type),
@@ -370,6 +374,9 @@ class CarplusLightweightScraper:
                 "brand": brand,
                 "model": model,
                 "price": price,
+                "price_observed_value": price,
+                "currency": "EUR",
+                "price_kind": "total",
                 "year": year,
                 "km": km,
                 "fuel_type": self._normalize_fuel(fuel),

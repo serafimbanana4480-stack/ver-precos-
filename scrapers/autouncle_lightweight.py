@@ -215,6 +215,7 @@ class AutoUncleLightweight:
             price_match = re.search(r'€\s*([\d.]+(?:,\d{2})?)', text)
         if price_match:
             price = self._parse_euro(price_match.group(1))
+        price_raw = price_match.group(0) if price_match else None
 
         if not price:
             return None
@@ -307,6 +308,10 @@ class AutoUncleLightweight:
             "brand": brand,
             "model": model,
             "price": price,
+            "price_raw": price_raw,
+            "price_observed_value": price,
+            "currency": "EUR",
+            "price_kind": "total",
             "year": year,
             "km": km,
             "fuel_type": fuel_type,

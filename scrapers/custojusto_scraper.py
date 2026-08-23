@@ -278,7 +278,7 @@ class CustoJustoScraper:
             fuel = params.get("fuel")
             gearbox = params.get("gearbox")
             # --- Extract KM from params or title ---
-            km = 0
+            km = None
             # Try params first
             mileage_raw = params.get("mileage") or params.get("km") or params.get("quilometros")
             if mileage_raw:
@@ -297,11 +297,6 @@ class CustoJustoScraper:
                             km *= 1000
                     except ValueError:
                         pass
-            # Fallback: estimate from year (15,000 km/year)
-            if not km and year:
-                age = max(1, datetime.now().year - year)
-                km = age * 15000
-
             return {
                 "source": "CUSTOJUSTO",
                 "source_id": f"custojusto_{list_id}",
@@ -311,6 +306,9 @@ class CustoJustoScraper:
                 "model": model,
                 "year": year,
                 "price": price,
+                "price_observed_value": float(price),
+                "currency": "EUR",
+                "price_kind": "total",
                 "km": km,
                 "vehicle_type": vehicle_type,
                 "description": (item.get("body") or title).strip(),
@@ -372,7 +370,7 @@ class CustoJustoScraper:
                 return None
 
             # Extract KM from title or nearby text
-            km = 0
+            km = None
             km_match = re.search(r"(\d{1,3}(?:[.,]\d{3})*)\s*(?:mil\s*)?(?:kms?|km|quil)", title + " " + description, re.I)
             if km_match:
                 km_str = re.sub(r"[.,\s]", "", km_match.group(1))
@@ -382,10 +380,6 @@ class CustoJustoScraper:
                         km *= 1000
                 except ValueError:
                     pass
-            if not km and year:
-                age = max(1, datetime.now().year - year)
-                km = age * 15000
-
             # Extract missing fields
             horsepower = None
             engine_size = None
@@ -473,6 +467,10 @@ class CustoJustoScraper:
                 "model": model,
                 "year": year,
                 "price": price,
+                "price_raw": price_text,
+                "price_observed_value": float(price),
+                "currency": "EUR",
+                "price_kind": "total",
                 "km": km,
                 "vehicle_type": vehicle_type,
                 "description": description.strip() if description else title.strip(),
@@ -508,11 +506,11 @@ class CustoJustoScraper:
         except ValueError:
             return 0
 
-    def _parse_title(self, title: str) -> tuple[str, str, int]:
+    def _parse_title(self, title: str) -> tuple[str, str, Optional[int]]:
         """Parse title to extract brand, model, and year"""
         brand = "Unknown"
         model = "Unknown"
-        year = 2020
+        year = None
 
         if not title:
             return brand, model, year

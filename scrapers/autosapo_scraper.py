@@ -82,6 +82,12 @@ class AutoSapoScraper:
         logger.info(f"[PROGRESS] AI scraping priority: {getattr(settings, 'ai_scraper_priority', 'fallback')}")
         
         url = self._build_url(vehicle_type, page=1, filters=filters)
+
+        def normalize_output(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
+            for row in rows:
+                if row.get("vehicle_type") in (None, ""):
+                    row["vehicle_type"] = vehicle_type
+            return rows
         
         # AI-First Approach (if configured as primary)
         if getattr(settings, 'ai_scraping_enabled', False) and getattr(settings, 'ai_scraper_priority', 'fallback') == "primary" and get_ai_scraper:
@@ -91,7 +97,7 @@ class AutoSapoScraper:
                 listings = await ai_scraper.scrape_listings("autosapo", url, max_listings)
                 if listings:
                     logger.info(f"[AI_PRIMARY] AI scraper successfully retrieved {len(listings)} listings")
-                    return listings
+                    return normalize_output(listings)
                 else:
                     logger.warning("[AI_PRIMARY] AI scraper returned no results, falling back to Playwright")
             except Exception as e:
@@ -104,7 +110,7 @@ class AutoSapoScraper:
         if scrape_details and listings:
             listings = await self._enrich_listings_with_details(listings)
 
-        return listings
+        return normalize_output(listings)
 
     async def _enrich_listings_with_details(self, listings: List[Dict[str, object]], max_concurrent: int = 5) -> List[Dict[str, object]]:
         """Enrich AutoSapo listing cards with details - concurrent for speed."""
@@ -193,6 +199,7 @@ class AutoSapoScraper:
         from bs4 import BeautifulSoup
         from utils.playwright_stealth import apply_stealth_async
         from scrapers.browser_pool import get_browser_pool
+        page = None
         try:
             pool = get_browser_pool()
             page = await pool.new_page("autosapo")
@@ -210,11 +217,16 @@ class AutoSapoScraper:
                 pass
             
             html = await page.content()
-            await page.close()
             return html
         except Exception as e:
-             logger.error(f"[PLAYWRIGHT] AutoSapo local fetch failed: {e}")
-             return None
+            logger.error(f"[PLAYWRIGHT] AutoSapo local fetch failed: {e}")
+            return None
+        finally:
+            if page is not None:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
 
     def _parse_soup_to_listings(self, soup: Any, max_listings: int) -> List[Dict[str, object]]:
         listings = []
@@ -262,6 +274,8 @@ class AutoSapoScraper:
             if not title:
                 continue
 
+            price_match = re.search(r"(\d{1,3}(?:[\.\s]\d{3})+|\d{3,6})\s*€", text_block)
+            price_raw = price_match.group(0) if price_match else None
             price = self._extract_price_from_text(text_block)
             year = self._extract_year_from_text(text_block)
             km = self._extract_km_from_text(text_block)
@@ -305,6 +319,10 @@ class AutoSapoScraper:
                 "brand": brand,
                 "model": model,
                 "price": price,
+                "price_raw": price_raw,
+                "price_observed_value": price,
+                "currency": "EUR",
+                "price_kind": "total",
                 "year": year,
                 "km": km,
                 "location": location,
@@ -467,11 +485,16 @@ class AutoSapoScraper:
 
             # Price from div.price
             price = None
+            price_raw = None
             price_elem = desc.find('div', class_='price')
             if price_elem:
-                price = self._safe_float(price_elem.get_text(strip=True))
+                price_raw = price_elem.get_text(strip=True)
+                price = self._safe_float(price_raw)
             if price is None:
-                price = self._extract_price_from_text(desc.get_text(strip=True))
+                description_text = desc.get_text(strip=True)
+                price_match = re.search(r"(\d{1,3}(?:[\.\s]\d{3})+|\d{3,6})\s*€", description_text)
+                price_raw = price_match.group(0) if price_match else None
+                price = self._extract_price_from_text(description_text)
 
             # Year, km, fuel, transmission from div.features > ul > li
             year = None
@@ -527,6 +550,10 @@ class AutoSapoScraper:
                 "brand": brand,
                 "model": model,
                 "price": price,
+                "price_raw": price_raw,
+                "price_observed_value": price,
+                "currency": "EUR",
+                "price_kind": "total",
                 "year": year,
                 "km": km,
                 "location": "",

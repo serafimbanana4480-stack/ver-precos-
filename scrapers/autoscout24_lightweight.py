@@ -3,18 +3,31 @@ AutoScout24 Lightweight Scraper
 Uses requests + BeautifulSoup only (no Playwright).
 Site: autoscout24.pt - International car marketplace with Portuguese listings.
 NOTE: This site times out with simple requests from this environment.
-Includes fallback to sitemap-based approach.
+The historical sitemap fallback is intentionally not used automatically:
+the sitemap contains URLs only and this adapter did not hydrate those URLs
+into listings, so retrying it added latency without adding data.
 """
 from __future__ import annotations
 import hashlib
 import logging
 import random
 import re
+import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
+from scrapers.resilience import (
+    STATUS_BLOCKED,
+    STATUS_BLOCKED_CREDENTIALS,
+    STATUS_DEGRADED,
+    STATUS_EMPTY,
+    STATUS_FAILED,
+    STATUS_OK,
+    STATUS_TIMEOUT,
+    status_for_http,
+)
 from scrapers.schema import parse_price_evidence
 logger = logging.getLogger(__name__)
 
@@ -33,10 +46,24 @@ class AutoScout24Lightweight:
     """Lightweight scraper for AutoScout24.pt using requests + BeautifulSoup."""
 
     BASE_URL = "https://www.autoscout24.pt"
+    REQUEST_TIMEOUT = (2.0, 6.0)
+    MAX_ATTEMPTS = 2
+    RETRY_BACKOFF_SECONDS = 0.10
 
     def __init__(self) -> None:
         self.session = requests.Session()
         self.session.headers.update(self._headers())
+        self.last_status = STATUS_EMPTY
+        self.last_error: Optional[str] = None
+        self.requests_made = 0
+        self.retries = 0
+        self._closed = False
+
+    def close(self) -> None:
+        """Close the per-run HTTP connection pool."""
+        if not self._closed:
+            self.session.close()
+            self._closed = True
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -63,8 +90,9 @@ class AutoScout24Lightweight:
         """
         Scrape listings from AutoScout24.pt using requests + BS4.
 
-        NOTE: AutoScout24 often blocks/times out simple requests.
-        If the listing page fails, tries sitemap-based approach.
+        NOTE: AutoScout24 often blocks/times out simple requests. A failed
+        listing page is returned as an empty, diagnosable result; the old
+        sitemap fallback was URL-only and could not produce quality rows.
 
         Args:
             vehicle_type: 'carros' or 'motos'
@@ -74,27 +102,37 @@ class AutoScout24Lightweight:
         Returns:
             List of vehicle dicts
         """
+        max_listings = max(0, int(max_listings))
+        self.last_status = STATUS_EMPTY
+        self.last_error = None
+        self.requests_made = 0
+        self.retries = 0
+        if max_listings == 0:
+            return []
         logger.info(f"[AS24_LIGHT] Starting scrape for {vehicle_type}, max {max_listings}")
         url = self._build_listing_url(vehicle_type)
         html = self._fetch(url)
 
         if not html:
             logger.warning("[AS24_LIGHT] No HTML fetched - server may be blocking requests")
-            # Try sitemap-based fallback
-            logger.info("[AS24_LIGHT] Trying sitemap fallback")
-            return self._scrape_from_sitemap(max_listings)
+            return []
 
         if self._is_blocked(html):
+            self.last_status = STATUS_BLOCKED
+            self.last_error = "challenge/block page"
             logger.warning("[AS24_LIGHT] Response is a block/challenge page")
-            return self._scrape_from_sitemap(max_listings)
+            return []
 
         soup = BeautifulSoup(html, "html.parser")
         listings = self._parse_listings(soup, max_listings)
 
         if not listings:
-            logger.info("[AS24_LIGHT] No listings found in HTML, trying sitemap fallback")
-            return self._scrape_from_sitemap(max_listings)
+            self.last_status = STATUS_DEGRADED
+            self.last_error = "no listing cards parsed"
+            logger.info("[AS24_LIGHT] No listings found in HTML")
+            return []
 
+        self.last_status = STATUS_OK
         logger.info(f"[AS24_LIGHT] Extracted {len(listings)} listings")
         return listings
 
@@ -106,19 +144,53 @@ class AutoScout24Lightweight:
         )
 
     def _fetch(self, url: str) -> Optional[str]:
-        """Fetch HTML with aggressive timeout handling."""
-        try:
-            resp = self.session.get(url, timeout=(5, 15), allow_redirects=True)
-            if resp.status_code != 200:
+        """Fetch HTML with a short terminal-failure path and one retry."""
+        for attempt in range(self.MAX_ATTEMPTS):
+            self.requests_made += 1
+            try:
+                resp = self.session.get(
+                    url,
+                    timeout=self.REQUEST_TIMEOUT,
+                    allow_redirects=True,
+                )
+                if resp.status_code == 200:
+                    self.last_status = STATUS_OK
+                    return resp.text
+                status, retryable = status_for_http(resp.status_code)
+                self.last_status = status
+                self.last_error = f"HTTP {resp.status_code}"
                 logger.warning(f"[AS24_LIGHT] HTTP {resp.status_code}")
+                if retryable and attempt + 1 < self.MAX_ATTEMPTS:
+                    self.retries += 1
+                    time.sleep(self.RETRY_BACKOFF_SECONDS)
+                    continue
                 return None
-            return resp.text
-        except requests.Timeout:
-            logger.warning(f"[AS24_LIGHT] Timeout fetching {url}")
-            return None
-        except requests.RequestException as e:
-            logger.error(f"[AS24_LIGHT] Request failed: {e}")
-            return None
+            except requests.Timeout as exc:
+                self.last_status = STATUS_TIMEOUT
+                self.last_error = str(exc) or "request timeout"
+                logger.warning(f"[AS24_LIGHT] Timeout fetching {url}")
+                if attempt + 1 < self.MAX_ATTEMPTS:
+                    self.retries += 1
+                    time.sleep(self.RETRY_BACKOFF_SECONDS)
+                    continue
+                return None
+            except requests.ConnectionError as exc:
+                text = str(exc).lower()
+                self.last_status = STATUS_FAILED
+                self.last_error = str(exc)
+                logger.error(f"[AS24_LIGHT] Request failed: {exc}")
+                # DNS errors are terminal; do not spend the second attempt.
+                if "getaddrinfo" not in text and "name resolution" not in text and attempt + 1 < self.MAX_ATTEMPTS:
+                    self.retries += 1
+                    time.sleep(self.RETRY_BACKOFF_SECONDS)
+                    continue
+                return None
+            except requests.RequestException as exc:
+                self.last_status = STATUS_FAILED
+                self.last_error = str(exc)
+                logger.error(f"[AS24_LIGHT] Request failed: {exc}")
+                return None
+        return None
 
     def _is_blocked(self, text: str) -> bool:
         checks = ["cf-browser-verification", "cloudflare", "Just a moment",
@@ -179,12 +251,15 @@ class AutoScout24Lightweight:
             price_el = card.find(class_=re.compile(r"price", re.I))
             if not price_el:
                 price_el = card.find(["span", "p", "div"], string=re.compile(r"€|EUR"))
-            price = None
+            price_evidence = None
             if price_el:
-                price = self._parse_price(price_el.get_text(strip=True))
+                price_evidence = parse_price_evidence(price_el.get_text(strip=True))
 
-            if not title or not price:
+            if not title or price_evidence is None or not price_evidence.value:
                 return None
+            if price_evidence.kind.value != "total" or price_evidence.currency != "EUR":
+                return None
+            price = float(price_evidence.value)
 
             card_text = card.get_text(" ", strip=True)
 
@@ -248,6 +323,12 @@ class AutoScout24Lightweight:
                 "brand": brand,
                 "model": model,
                 "price": price,
+                "price_raw": price_evidence.raw,
+                "price_observed_value": price_evidence.value,
+                "currency": price_evidence.currency,
+                "price_kind": price_evidence.kind.value,
+                "price_evidence": price_evidence.evidence,
+                "price_rejection_reason": price_evidence.rejection_reason,
                 "year": year,
                 "km": km,
                 "fuel_type": fuel_type,

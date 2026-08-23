@@ -125,15 +125,24 @@ class AuctionScraper:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
                 page = await browser.new_page()
-                await page.goto(url, wait_until="networkidle", timeout=timeout)
                 try:
-                    await page.wait_for_selector(wait_for, timeout=timeout // 2)
-                except Exception:
-                    pass
-                html = await page.content()
-                await browser.close()
-                logger.info(f"[{self.source.value}] Playwright rendered {url}")
-                return html
+                    await page.goto(url, wait_until="networkidle", timeout=timeout)
+                    try:
+                        await page.wait_for_selector(wait_for, timeout=timeout // 2)
+                    except Exception:
+                        pass
+                    html = await page.content()
+                    logger.info(f"[{self.source.value}] Playwright rendered {url}")
+                    return html
+                finally:
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
         except ImportError:
             logger.error("[PLAYWRIGHT] Package not installed; install with: pip install playwright")
             return None

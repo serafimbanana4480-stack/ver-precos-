@@ -153,11 +153,13 @@ class OLXLightweight:
 
             price = None
             price_p = params.get("price")
+            price_currency = "EUR"
             if isinstance(price_p, dict):
                 currency = price_p.get("currency")
                 if currency and currency != "EUR":
                     logger.warning(f"[OLX_LIGHT] Skipping non-EUR listing {it.get('id')}: {currency}")
                     return None
+                price_currency = currency or price_currency
                 price = price_p.get("value")
             if not price or float(price) <= 0:
                 return None
@@ -193,6 +195,9 @@ class OLXLightweight:
                 "brand": brand,
                 "model": model,
                 "price": float(price),
+                "price_observed_value": float(price),
+                "currency": price_currency,
+                "price_kind": "total",
                 "year": year,
                 "km": km,
                 "engine_size": engine_size or None,
