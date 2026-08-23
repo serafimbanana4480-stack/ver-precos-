@@ -1,0 +1,1918 @@
+{
+ "_meta": {
+  "version": "2026.07",
+  "updated_at": "2026-07-29",
+  "currency": "EUR",
+  "market": "PT",
+  "purpose": "Ancoras de mercado reais para sanity-check e fallback de valorizacao quando a base de dados tem poucos comparaveis.",
+  "market_context": {
+   "avg_used_price_professional_jan_2026": 24300,
+   "avg_used_price_yoy_change_pct": 3.4,
+   "supply_change_yoy_pct": -5.0,
+   "demand_change_yoy_pct": 15.0,
+   "demand_below_15k_change_pct": 20.0,
+   "imported_used_passenger_cars_2025": 120787,
+   "notes": "Oferta a cair e procura a subir: precos de usados em alta em 2026, sobretudo abaixo dos 15.000 EUR.",
+   "sources": [
+    "https://jornaleconomico.sapo.pt/noticias/mercado-de-usados-arranca-2026-em-alta-procura-sobe-15-e-importacoes-batem-recorde/",
+    "https://ipressjournal.pt/preco-medio-dos-automoveis-usados-aumentou-168-em-2025/",
+    "https://jornaldasoficinas.com/pt/carros-usados-deverao-manter-precos-elevados-em-2026/"
+   ]
+  },
+  "depreciation_note": "Residual = % do PVP novo. Curvas por segmento, calibradas contra precos observados no mercado PT em 2026.",
+  "confidence_levels": {
+   "high": "PVP de lancamento bem documentado e modelo com muita oferta no mercado PT",
+   "medium": "PVP aproximado, oferta media",
+   "low": "PVP estimado, poucos comparaveis"
+  },
+  "retention_note": "Campo 'retention': multiplicador especifico do modelo sobre a curva do segmento, calibrado contra precos observados no mercado PT em 2026.",
+  "from_year_note": "Campo 'from_year': ano da primeira geracao relevante no mercado PT. Anos anteriores sao rejeitados como dados invalidos.",
+  "anchors_update_2026_08_01": "Adicionadas 49 âncoras premium/raras/comerciais (BMW M, Mercedes GLE/GLC/AMG, Audi RS, Porsche, comerciais ligeiros) para cobrir os segmentos que caíam no fallback.",
+  "retention_update_2026_08_01": "Fatores de retenção para supercarros e versões de performance: estes modelos seguram valor bem acima da curva de segmento.",
+  "retention_calibrated_at": "2026-08-01T02:35:13.536571+00:00",
+  "retention_calibration": {
+   "segments": [
+    "desportivo",
+    "premium"
+   ],
+   "min_n": 5,
+   "method": "median implied retention, 50% shrinkage, clamp [0.70, 1.30]"
+  }
+ },
+ "depreciation_curves": {
+  "citadino": {
+   "description": "Segmentos A/B: Clio, 208, Corsa, Fiesta, Panda, Up, i10, Picanto",
+   "residual_by_age": {
+    "0": 1.0,
+    "1": 0.86,
+    "2": 0.79,
+    "3": 0.73,
+    "4": 0.68,
+    "5": 0.64,
+    "6": 0.6,
+    "7": 0.57,
+    "8": 0.54,
+    "9": 0.51,
+    "10": 0.48,
+    "11": 0.45,
+    "12": 0.42,
+    "13": 0.39,
+    "14": 0.365,
+    "15": 0.34,
+    "16": 0.32,
+    "17": 0.3,
+    "18": 0.28,
+    "19": 0.265,
+    "20": 0.25
+   },
+   "floor": 0.15
+  },
+  "media": {
+   "description": "Segmento C/D: Megane, Golf, Astra, Focus, 308, Leon, Octavia, Passat",
+   "residual_by_age": {
+    "0": 1.0,
+    "1": 0.84,
+    "2": 0.76,
+    "3": 0.69,
+    "4": 0.63,
+    "5": 0.58,
+    "6": 0.54,
+    "7": 0.5,
+    "8": 0.47,
+    "9": 0.44,
+    "10": 0.42,
+    "11": 0.39,
+    "12": 0.36,
+    "13": 0.34,
+    "14": 0.315,
+    "15": 0.29,
+    "16": 0.27,
+    "17": 0.255,
+    "18": 0.24,
+    "19": 0.225,
+    "20": 0.21
+   },
+   "floor": 0.12
+  },
+  "suv": {
+   "description": "SUV/crossover: Captur, 2008, Qashqai, Tucson, T-Roc, Kuga, 3008",
+   "residual_by_age": {
+    "0": 1.0,
+    "1": 0.86,
+    "2": 0.78,
+    "3": 0.72,
+    "4": 0.67,
+    "5": 0.62,
+    "6": 0.58,
+    "7": 0.54,
+    "8": 0.5,
+    "9": 0.47,
+    "10": 0.44,
+    "11": 0.41,
+    "12": 0.38,
+    "13": 0.355,
+    "14": 0.33,
+    "15": 0.3,
+    "16": 0.285,
+    "17": 0.27,
+    "18": 0.255,
+    "19": 0.24,
+    "20": 0.225
+   },
+   "floor": 0.13
+  },
+  "premium": {
+   "description": "Premium executivo: Serie 3/5, A4/A6, Classe C/E, XC60, Q5",
+   "residual_by_age": {
+    "0": 1.0,
+    "1": 0.8,
+    "2": 0.7,
+    "3": 0.62,
+    "4": 0.56,
+    "5": 0.51,
+    "6": 0.47,
+    "7": 0.44,
+    "8": 0.41,
+    "9": 0.38,
+    "10": 0.35,
+    "11": 0.32,
+    "12": 0.3,
+    "13": 0.28,
+    "14": 0.26,
+    "15": 0.24,
+    "16": 0.225,
+    "17": 0.21,
+    "18": 0.2,
+    "19": 0.19,
+    "20": 0.18
+   },
+   "floor": 0.1
+  },
+  "comercial": {
+   "description": "Ligeiros de mercadorias: Kangoo, Berlingo, Partner, Transit, Transporter",
+   "residual_by_age": {
+    "0": 1.0,
+    "1": 0.82,
+    "2": 0.74,
+    "3": 0.68,
+    "4": 0.63,
+    "5": 0.58,
+    "6": 0.54,
+    "7": 0.51,
+    "8": 0.48,
+    "9": 0.45,
+    "10": 0.42,
+    "11": 0.395,
+    "12": 0.37,
+    "13": 0.35,
+    "14": 0.33,
+    "15": 0.31,
+    "16": 0.29,
+    "17": 0.275,
+    "18": 0.26,
+    "19": 0.25,
+    "20": 0.24
+   },
+   "floor": 0.14
+  },
+  "eletrico": {
+   "description": "BEV: depreciacao acelerada por evolucao tecnologica e incerteza de bateria",
+   "residual_by_age": {
+    "0": 1.0,
+    "1": 0.74,
+    "2": 0.63,
+    "3": 0.55,
+    "4": 0.49,
+    "5": 0.44,
+    "6": 0.4,
+    "7": 0.36,
+    "8": 0.32,
+    "9": 0.29,
+    "10": 0.26,
+    "11": 0.24,
+    "12": 0.22,
+    "13": 0.2,
+    "14": 0.19,
+    "15": 0.18,
+    "16": 0.17,
+    "17": 0.16,
+    "18": 0.155,
+    "19": 0.15,
+    "20": 0.145
+   },
+   "floor": 0.1
+  },
+  "desportivo": {
+   "description": "Desportivos e cult cars: depreciacao lenta, podem valorizar acima dos 20 anos",
+   "residual_by_age": {
+    "0": 1.0,
+    "1": 0.85,
+    "2": 0.78,
+    "3": 0.73,
+    "4": 0.68,
+    "5": 0.65,
+    "6": 0.62,
+    "7": 0.59,
+    "8": 0.57,
+    "9": 0.55,
+    "10": 0.53,
+    "11": 0.51,
+    "12": 0.5,
+    "13": 0.49,
+    "14": 0.48,
+    "15": 0.48,
+    "16": 0.48,
+    "17": 0.49,
+    "18": 0.5,
+    "19": 0.52,
+    "20": 0.55
+   },
+   "floor": 0.35
+  },
+  "moto": {
+   "description": "Motociclos >125cc: depreciacao muito mais lenta que automoveis",
+   "residual_by_age": {
+    "0": 1.0,
+    "1": 0.9,
+    "2": 0.85,
+    "3": 0.81,
+    "4": 0.77,
+    "5": 0.74,
+    "6": 0.71,
+    "7": 0.68,
+    "8": 0.66,
+    "9": 0.63,
+    "10": 0.61,
+    "11": 0.585,
+    "12": 0.56,
+    "13": 0.54,
+    "14": 0.52,
+    "15": 0.5,
+    "16": 0.48,
+    "17": 0.465,
+    "18": 0.45,
+    "19": 0.435,
+    "20": 0.42
+   },
+   "floor": 0.28
+  },
+  "scooter": {
+   "description": "Scooters e 125cc: procura urbana constante, boa retencao de valor",
+   "residual_by_age": {
+    "0": 1.0,
+    "1": 0.88,
+    "2": 0.83,
+    "3": 0.79,
+    "4": 0.76,
+    "5": 0.74,
+    "6": 0.71,
+    "7": 0.68,
+    "8": 0.65,
+    "9": 0.62,
+    "10": 0.59,
+    "11": 0.56,
+    "12": 0.53,
+    "13": 0.5,
+    "14": 0.475,
+    "15": 0.45,
+    "16": 0.43,
+    "17": 0.41,
+    "18": 0.39,
+    "19": 0.375,
+    "20": 0.36
+   },
+   "floor": 0.22
+  }
+ },
+ "absolute_floors": {
+  "carros": 700,
+  "motos": 350,
+  "comerciais": 900
+ },
+ "sanity_bounds": {
+  "carros": {
+   "min": 300,
+   "max": 250000
+  },
+  "motos": {
+   "min": 200,
+   "max": 60000
+  },
+  "comerciais": {
+   "min": 500,
+   "max": 120000
+  }
+ },
+ "models": {
+  "renault clio": {
+   "segment": "citadino",
+   "new_price": 19500,
+   "confidence": "high",
+   "from_year": 1998
+  },
+  "renault captur": {
+   "segment": "suv",
+   "new_price": 25500,
+   "confidence": "high",
+   "from_year": 2013
+  },
+  "renault megane": {
+   "segment": "media",
+   "new_price": 30000,
+   "confidence": "high",
+   "from_year": 2003
+  },
+  "renault scenic": {
+   "segment": "media",
+   "new_price": 30500,
+   "confidence": "medium",
+   "from_year": 2003
+  },
+  "renault kadjar": {
+   "segment": "suv",
+   "new_price": 28000,
+   "confidence": "medium",
+   "from_year": 2015
+  },
+  "renault twingo": {
+   "segment": "citadino",
+   "new_price": 15500,
+   "confidence": "medium",
+   "from_year": 2007
+  },
+  "renault zoe": {
+   "segment": "eletrico",
+   "new_price": 33000,
+   "confidence": "high",
+   "retention": 0.85,
+   "from_year": 2013
+  },
+  "renault kangoo": {
+   "segment": "comercial",
+   "new_price": 22000,
+   "confidence": "high",
+   "from_year": 2003
+  },
+  "renault austral": {
+   "segment": "suv",
+   "new_price": 38000,
+   "confidence": "medium",
+   "from_year": 2022
+  },
+  "renault arkana": {
+   "segment": "suv",
+   "new_price": 33000,
+   "confidence": "medium",
+   "from_year": 2021
+  },
+  "peugeot 208": {
+   "segment": "citadino",
+   "new_price": 20500,
+   "confidence": "high",
+   "from_year": 2012
+  },
+  "peugeot 2008": {
+   "segment": "suv",
+   "new_price": 26500,
+   "confidence": "high",
+   "from_year": 2013
+  },
+  "peugeot 308": {
+   "segment": "media",
+   "new_price": 30500,
+   "confidence": "high",
+   "from_year": 2007
+  },
+  "peugeot 3008": {
+   "segment": "suv",
+   "new_price": 38000,
+   "confidence": "high",
+   "from_year": 2009
+  },
+  "peugeot 5008": {
+   "segment": "suv",
+   "new_price": 42000,
+   "confidence": "medium",
+   "from_year": 2009
+  },
+  "peugeot 508": {
+   "segment": "premium",
+   "new_price": 42000,
+   "confidence": "medium",
+   "from_year": 2011,
+   "retention": 0.927
+  },
+  "peugeot partner": {
+   "segment": "comercial",
+   "new_price": 22500,
+   "confidence": "high",
+   "from_year": 2008
+  },
+  "peugeot 108": {
+   "segment": "citadino",
+   "new_price": 14000,
+   "confidence": "medium",
+   "from_year": 2014
+  },
+  "citroen c3": {
+   "segment": "citadino",
+   "new_price": 19000,
+   "confidence": "high",
+   "retention": 0.97,
+   "from_year": 2002
+  },
+  "citroen c4": {
+   "segment": "media",
+   "new_price": 28000,
+   "confidence": "high",
+   "retention": 0.95,
+   "from_year": 2004
+  },
+  "citroen c3 aircross": {
+   "segment": "suv",
+   "new_price": 24000,
+   "confidence": "medium",
+   "from_year": 2017
+  },
+  "citroen c5 aircross": {
+   "segment": "suv",
+   "new_price": 36000,
+   "confidence": "medium",
+   "from_year": 2018
+  },
+  "citroen berlingo": {
+   "segment": "comercial",
+   "new_price": 22500,
+   "confidence": "high",
+   "from_year": 2008
+  },
+  "volkswagen polo": {
+   "segment": "citadino",
+   "new_price": 23000,
+   "confidence": "high",
+   "retention": 1.03,
+   "from_year": 2000
+  },
+  "volkswagen golf": {
+   "segment": "media",
+   "new_price": 32000,
+   "confidence": "high",
+   "retention": 1.03,
+   "from_year": 1998
+  },
+  "volkswagen t-roc": {
+   "segment": "suv",
+   "new_price": 32000,
+   "confidence": "high",
+   "from_year": 2017
+  },
+  "volkswagen t-cross": {
+   "segment": "suv",
+   "new_price": 27000,
+   "confidence": "high",
+   "from_year": 2019
+  },
+  "volkswagen tiguan": {
+   "segment": "suv",
+   "new_price": 41000,
+   "confidence": "high",
+   "from_year": 2007
+  },
+  "volkswagen passat": {
+   "segment": "media",
+   "new_price": 40000,
+   "confidence": "high",
+   "from_year": 2000
+  },
+  "volkswagen up": {
+   "segment": "citadino",
+   "new_price": 14500,
+   "confidence": "medium",
+   "from_year": 2012
+  },
+  "volkswagen transporter": {
+   "segment": "comercial",
+   "new_price": 38000,
+   "confidence": "medium",
+   "retention": 1.1,
+   "from_year": 2003
+  },
+  "volkswagen id.3": {
+   "segment": "eletrico",
+   "new_price": 40000,
+   "confidence": "medium",
+   "from_year": 2020
+  },
+  "seat ibiza": {
+   "segment": "citadino",
+   "new_price": 20500,
+   "confidence": "high",
+   "from_year": 2002
+  },
+  "seat leon": {
+   "segment": "media",
+   "new_price": 28500,
+   "confidence": "high",
+   "from_year": 2005
+  },
+  "seat arona": {
+   "segment": "suv",
+   "new_price": 25000,
+   "confidence": "high",
+   "from_year": 2017
+  },
+  "seat ateca": {
+   "segment": "suv",
+   "new_price": 32000,
+   "confidence": "medium",
+   "from_year": 2016
+  },
+  "skoda fabia": {
+   "segment": "citadino",
+   "new_price": 20000,
+   "confidence": "high",
+   "from_year": 2000
+  },
+  "skoda octavia": {
+   "segment": "media",
+   "new_price": 32000,
+   "confidence": "high",
+   "from_year": 2004
+  },
+  "skoda karoq": {
+   "segment": "suv",
+   "new_price": 34000,
+   "confidence": "medium",
+   "from_year": 2017
+  },
+  "skoda kamiq": {
+   "segment": "suv",
+   "new_price": 27000,
+   "confidence": "medium",
+   "from_year": 2019
+  },
+  "opel corsa": {
+   "segment": "citadino",
+   "new_price": 20000,
+   "confidence": "high",
+   "retention": 0.97,
+   "from_year": 2000
+  },
+  "opel astra": {
+   "segment": "media",
+   "new_price": 29000,
+   "confidence": "high",
+   "retention": 0.95,
+   "from_year": 2004
+  },
+  "opel mokka": {
+   "segment": "suv",
+   "new_price": 27000,
+   "confidence": "medium",
+   "from_year": 2012
+  },
+  "opel crossland": {
+   "segment": "suv",
+   "new_price": 25000,
+   "confidence": "medium",
+   "from_year": 2017
+  },
+  "ford fiesta": {
+   "segment": "citadino",
+   "new_price": 20000,
+   "confidence": "high",
+   "from_year": 2002
+  },
+  "ford focus": {
+   "segment": "media",
+   "new_price": 28500,
+   "confidence": "high",
+   "from_year": 2005
+  },
+  "ford puma": {
+   "segment": "suv",
+   "new_price": 28000,
+   "confidence": "high",
+   "from_year": 2019
+  },
+  "ford kuga": {
+   "segment": "suv",
+   "new_price": 38000,
+   "confidence": "medium",
+   "from_year": 2008
+  },
+  "ford transit": {
+   "segment": "comercial",
+   "new_price": 36000,
+   "confidence": "medium",
+   "from_year": 2006
+  },
+  "toyota yaris": {
+   "segment": "citadino",
+   "new_price": 23000,
+   "confidence": "high",
+   "retention": 1.12,
+   "from_year": 2000
+  },
+  "toyota yaris cross": {
+   "segment": "suv",
+   "new_price": 29000,
+   "confidence": "high",
+   "retention": 1.08,
+   "from_year": 2021
+  },
+  "toyota corolla": {
+   "segment": "media",
+   "new_price": 31000,
+   "confidence": "high",
+   "retention": 1.1,
+   "from_year": 2002
+  },
+  "toyota c-hr": {
+   "segment": "suv",
+   "new_price": 34000,
+   "confidence": "high",
+   "retention": 1.08,
+   "from_year": 2016
+  },
+  "toyota rav4": {
+   "segment": "suv",
+   "new_price": 45000,
+   "confidence": "medium",
+   "retention": 1.1,
+   "from_year": 2006
+  },
+  "toyota aygo": {
+   "segment": "citadino",
+   "new_price": 17000,
+   "confidence": "medium",
+   "retention": 1.08,
+   "from_year": 2005
+  },
+  "nissan qashqai": {
+   "segment": "suv",
+   "new_price": 34000,
+   "confidence": "high",
+   "from_year": 2007
+  },
+  "nissan juke": {
+   "segment": "suv",
+   "new_price": 27000,
+   "confidence": "high",
+   "from_year": 2010
+  },
+  "nissan micra": {
+   "segment": "citadino",
+   "new_price": 18500,
+   "confidence": "medium",
+   "from_year": 2003
+  },
+  "nissan leaf": {
+   "segment": "eletrico",
+   "new_price": 34000,
+   "confidence": "medium",
+   "retention": 0.88,
+   "from_year": 2011
+  },
+  "hyundai i10": {
+   "segment": "citadino",
+   "new_price": 16500,
+   "confidence": "high",
+   "from_year": 2008
+  },
+  "hyundai i20": {
+   "segment": "citadino",
+   "new_price": 20500,
+   "confidence": "high",
+   "from_year": 2009
+  },
+  "hyundai i30": {
+   "segment": "media",
+   "new_price": 27000,
+   "confidence": "medium",
+   "from_year": 2007
+  },
+  "hyundai tucson": {
+   "segment": "suv",
+   "new_price": 38000,
+   "confidence": "high",
+   "from_year": 2004
+  },
+  "hyundai kona": {
+   "segment": "suv",
+   "new_price": 30000,
+   "confidence": "high",
+   "from_year": 2017
+  },
+  "hyundai ioniq": {
+   "segment": "eletrico",
+   "new_price": 37000,
+   "confidence": "medium",
+   "from_year": 2016
+  },
+  "kia picanto": {
+   "segment": "citadino",
+   "new_price": 16000,
+   "confidence": "high",
+   "from_year": 2004
+  },
+  "kia rio": {
+   "segment": "citadino",
+   "new_price": 19500,
+   "confidence": "medium",
+   "from_year": 2005
+  },
+  "kia ceed": {
+   "segment": "media",
+   "new_price": 26500,
+   "confidence": "medium",
+   "from_year": 2007
+  },
+  "kia sportage": {
+   "segment": "suv",
+   "new_price": 37000,
+   "confidence": "high",
+   "from_year": 2005
+  },
+  "kia niro": {
+   "segment": "suv",
+   "new_price": 35000,
+   "confidence": "medium",
+   "from_year": 2016
+  },
+  "dacia sandero": {
+   "segment": "citadino",
+   "new_price": 15500,
+   "confidence": "high",
+   "retention": 1.12,
+   "from_year": 2008
+  },
+  "dacia duster": {
+   "segment": "suv",
+   "new_price": 21000,
+   "confidence": "high",
+   "retention": 1.12,
+   "from_year": 2010
+  },
+  "dacia jogger": {
+   "segment": "suv",
+   "new_price": 22500,
+   "confidence": "medium",
+   "retention": 1.08,
+   "from_year": 2022
+  },
+  "dacia logan": {
+   "segment": "citadino",
+   "new_price": 15000,
+   "confidence": "medium",
+   "retention": 1.1,
+   "from_year": 2005
+  },
+  "fiat 500": {
+   "segment": "citadino",
+   "new_price": 18000,
+   "confidence": "high",
+   "retention": 1.05,
+   "from_year": 2007
+  },
+  "fiat panda": {
+   "segment": "citadino",
+   "new_price": 16000,
+   "confidence": "high",
+   "from_year": 2003
+  },
+  "fiat tipo": {
+   "segment": "media",
+   "new_price": 22000,
+   "confidence": "medium",
+   "retention": 0.93,
+   "from_year": 2016
+  },
+  "bmw serie 1": {
+   "segment": "premium",
+   "new_price": 38000,
+   "confidence": "high",
+   "from_year": 2004,
+   "retention": 1.01
+  },
+  "bmw serie 3": {
+   "segment": "premium",
+   "new_price": 52000,
+   "confidence": "high",
+   "from_year": 1998,
+   "retention": 1.036
+  },
+  "bmw serie 5": {
+   "segment": "premium",
+   "new_price": 70000,
+   "confidence": "medium",
+   "from_year": 2003,
+   "retention": 0.941
+  },
+  "bmw x1": {
+   "segment": "premium",
+   "new_price": 46000,
+   "confidence": "high",
+   "from_year": 2009,
+   "retention": 1.092
+  },
+  "bmw x3": {
+   "segment": "premium",
+   "new_price": 62000,
+   "confidence": "medium",
+   "from_year": 2004,
+   "retention": 1.081
+  },
+  "bmw i3": {
+   "segment": "eletrico",
+   "new_price": 40000,
+   "confidence": "medium",
+   "retention": 0.92,
+   "from_year": 2013
+  },
+  "audi a1": {
+   "segment": "premium",
+   "new_price": 32000,
+   "confidence": "high",
+   "from_year": 2010,
+   "retention": 1.117
+  },
+  "audi a3": {
+   "segment": "premium",
+   "new_price": 42000,
+   "confidence": "high",
+   "from_year": 2003,
+   "retention": 1.042
+  },
+  "audi a4": {
+   "segment": "premium",
+   "new_price": 55000,
+   "confidence": "high",
+   "from_year": 2001,
+   "retention": 0.919
+  },
+  "audi a6": {
+   "segment": "premium",
+   "new_price": 72000,
+   "confidence": "medium",
+   "from_year": 2004
+  },
+  "audi q2": {
+   "segment": "premium",
+   "new_price": 38000,
+   "confidence": "medium",
+   "from_year": 2016,
+   "retention": 1.078
+  },
+  "audi q3": {
+   "segment": "premium",
+   "new_price": 48000,
+   "confidence": "high",
+   "from_year": 2011
+  },
+  "audi q5": {
+   "segment": "premium",
+   "new_price": 65000,
+   "confidence": "medium",
+   "from_year": 2008
+  },
+  "mercedes-benz classe a": {
+   "segment": "premium",
+   "new_price": 44000,
+   "confidence": "high",
+   "from_year": 2004,
+   "retention": 1.051
+  },
+  "mercedes-benz classe c": {
+   "segment": "premium",
+   "new_price": 58000,
+   "confidence": "high",
+   "from_year": 2000,
+   "retention": 1.027
+  },
+  "mercedes-benz classe e": {
+   "segment": "premium",
+   "new_price": 75000,
+   "confidence": "medium",
+   "from_year": 2002,
+   "retention": 1.062
+  },
+  "mercedes-benz gla": {
+   "segment": "premium",
+   "new_price": 48000,
+   "confidence": "medium",
+   "from_year": 2014,
+   "retention": 1.167
+  },
+  "mercedes-benz cla": {
+   "segment": "premium",
+   "new_price": 50000,
+   "confidence": "medium",
+   "from_year": 2013,
+   "retention": 1.081
+  },
+  "mercedes-benz vito": {
+   "segment": "comercial",
+   "new_price": 42000,
+   "confidence": "medium",
+   "from_year": 2004
+  },
+  "volvo xc40": {
+   "segment": "premium",
+   "new_price": 50000,
+   "confidence": "medium",
+   "from_year": 2018,
+   "retention": 1.02
+  },
+  "volvo xc60": {
+   "segment": "premium",
+   "new_price": 65000,
+   "confidence": "medium",
+   "from_year": 2008
+  },
+  "volvo v40": {
+   "segment": "premium",
+   "new_price": 38000,
+   "confidence": "low",
+   "from_year": 2012,
+   "retention": 0.964
+  },
+  "mini cooper": {
+   "segment": "premium",
+   "new_price": 34000,
+   "confidence": "medium",
+   "retention": 1.177,
+   "from_year": 2002
+  },
+  "mazda cx-5": {
+   "segment": "suv",
+   "new_price": 40000,
+   "confidence": "medium",
+   "from_year": 2012
+  },
+  "mazda 3": {
+   "segment": "media",
+   "new_price": 30000,
+   "confidence": "medium",
+   "from_year": 2004
+  },
+  "mazda mx-5": {
+   "segment": "desportivo",
+   "new_price": 38000,
+   "confidence": "medium",
+   "retention": 1.042,
+   "from_year": 1998
+  },
+  "honda civic": {
+   "segment": "media",
+   "new_price": 34000,
+   "confidence": "medium",
+   "retention": 1.04,
+   "from_year": 2001
+  },
+  "honda hr-v": {
+   "segment": "suv",
+   "new_price": 33000,
+   "confidence": "medium",
+   "from_year": 2015
+  },
+  "honda jazz": {
+   "segment": "citadino",
+   "new_price": 25000,
+   "confidence": "medium",
+   "retention": 1.06,
+   "from_year": 2002
+  },
+  "suzuki swift": {
+   "segment": "citadino",
+   "new_price": 19000,
+   "confidence": "medium",
+   "retention": 1.05,
+   "from_year": 2005
+  },
+  "suzuki vitara": {
+   "segment": "suv",
+   "new_price": 28000,
+   "confidence": "medium",
+   "retention": 1.05,
+   "from_year": 2015
+  },
+  "jeep renegade": {
+   "segment": "suv",
+   "new_price": 30000,
+   "confidence": "medium",
+   "retention": 0.95,
+   "from_year": 2015
+  },
+  "jeep compass": {
+   "segment": "suv",
+   "new_price": 38000,
+   "confidence": "medium",
+   "retention": 0.95,
+   "from_year": 2017
+  },
+  "tesla model 3": {
+   "segment": "eletrico",
+   "new_price": 48000,
+   "confidence": "high",
+   "retention": 0.92,
+   "from_year": 2019
+  },
+  "tesla model y": {
+   "segment": "eletrico",
+   "new_price": 52000,
+   "confidence": "high",
+   "from_year": 2021
+  },
+  "cupra formentor": {
+   "segment": "suv",
+   "new_price": 40000,
+   "confidence": "medium",
+   "from_year": 2020
+  },
+  "cupra leon": {
+   "segment": "media",
+   "new_price": 38000,
+   "confidence": "medium",
+   "from_year": 2020
+  },
+  "mg zs": {
+   "segment": "suv",
+   "new_price": 24000,
+   "confidence": "medium",
+   "from_year": 2019
+  },
+  "mg 4": {
+   "segment": "eletrico",
+   "new_price": 32000,
+   "confidence": "medium",
+   "from_year": 2022
+  },
+  "byd dolphin": {
+   "segment": "eletrico",
+   "new_price": 30000,
+   "confidence": "low",
+   "from_year": 2023
+  },
+  "land rover discovery sport": {
+   "segment": "premium",
+   "new_price": 62000,
+   "confidence": "low",
+   "retention": 0.965,
+   "from_year": 2015
+  },
+  "land rover evoque": {
+   "segment": "premium",
+   "new_price": 60000,
+   "confidence": "low",
+   "retention": 0.952,
+   "from_year": 2011
+  },
+  "alfa romeo giulietta": {
+   "segment": "media",
+   "new_price": 30000,
+   "confidence": "low",
+   "retention": 0.9,
+   "from_year": 2010
+  },
+  "alfa romeo stelvio": {
+   "segment": "premium",
+   "new_price": 62000,
+   "confidence": "low",
+   "retention": 0.88,
+   "from_year": 2017
+  },
+  "smart fortwo": {
+   "segment": "citadino",
+   "new_price": 17000,
+   "confidence": "low",
+   "retention": 0.92,
+   "from_year": 2007
+  },
+  "honda pcx": {
+   "segment": "scooter",
+   "new_price": 3900,
+   "confidence": "high",
+   "from_year": 2010
+  },
+  "honda sh125": {
+   "segment": "scooter",
+   "new_price": 4300,
+   "confidence": "high",
+   "from_year": 2005
+  },
+  "honda sh150": {
+   "segment": "scooter",
+   "new_price": 5000,
+   "confidence": "medium",
+   "from_year": 2005
+  },
+  "honda forza": {
+   "segment": "scooter",
+   "new_price": 6900,
+   "confidence": "medium",
+   "from_year": 2013
+  },
+  "honda cb125": {
+   "segment": "scooter",
+   "new_price": 3800,
+   "confidence": "medium",
+   "from_year": 2011
+  },
+  "honda cb500f": {
+   "segment": "moto",
+   "new_price": 7300,
+   "confidence": "high",
+   "from_year": 2013
+  },
+  "honda cb500x": {
+   "segment": "moto",
+   "new_price": 7600,
+   "confidence": "high",
+   "from_year": 2013
+  },
+  "honda cbr500r": {
+   "segment": "moto",
+   "new_price": 7900,
+   "confidence": "medium",
+   "from_year": 2013
+  },
+  "honda cb650r": {
+   "segment": "moto",
+   "new_price": 9500,
+   "confidence": "medium",
+   "from_year": 2019
+  },
+  "honda africa twin": {
+   "segment": "moto",
+   "new_price": 16500,
+   "confidence": "medium",
+   "retention": 1.05,
+   "from_year": 2016
+  },
+  "honda transalp": {
+   "segment": "moto",
+   "new_price": 11000,
+   "confidence": "medium",
+   "from_year": 2023
+  },
+  "honda nc750x": {
+   "segment": "moto",
+   "new_price": 9500,
+   "confidence": "medium",
+   "from_year": 2014
+  },
+  "yamaha nmax": {
+   "segment": "scooter",
+   "new_price": 4200,
+   "confidence": "high",
+   "from_year": 2015
+  },
+  "yamaha xmax": {
+   "segment": "scooter",
+   "new_price": 6400,
+   "confidence": "high",
+   "from_year": 2006
+  },
+  "yamaha tmax": {
+   "segment": "scooter",
+   "new_price": 14500,
+   "confidence": "medium",
+   "retention": 1.05,
+   "from_year": 2001
+  },
+  "yamaha mt-07": {
+   "segment": "moto",
+   "new_price": 8500,
+   "confidence": "high",
+   "from_year": 2014
+  },
+  "yamaha mt-09": {
+   "segment": "moto",
+   "new_price": 11500,
+   "confidence": "high",
+   "from_year": 2013
+  },
+  "yamaha mt-03": {
+   "segment": "moto",
+   "new_price": 6600,
+   "confidence": "medium",
+   "from_year": 2016
+  },
+  "yamaha mt-125": {
+   "segment": "scooter",
+   "new_price": 5800,
+   "confidence": "medium",
+   "from_year": 2014
+  },
+  "yamaha r7": {
+   "segment": "moto",
+   "new_price": 10500,
+   "confidence": "medium",
+   "from_year": 2021
+  },
+  "yamaha tracer": {
+   "segment": "moto",
+   "new_price": 13000,
+   "confidence": "medium",
+   "from_year": 2015
+  },
+  "yamaha tenere 700": {
+   "segment": "moto",
+   "new_price": 12000,
+   "confidence": "medium",
+   "from_year": 2019
+  },
+  "kawasaki z650": {
+   "segment": "moto",
+   "new_price": 7700,
+   "confidence": "high",
+   "from_year": 2017
+  },
+  "kawasaki z900": {
+   "segment": "moto",
+   "new_price": 11500,
+   "confidence": "medium",
+   "from_year": 2017
+  },
+  "kawasaki ninja 400": {
+   "segment": "moto",
+   "new_price": 7200,
+   "confidence": "medium",
+   "from_year": 2018
+  },
+  "kawasaki versys": {
+   "segment": "moto",
+   "new_price": 10500,
+   "confidence": "medium",
+   "from_year": 2010
+  },
+  "kawasaki er-6n": {
+   "segment": "moto",
+   "new_price": 7000,
+   "confidence": "low",
+   "from_year": 2006
+  },
+  "suzuki gsx-r": {
+   "segment": "moto",
+   "new_price": 14000,
+   "confidence": "low",
+   "from_year": 2000
+  },
+  "suzuki v-strom": {
+   "segment": "moto",
+   "new_price": 11000,
+   "confidence": "medium",
+   "from_year": 2004
+  },
+  "suzuki burgman": {
+   "segment": "scooter",
+   "new_price": 5200,
+   "confidence": "medium",
+   "from_year": 2003
+  },
+  "ktm duke 390": {
+   "segment": "moto",
+   "new_price": 6500,
+   "confidence": "medium",
+   "from_year": 2013
+  },
+  "ktm duke 790": {
+   "segment": "moto",
+   "new_price": 10500,
+   "confidence": "medium",
+   "from_year": 2018
+  },
+  "ktm adventure 890": {
+   "segment": "moto",
+   "new_price": 14500,
+   "confidence": "low",
+   "from_year": 2021
+  },
+  "bmw r 1250 gs": {
+   "segment": "moto",
+   "new_price": 21000,
+   "confidence": "medium",
+   "retention": 1.08,
+   "from_year": 2019
+  },
+  "bmw f 850 gs": {
+   "segment": "moto",
+   "new_price": 15000,
+   "confidence": "medium",
+   "from_year": 2018
+  },
+  "bmw g 310 r": {
+   "segment": "moto",
+   "new_price": 6200,
+   "confidence": "low",
+   "from_year": 2016
+  },
+  "bmw s 1000 rr": {
+   "segment": "moto",
+   "new_price": 24000,
+   "confidence": "low",
+   "from_year": 2010
+  },
+  "ducati monster": {
+   "segment": "moto",
+   "new_price": 13500,
+   "confidence": "medium",
+   "retention": 0.95,
+   "from_year": 2000
+  },
+  "ducati multistrada": {
+   "segment": "moto",
+   "new_price": 20000,
+   "confidence": "low",
+   "from_year": 2010
+  },
+  "triumph street triple": {
+   "segment": "moto",
+   "new_price": 12500,
+   "confidence": "low",
+   "from_year": 2007
+  },
+  "triumph tiger": {
+   "segment": "moto",
+   "new_price": 15500,
+   "confidence": "low",
+   "from_year": 2007
+  },
+  "aprilia rs 660": {
+   "segment": "moto",
+   "new_price": 11500,
+   "confidence": "low",
+   "retention": 0.92,
+   "from_year": 2021
+  },
+  "vespa primavera": {
+   "segment": "scooter",
+   "new_price": 5200,
+   "confidence": "high",
+   "retention": 0.88,
+   "from_year": 2014
+  },
+  "vespa gts": {
+   "segment": "scooter",
+   "new_price": 7200,
+   "confidence": "high",
+   "retention": 0.85,
+   "from_year": 2005
+  },
+  "piaggio liberty": {
+   "segment": "scooter",
+   "new_price": 3200,
+   "confidence": "medium",
+   "from_year": 2005
+  },
+  "piaggio medley": {
+   "segment": "scooter",
+   "new_price": 4600,
+   "confidence": "medium",
+   "from_year": 2016
+  },
+  "kymco agility": {
+   "segment": "scooter",
+   "new_price": 2400,
+   "confidence": "medium",
+   "from_year": 2006
+  },
+  "kymco people": {
+   "segment": "scooter",
+   "new_price": 3600,
+   "confidence": "medium",
+   "from_year": 2005
+  },
+  "sym symphony": {
+   "segment": "scooter",
+   "new_price": 2600,
+   "confidence": "medium",
+   "from_year": 2009
+  },
+  "harley-davidson sportster": {
+   "segment": "moto",
+   "new_price": 16000,
+   "confidence": "low",
+   "retention": 1.08,
+   "from_year": 2000
+  },
+  "bmw serie 2": {
+   "segment": "premium",
+   "new_price": 45000,
+   "confidence": "medium",
+   "from_year": 2014,
+   "retention": 1.093
+  },
+  "bmw serie 4": {
+   "segment": "premium",
+   "new_price": 53000,
+   "confidence": "medium",
+   "from_year": 2014,
+   "retention": 1.195
+  },
+  "bmw serie 7": {
+   "segment": "premium",
+   "new_price": 125000,
+   "confidence": "medium",
+   "from_year": 2002
+  },
+  "bmw x2": {
+   "segment": "premium",
+   "new_price": 48000,
+   "confidence": "medium",
+   "from_year": 2018,
+   "retention": 1.117
+  },
+  "bmw x4": {
+   "segment": "premium",
+   "new_price": 68000,
+   "confidence": "medium",
+   "from_year": 2014
+  },
+  "bmw x5": {
+   "segment": "premium",
+   "new_price": 92000,
+   "confidence": "medium",
+   "from_year": 2000,
+   "retention": 1.149
+  },
+  "bmw x6": {
+   "segment": "premium",
+   "new_price": 100000,
+   "confidence": "medium",
+   "from_year": 2008
+  },
+  "bmw x7": {
+   "segment": "premium",
+   "new_price": 125000,
+   "confidence": "medium",
+   "from_year": 2019
+  },
+  "bmw z4": {
+   "segment": "desportivo",
+   "new_price": 62000,
+   "confidence": "medium",
+   "from_year": 2003
+  },
+  "bmw i4": {
+   "segment": "eletrico",
+   "new_price": 62000,
+   "confidence": "medium",
+   "from_year": 2021
+  },
+  "bmw ix": {
+   "segment": "eletrico",
+   "new_price": 105000,
+   "confidence": "medium",
+   "from_year": 2021
+  },
+  "bmw i7": {
+   "segment": "eletrico",
+   "new_price": 150000,
+   "confidence": "medium",
+   "from_year": 2022
+  },
+  "bmw m2": {
+   "segment": "desportivo",
+   "new_price": 82000,
+   "confidence": "medium",
+   "from_year": 2016,
+   "retention": 1.2
+  },
+  "bmw m3": {
+   "segment": "desportivo",
+   "new_price": 105000,
+   "confidence": "medium",
+   "from_year": 2008,
+   "retention": 1.2
+  },
+  "bmw m4": {
+   "segment": "desportivo",
+   "new_price": 110000,
+   "confidence": "medium",
+   "from_year": 2014,
+   "retention": 1.163
+  },
+  "bmw m5": {
+   "segment": "desportivo",
+   "new_price": 155000,
+   "confidence": "medium",
+   "from_year": 2009,
+   "retention": 1.2
+  },
+  "bmw m8": {
+   "segment": "desportivo",
+   "new_price": 180000,
+   "confidence": "medium",
+   "from_year": 2019,
+   "retention": 1.15
+  },
+  "bmw xm": {
+   "segment": "desportivo",
+   "new_price": 175000,
+   "confidence": "medium",
+   "from_year": 2022
+  },
+  "mercedes-benz classe s": {
+   "segment": "premium",
+   "new_price": 135000,
+   "confidence": "medium",
+   "from_year": 2005
+  },
+  "mercedes-benz glc": {
+   "segment": "premium",
+   "new_price": 70000,
+   "confidence": "medium",
+   "from_year": 2015,
+   "retention": 1.131
+  },
+  "mercedes-benz gle": {
+   "segment": "premium",
+   "new_price": 95000,
+   "confidence": "medium",
+   "from_year": 2015,
+   "retention": 1.221
+  },
+  "mercedes-benz gls": {
+   "segment": "premium",
+   "new_price": 125000,
+   "confidence": "medium",
+   "from_year": 2016
+  },
+  "mercedes-benz cle": {
+   "segment": "premium",
+   "new_price": 75000,
+   "confidence": "medium",
+   "from_year": 2023
+  },
+  "mercedes-benz eqe": {
+   "segment": "eletrico",
+   "new_price": 85000,
+   "confidence": "medium",
+   "from_year": 2022
+  },
+  "mercedes-benz eqs": {
+   "segment": "eletrico",
+   "new_price": 125000,
+   "confidence": "medium",
+   "from_year": 2021
+  },
+  "mercedes-benz gle 63 amg": {
+   "segment": "desportivo",
+   "new_price": 175000,
+   "confidence": "medium",
+   "from_year": 2015,
+   "retention": 1.25
+  },
+  "mercedes-benz gle 63": {
+   "segment": "desportivo",
+   "new_price": 175000,
+   "confidence": "medium",
+   "from_year": 2015,
+   "retention": 1.25
+  },
+  "mercedes-benz glc 63 amg": {
+   "segment": "desportivo",
+   "new_price": 140000,
+   "confidence": "medium",
+   "from_year": 2017
+  },
+  "mercedes-benz c 63 amg": {
+   "segment": "desportivo",
+   "new_price": 125000,
+   "confidence": "medium",
+   "from_year": 2015,
+   "retention": 1.2
+  },
+  "mercedes-benz c63 amg": {
+   "segment": "desportivo",
+   "new_price": 125000,
+   "confidence": "medium",
+   "from_year": 2015,
+   "retention": 1.2
+  },
+  "mercedes-benz a 45 amg": {
+   "segment": "desportivo",
+   "new_price": 75000,
+   "confidence": "medium",
+   "from_year": 2013
+  },
+  "audi a5": {
+   "segment": "premium",
+   "new_price": 55000,
+   "confidence": "medium",
+   "from_year": 2007,
+   "retention": 1.045
+  },
+  "audi q7": {
+   "segment": "premium",
+   "new_price": 95000,
+   "confidence": "medium",
+   "from_year": 2015
+  },
+  "audi q8": {
+   "segment": "premium",
+   "new_price": 105000,
+   "confidence": "medium",
+   "from_year": 2018
+  },
+  "audi tt": {
+   "segment": "desportivo",
+   "new_price": 60000,
+   "confidence": "medium",
+   "from_year": 2006,
+   "retention": 0.827
+  },
+  "audi s3": {
+   "segment": "desportivo",
+   "new_price": 65000,
+   "confidence": "medium",
+   "from_year": 2013
+  },
+  "audi rs3": {
+   "segment": "desportivo",
+   "new_price": 80000,
+   "confidence": "medium",
+   "from_year": 2011,
+   "retention": 1.15
+  },
+  "audi rs4": {
+   "segment": "desportivo",
+   "new_price": 105000,
+   "confidence": "medium",
+   "from_year": 2012,
+   "retention": 1.15
+  },
+  "audi rs6": {
+   "segment": "desportivo",
+   "new_price": 145000,
+   "confidence": "medium",
+   "from_year": 2013,
+   "retention": 1.2
+  },
+  "audi e-tron gt": {
+   "segment": "eletrico",
+   "new_price": 120000,
+   "confidence": "medium",
+   "from_year": 2021
+  },
+  "porsche 911": {
+   "segment": "desportivo",
+   "new_price": 160000,
+   "confidence": "medium",
+   "from_year": 2005,
+   "retention": 1.3
+  },
+  "porsche cayenne": {
+   "segment": "premium",
+   "new_price": 110000,
+   "confidence": "medium",
+   "from_year": 2010,
+   "retention": 1.149
+  },
+  "porsche macan": {
+   "segment": "premium",
+   "new_price": 85000,
+   "confidence": "medium",
+   "from_year": 2014,
+   "retention": 1.15
+  },
+  "porsche taycan": {
+   "segment": "eletrico",
+   "new_price": 120000,
+   "confidence": "medium",
+   "from_year": 2019,
+   "retention": 1.1
+  },
+  "ford transit custom": {
+   "segment": "comercial",
+   "new_price": 42000,
+   "confidence": "medium",
+   "from_year": 2012
+  },
+  "renault trafic": {
+   "segment": "comercial",
+   "new_price": 38000,
+   "confidence": "medium",
+   "from_year": 2014
+  },
+  "peugeot expert": {
+   "segment": "comercial",
+   "new_price": 38000,
+   "confidence": "medium",
+   "from_year": 2016
+  },
+  "citroen jumpy": {
+   "segment": "comercial",
+   "new_price": 37000,
+   "confidence": "medium",
+   "from_year": 2016
+  },
+  "mercedes-benz sprinter": {
+   "segment": "comercial",
+   "new_price": 50000,
+   "confidence": "medium",
+   "from_year": 2006
+  },
+  "ferrari sf90": {
+   "segment": "desportivo",
+   "new_price": 550000,
+   "confidence": "medium",
+   "from_year": 2019,
+   "retention": 1.5
+  },
+  "ferrari 812 superfast": {
+   "segment": "desportivo",
+   "new_price": 450000,
+   "confidence": "medium",
+   "from_year": 2017,
+   "retention": 1.4
+  },
+  "ferrari f8 tributo": {
+   "segment": "desportivo",
+   "new_price": 350000,
+   "confidence": "medium",
+   "from_year": 2019,
+   "retention": 1.4
+  },
+  "ferrari roma": {
+   "segment": "desportivo",
+   "new_price": 280000,
+   "confidence": "medium",
+   "from_year": 2020,
+   "retention": 1.3
+  },
+  "ferrari 488": {
+   "segment": "desportivo",
+   "new_price": 320000,
+   "confidence": "medium",
+   "from_year": 2015,
+   "retention": 1.35
+  },
+  "ferrari portofino": {
+   "segment": "desportivo",
+   "new_price": 260000,
+   "confidence": "medium",
+   "from_year": 2017,
+   "retention": 1.25
+  },
+  "lamborghini huracan": {
+   "segment": "desportivo",
+   "new_price": 280000,
+   "confidence": "medium",
+   "from_year": 2014,
+   "retention": 1.35
+  },
+  "lamborghini aventador": {
+   "segment": "desportivo",
+   "new_price": 650000,
+   "confidence": "medium",
+   "from_year": 2011,
+   "retention": 1.6
+  },
+  "lamborghini urus": {
+   "segment": "premium",
+   "new_price": 300000,
+   "confidence": "medium",
+   "from_year": 2018,
+   "retention": 1.3
+  },
+  "mclaren 720s": {
+   "segment": "desportivo",
+   "new_price": 350000,
+   "confidence": "medium",
+   "from_year": 2017,
+   "retention": 1.3
+  },
+  "mclaren 570s": {
+   "segment": "desportivo",
+   "new_price": 250000,
+   "confidence": "medium",
+   "from_year": 2015,
+   "retention": 1.25
+  },
+  "bentley continental gt": {
+   "segment": "premium",
+   "new_price": 250000,
+   "confidence": "medium",
+   "from_year": 2010,
+   "retention": 1.15
+  },
+  "rolls-royce ghost": {
+   "segment": "premium",
+   "new_price": 400000,
+   "confidence": "medium",
+   "from_year": 2009,
+   "retention": 1.2
+  },
+  "rolls-royce phantom": {
+   "segment": "premium",
+   "new_price": 550000,
+   "confidence": "medium",
+   "from_year": 2003,
+   "retention": 1.25
+  },
+  "aston martin vantage": {
+   "segment": "desportivo",
+   "new_price": 180000,
+   "confidence": "medium",
+   "from_year": 2005,
+   "retention": 1.15
+  },
+  "aston martin db11": {
+   "segment": "desportivo",
+   "new_price": 220000,
+   "confidence": "medium",
+   "from_year": 2016,
+   "retention": 1.15
+  },
+  "maserati ghibli": {
+   "segment": "premium",
+   "new_price": 110000,
+   "confidence": "medium",
+   "from_year": 2013
+  },
+  "maserati levante": {
+   "segment": "premium",
+   "new_price": 130000,
+   "confidence": "medium",
+   "from_year": 2016
+  },
+  "renault master": {
+   "segment": "comercial",
+   "new_price": 34000,
+   "confidence": "high",
+   "from_year": 1998
+  },
+  "peugeot boxer": {
+   "segment": "comercial",
+   "new_price": 33000,
+   "confidence": "high",
+   "from_year": 1994
+  },
+  "fiat ducato": {
+   "segment": "comercial",
+   "new_price": 32000,
+   "confidence": "high",
+   "from_year": 1994
+  },
+  "toyota proace": {
+   "segment": "comercial",
+   "new_price": 28000,
+   "confidence": "high",
+   "from_year": 2013
+  },
+  "opel vivaro": {
+   "segment": "comercial",
+   "new_price": 26000,
+   "confidence": "medium",
+   "from_year": 2001
+  },
+  "volkswagen caddy": {
+   "segment": "comercial",
+   "new_price": 24000,
+   "confidence": "high",
+   "from_year": 2003
+  },
+  "opel combo": {
+   "segment": "comercial",
+   "new_price": 21000,
+   "confidence": "medium",
+   "from_year": 2001
+  },
+  "bmw serie 8": {
+   "segment": "premium_sport",
+   "new_price": 110000,
+   "confidence": "medium",
+   "from_year": 2018
+  }
+ },
+ "brand_default_segment": {
+  "Dacia": "citadino",
+  "Fiat": "citadino",
+  "Smart": "citadino",
+  "BMW": "premium",
+  "Mercedes-Benz": "premium",
+  "Audi": "premium",
+  "Volvo": "premium",
+  "Lexus": "premium",
+  "Jaguar": "premium",
+  "Land Rover": "premium",
+  "Porsche": "desportivo",
+  "Tesla": "eletrico",
+  "Honda": "media",
+  "Yamaha": "moto",
+  "Kawasaki": "moto",
+  "Suzuki": "media",
+  "KTM": "moto",
+  "Ducati": "moto",
+  "Triumph": "moto",
+  "Aprilia": "moto",
+  "Vespa": "scooter",
+  "Piaggio": "scooter",
+  "Kymco": "scooter",
+  "SYM": "scooter",
+  "Harley-Davidson": "moto"
+ }
+}

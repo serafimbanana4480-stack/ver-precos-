@@ -209,8 +209,10 @@ requirements_original_backup.txt
 requirements_simplified.txt
 requirements_v2.txt
 
-# Dados pesados (não versionar)
-data/
+# Dados pesados (não versionar) — EXCETO activos curados de referência
+data/*
+!data/.gitkeep
+!data/market_reference_pt_2026.json
 *.db
 *.sqlite
 *.sqlite3
