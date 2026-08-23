@@ -126,7 +126,7 @@ def _canonical_key(brand_norm: str, model_norm: str) -> Optional[str]:
         hit = re.match(r"^serie\s*(\d)$", first)
         if hit:
             return f"bmw serie {hit.group(1)}"
-    elif brand_norm == "mercedes-benz":
+    elif brand_norm in ("mercedes-benz", "mercedes"):
         # "c220", "e220d", "a180", "c 220 cdi" → classe C/E/A
         hit = re.match(r"^([abces])\s?\d{3}[a-z]{0,4}$", first)
         if hit:
