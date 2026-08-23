@@ -114,7 +114,12 @@ def _inlier(value: Any, ref_value: Any) -> bool:
 
 
 def _ml_predict(vehicle, predictor, vehicle_type: Optional[str] = None):
-    """Valor ML (se disponível e finito), para triangulação."""
+    """Valor ML com banda de intervalo, para triangulação.
+
+    Devolve ``(value, low, high)`` ou ``None``. O intervalo vem de
+    ``predict_with_interval`` (banda calibrada pelo MAPE do artefacto);
+    sem intervalo disponível cai para ±10 % em torno do ponto.
+    """
     if predictor is None:
         return None
     requested = normalize_vehicle_type(
@@ -133,10 +138,65 @@ def _ml_predict(vehicle, predictor, vehicle_type: Optional[str] = None):
         except ValueError:
             return None
     try:
-        return finite(predictor.predict(vehicle))
+        value = finite(predictor.predict(vehicle))
+        if value is None or value <= 0:
+            return None
+        interval = None
+        with_interval = getattr(predictor, "predict_with_interval", None)
+        if callable(with_interval):
+            try:
+                interval = with_interval(vehicle)
+            except Exception as exc:  # pragma: no cover - defensivo
+                logger.debug("intervalo ML falhou: %s", exc)
+        if (
+            isinstance(interval, (tuple, list))
+            and len(interval) == 3
+        ):
+            lo = finite(interval[0])
+            hi = finite(interval[2])
+        else:
+            lo = hi = None
+        if lo is None or lo <= 0:
+            lo = value * 0.90
+        if hi is None or hi <= 0:
+            hi = value * 1.10
+        return (value, min(lo, value), max(hi, value))
     except Exception as exc:
         logger.debug("predição ML falhou para o ensemble: %s", exc)
         return None
+
+
+def _ensure_band(
+    low: Optional[float],
+    high: Optional[float],
+    center: float,
+    confidence: float,
+) -> tuple:
+    """Banda mínima garantida em torno de ``center``.
+
+    Corrige o bug de certeza falsa: comparáveis sem banda produziam
+    ``low == high == valor``. A largura mínima cresce à medida que a
+    confiança desce (entre ±6 % e ±35 %).
+    """
+    center = finite(center) or 0.0
+    if center <= 0:
+        return (low, high)
+    spread_pct = min(0.35, max(0.06, 0.45 * (1.0 - min(1.0, max(0.0, confidence)))))
+    floor_low = center * (1.0 - spread_pct)
+    floor_high = center * (1.0 + spread_pct)
+    out_low = finite(low)
+    out_high = finite(high)
+    if out_low is None or out_low > center:
+        out_low = floor_low
+    else:
+        out_low = min(out_low, floor_low)
+    if out_high is None or out_high < center:
+        out_high = floor_high
+    else:
+        out_high = max(out_high, floor_high)
+    if out_low >= out_high:  # última linha de defesa
+        out_low, out_high = floor_low, floor_high
+    return (out_low, out_high)
 
 
 def _label(confidence: float) -> str:
@@ -168,10 +228,17 @@ def _blend_with_comparables(
     components: List[tuple] = [(center, conf_base, "comparaveis")]
 
     # ML: pedida apenas quando a estimativa de comparáveis é incerta.
+    ml_band: Optional[tuple] = None
     if comparable.confidence < 0.60:
-        ml_val = _ml_predict(vehicle, predictor, vehicle_type)
-        if ml_val is not None and ml_val > 0 and _inlier(ml_val, center):
+        ml_opinion = _ml_predict(vehicle, predictor, vehicle_type)
+        if (
+            ml_opinion is not None
+            and ml_opinion[0] > 0
+            and _inlier(ml_opinion[0], center)
+        ):
+            ml_val = ml_opinion[0]
             components.append((ml_val, 0.30, "ml"))
+            ml_band = (ml_opinion[1], ml_opinion[2])
 
     ref = ref or {}
     ref_val = finite(ref.get("value"))
@@ -191,19 +258,24 @@ def _blend_with_comparables(
     den = sum(w for _, w, _ in components) or 1.0
     blended = num / den
 
-    low = finite(comparable.low) or blended
-    high = finite(comparable.high) or blended
+    low = finite(comparable.low)
+    high = finite(comparable.high)
+    if low is not None and high is not None and low > high:
+        low, high = None, None  # banda cruzada não é informação
     for val, _, src in components[1:]:
         if src == "ml":
-            low = min(low, val * 0.90)
-            high = max(high, val * 1.10)
+            # Intervalo calibrado do artefacto (MAPE); sem ele ±10 %.
+            src_low = ml_band[0] if ml_band else val * 0.90
+            src_high = ml_band[1] if ml_band else val * 1.10
+            low = min(low, src_low) if low is not None else src_low
+            high = max(high, src_high) if high is not None else src_high
         elif src == "referencia":
             rlow = finite(ref.get("low"))
             rhigh = finite(ref.get("high"))
             if rlow:
-                low = min(low, rlow)
+                low = min(low, rlow) if low is not None else rlow
             if rhigh:
-                high = max(high, rhigh)
+                high = max(high, rhigh) if high is not None else rhigh
 
     # Confiança: sobe só se ML e referência concordam com a base; nunca desce.
     conf = conf_base
@@ -216,6 +288,9 @@ def _blend_with_comparables(
         ):
             conf += 0.05
     conf = min(0.95, max(conf, comparable.confidence))
+
+    # Banda mínima garantida: nunca devolvemos certeza falsa de largura zero.
+    low, high = _ensure_band(low, high, blended, conf)
 
     notes = list(comparable.notes) + [
         "ensemble: {} opinião(ões) de ML/referência incorporada(s)".format(
@@ -328,7 +403,9 @@ def _reference_fallback(
     ml_val: Optional[float] = None
     # Triangulação ML apenas para âncoras de confiança intermédia.
     if ref_conf is not None and 0.50 <= ref_conf < 0.65:
-        ml_val = _ml_predict(vehicle, predictor, vehicle_type)
+        ml_opinion = _ml_predict(vehicle, predictor, vehicle_type)
+        if ml_opinion is not None:
+            ml_val = ml_opinion[0]
         if (
             ml_val is not None
             and ml_val > 0
