@@ -41,9 +41,12 @@ def compute_calibration_factor():
     records = []
     with get_db_context() as db:
         vehicles = db.query(Vehicle).filter(
+            Vehicle.price_kind == "total",
+            Vehicle.currency == "EUR",
             Vehicle.price > 0,
             Vehicle.year > 1900,
-            Vehicle.is_active == True,
+            Vehicle.is_active.is_(True),
+            Vehicle.quality_status.in_(("valid", "valid_with_warning")),
         ).all()
         for v in vehicles:
             records.append({

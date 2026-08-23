@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import date, datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from valuation.canonical_vehicle import (
     CanonicalVehicle,
     canonicalize,
     fuel_compatible,
+    fuel_adjustment_factor,
 )
 from valuation.market_math import finite, json_safe, round_estimate, round_interval
 
@@ -46,9 +47,39 @@ __all__ = [
     "MarketEstimate",
     "ComparableIndex",
     "MIN_COMPARABLES",
+    "CURRENT_SNAPSHOT",
+    "HISTORICAL_SNAPSHOT",
+    "VALUATION_TARGET",
+    "FRESH",
+    "STALE",
+    "FUTURE",
+    "NOT_MEASURED",
+    "HISTORICAL",
+    "row_freshness",
+    "normalize_cutoff",
+    "normalize_max_age_hours",
+    "resolve_freshness_config",
+    "SNAPSHOT_CURRENT",
+    "SNAPSHOT_HISTORICAL",
+    "ASKING_PRICE_TARGET",
 ]
 
-_CURRENT_YEAR = datetime.now().year
+_CURRENT_YEAR = datetime.now(timezone.utc).year
+
+# These are deliberately machine-readable.  A missing observation is not a
+# fresh observation, and an old snapshot is not silently promoted to the
+# current market.
+CURRENT_SNAPSHOT = "current"
+HISTORICAL_SNAPSHOT = "historical"
+VALUATION_TARGET = "asking_price"
+SNAPSHOT_CURRENT = CURRENT_SNAPSHOT
+SNAPSHOT_HISTORICAL = HISTORICAL_SNAPSHOT
+ASKING_PRICE_TARGET = VALUATION_TARGET
+FRESH = "FRESH"
+STALE = "STALE"
+FUTURE = "FUTURE"
+NOT_MEASURED = "NOT_MEASURED"
+HISTORICAL = "HISTORICAL"
 
 #: Mínimo absoluto de comparáveis para produzir qualquer estimativa. Abaixo
 #: disto o sistema declara dados insuficientes — é o requisito central do
@@ -64,14 +95,203 @@ MAX_INTERVAL_HALF_PCT: float = 0.40
 #:  permite_performance_adjacente, mínimo, penalização de confiança,
 #:  similaridade mínima)
 _LEVELS: Tuple[Tuple, ...] = (
-    (1, 1, True, True, False, 3, 1.00, 0.35),
-    (2, 2, False, True, False, 3, 0.92, 0.30),
+    # (nível, ano±, exige_transmissão, exige_combustível_exato,
+    #  permite_acabamento_adjacente (apenas base↔sport_trim), mínimo,
+    #  penalização de confiança, similaridade mínima)
+    (1, 1, True,  True,  False, 3, 1.00, 0.35),
+    (2, 2, False, True,  False, 3, 0.92, 0.30),
     (3, 3, False, False, False, 4, 0.82, 0.25),
-    (4, 3, False, False, False, 6, 0.72, 0.22),
-    # Fallback mais largo para mercados esparsos mas reais: ±4 anos, sem
-    # exigência de combustível exato (apenas compatível), similaridade baixa.
-    (5, 4, False, False, False, 3, 0.62, 0.18),
+    # Níveis amplos: permitem diferença de combustível (diesel↔gasolina,
+    # hedónio de prémio de mercado) e diferença de acabamento base↔sport_trim.
+    # NUNCA viram versões de performance (rank ≥ 2): AMG/M/RS/… ficam
+    # isolados, evitando estimativas falsas como "A 35 AMG = A 180".
+    (4, 3, False, False, True,  6, 0.72, 0.20),
+    (5, 5, False, False, True,  3, 0.62, 0.18),
 )
+
+
+def normalize_cutoff(value: Any) -> Optional[datetime]:
+    """Normaliza um cutoff para UTC sem inventar uma data quando ausente."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        result = value
+    elif isinstance(value, date):
+        result = datetime.combine(value, datetime.min.time())
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            result = datetime.fromtimestamp(float(value), tz=timezone.utc)
+        except (OverflowError, OSError, ValueError) as exc:
+            raise ValueError(f"cutoff inválido: {value!r}") from exc
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            result = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"cutoff inválido: {value!r}") from exc
+    if result.tzinfo is None:
+        return result.replace(tzinfo=timezone.utc)
+    return result.astimezone(timezone.utc)
+
+
+def normalize_max_age_hours(value: Any = None) -> Optional[float]:
+    """Valida uma janela de frescura sem introduzir um limite implícito."""
+    if value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("max_age_hours deve ser numérico e positivo") from exc
+    if not math.isfinite(result) or result <= 0:
+        raise ValueError("max_age_hours deve ser numérico e positivo")
+    return result
+
+
+def resolve_freshness_config(
+    cutoff: Any = None, max_age_hours: Any = None
+) -> Tuple[Optional[datetime], Optional[float]]:
+    """Resolve uma única referência temporal para toda a execução.
+
+    Quando só é fornecido ``max_age_hours``, o ``now`` é capturado uma vez e
+    passa a fazer parte do snapshot. Sem qualquer argumento, a chamada antiga
+    continua válida mas a frescura fica explicitamente ``NOT_MEASURED``.
+    """
+    max_age = normalize_max_age_hours(max_age_hours)
+    resolved_cutoff = normalize_cutoff(cutoff)
+    if resolved_cutoff is None and max_age is not None:
+        resolved_cutoff = datetime.now(timezone.utc)
+    return resolved_cutoff, max_age
+
+
+def _iso_datetime(value: Any) -> Optional[str]:
+    dt = normalize_cutoff(value)
+    return dt.isoformat() if dt is not None else None
+
+
+def row_freshness(
+    row: Dict[str, Any],
+    *,
+    cutoff: Any = None,
+    max_age_hours: Optional[float] = None,
+    snapshot: str = CURRENT_SNAPSHOT,
+    snapshot_type: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Devolve a evidência temporal de uma linha.
+
+    ``last_seen`` é a observação corrente. ``first_seen`` não é um fallback:
+    a data de criação do anúncio não prova uma observação recente. Sem
+    ``cutoff``/``max_age_hours`` o resultado fica explicitamente
+    ``NOT_MEASURED``; isto mantém a compatibilidade das chamadas antigas sem
+    transformar a ausência de timestamps em frescura.
+
+    Em ``historical`` a linha pode ser antiga por definição, mas continua
+    limitada ao cutoff e é marcada como ``HISTORICAL``.  Nunca são aceites
+    observações futuras.
+    """
+    if snapshot_type is not None:
+        snapshot = snapshot_type
+    if snapshot not in (CURRENT_SNAPSHOT, HISTORICAL_SNAPSHOT):
+        raise ValueError("snapshot deve ser 'current' ou 'historical'")
+    explicit_cutoff = normalize_cutoff(cutoff)
+    max_age = normalize_max_age_hours(max_age_hours)
+    enforced = explicit_cutoff is not None or max_age is not None
+    effective_cutoff = explicit_cutoff
+    # An age window necessarily needs an as-of time.  This implicit now is
+    # reported in ``cutoff_source`` so it cannot masquerade as an explicit
+    # historical cutoff.
+    if effective_cutoff is None and max_age is not None:
+        effective_cutoff = datetime.now(timezone.utc)
+
+    observed_field = None
+    observed = None
+    for field_name in ("last_seen", "observed_at", "scraped_at"):
+        candidate = row.get(field_name)
+        parsed = normalize_cutoff(candidate)
+        if parsed is not None:
+            observed_field = field_name
+            observed = parsed
+            break
+
+    result: Dict[str, Any] = {
+        "observed_at": observed.isoformat() if observed is not None else None,
+        "observed_at_field": observed_field,
+        "cutoff": effective_cutoff.isoformat() if effective_cutoff is not None else None,
+        "cutoff_source": (
+            "explicit" if explicit_cutoff is not None
+            else "runtime_now" if max_age is not None
+            else None
+        ),
+        "max_age_hours": max_age,
+        "age_hours": None,
+        "freshness": NOT_MEASURED,
+        "freshness_status": NOT_MEASURED,
+        "age_status": NOT_MEASURED,
+        "snapshot": snapshot,
+        "snapshot_type": snapshot,
+        "is_current_snapshot": None,
+        "measured": False,
+    }
+    if not enforced or observed is None or effective_cutoff is None:
+        return result
+
+    age_hours = (effective_cutoff - observed).total_seconds() / 3600.0
+    result["age_hours"] = round(max(age_hours, 0.0), 3) if age_hours >= 0 else round(age_hours, 3)
+    result["measured"] = True
+    if age_hours < 0:
+        result["freshness"] = FUTURE
+        result["freshness_status"] = FUTURE
+        result["age_status"] = FUTURE
+        result["is_current_snapshot"] = False
+        return result
+
+    if max_age is None:
+        # A historical as-of snapshot is a separate evidence domain: its age
+        # is measured, but it must not be called current/fresh.  For the live
+        # snapshot, a cutoff without an age policy remains NOT_MEASURED.
+        result["measured"] = True
+        if snapshot == HISTORICAL_SNAPSHOT:
+            result["freshness"] = HISTORICAL
+            result["freshness_status"] = HISTORICAL
+            result["age_status"] = NOT_MEASURED
+        else:
+            result["age_status"] = NOT_MEASURED
+        result["is_current_snapshot"] = False
+        return result
+
+    if snapshot == HISTORICAL_SNAPSHOT:
+        result["freshness"] = HISTORICAL
+        result["freshness_status"] = HISTORICAL
+        result["age_status"] = FRESH if age_hours <= max_age else STALE
+        result["is_current_snapshot"] = False
+        return result
+
+    if age_hours > max_age:
+        result["freshness"] = STALE
+        result["freshness_status"] = STALE
+        result["age_status"] = STALE
+        result["is_current_snapshot"] = False
+        return result
+
+    result["freshness"] = FRESH
+    result["freshness_status"] = FRESH
+    result["age_status"] = FRESH
+    result["is_current_snapshot"] = True
+    return result
+
+
+def _freshness_allows_index(meta: Dict[str, Any], snapshot: str) -> bool:
+    """Decide se uma linha pode entrar no snapshot solicitado."""
+    if not meta.get("measured"):
+        # No temporal contract: legacy in-memory rows remain usable, but their
+        # outputs will say NOT_MEASURED.  With an explicit contract, missing
+        # timestamps are excluded fail-closed.
+        return meta.get("cutoff") is None and meta.get("max_age_hours") is None
+    status = meta.get("freshness")
+    if snapshot == HISTORICAL_SNAPSHOT:
+        return status == HISTORICAL
+    return status == FRESH
 
 
 @dataclass(frozen=True)
@@ -82,11 +302,23 @@ class Comparable:
     price: float
     year: Optional[int]
     km: Optional[int]
-    horsepower: Optional[int] = None
     source: str
     similarity: float
     weight: float
     reason: Optional[str] = None
+    # Optional fields must come after every required field.  This ordering
+    # also preserves the historical positional constructor used by the MAD
+    # and weighted-comparable paths (the 8th argument is ``reason``).
+    horsepower: Optional[int] = None
+    # Combustível canónico do comparável (para ajuste hedónico de preço).
+    fuel: str = "unknown"
+    # Proveniência temporal do comparável.  ``NOT_MEASURED`` é preferível a
+    # uma idade artificial quando uma chamada legada não forneceu timestamps.
+    observed_at: Optional[str] = None
+    age_hours: Optional[float] = None
+    freshness: str = NOT_MEASURED
+    age_status: str = NOT_MEASURED
+    snapshot: str = CURRENT_SNAPSHOT
 
     def to_dict(self) -> Dict[str, Any]:
         return json_safe(asdict(self))
@@ -117,6 +349,23 @@ class MarketEstimate:
     rejected: List[Comparable] = field(default_factory=list)
     rejection_summary: Dict[str, int] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
+    # Opiniões adicionais do ensemble (preenchidas por valuation.ensemble).
+    # Ausentes nas estimativas puras de comparáveis; incluídas em
+    # valuation_details para transparência do blend ML/referência.
+    ml_estimate: Optional[float] = None
+    reference_estimate: Optional[Dict[str, Any]] = None
+    # Contrato temporal e semântico.  Estes defaults tornam os construtores
+    # históricos compatíveis, mas são deliberadamente não medidos.
+    cutoff: Optional[str] = None
+    max_age_hours: Optional[float] = None
+    snapshot: str = CURRENT_SNAPSHOT
+    freshness: str = NOT_MEASURED
+    age_status: str = NOT_MEASURED
+    age_hours: Optional[float] = None
+    observed_at: Optional[str] = None
+    target: str = VALUATION_TARGET
+    ground_truth_available: bool = False
+    snapshot_size: Optional[int] = None
 
     def to_dict(self, *, include_comparables: bool = False) -> Dict[str, Any]:
         d = {
@@ -135,6 +384,21 @@ class MarketEstimate:
             "valuation_explanation": self.explanation,
             "rejection_summary": self.rejection_summary,
             "notes": self.notes,
+            "target": self.target,
+            "target_field": self.target,
+            "cutoff": self.cutoff,
+            "max_age_hours": self.max_age_hours,
+            "snapshot": self.snapshot,
+            "freshness": self.freshness,
+            "freshness_status": self.freshness,
+            "age_status": self.age_status,
+            "age_hours": self.age_hours,
+            "observed_at": self.observed_at,
+            "ground_truth_available": self.ground_truth_available,
+            "ground_truth_status": (
+                "MEASURED" if self.ground_truth_available else NOT_MEASURED
+            ),
+            "snapshot_size": self.snapshot_size,
         }
         if include_comparables:
             d["comparables_used"] = [c.to_dict() for c in self.used]
@@ -143,8 +407,20 @@ class MarketEstimate:
 
 
 def _insufficient(
-    reason: str, rejected: List[Comparable], summary: Dict[str, int], notes: List[str]
+    reason: str,
+    rejected: List[Comparable],
+    summary: Dict[str, int],
+    notes: List[str],
+    *,
+    freshness: Optional[Dict[str, Any]] = None,
+    cutoff: Any = None,
+    max_age_hours: Optional[float] = None,
+    snapshot: str = CURRENT_SNAPSHOT,
+    snapshot_size: Optional[int] = None,
 ) -> MarketEstimate:
+    temporal = freshness or row_freshness(
+        {}, cutoff=cutoff, max_age_hours=max_age_hours, snapshot=snapshot
+    )
     return MarketEstimate(
         value=None,
         low=None,
@@ -163,6 +439,15 @@ def _insufficient(
         rejected=rejected[:50],
         rejection_summary=summary,
         notes=notes,
+        cutoff=temporal.get("cutoff"),
+        max_age_hours=temporal.get("max_age_hours"),
+        snapshot=snapshot,
+        freshness=temporal.get("freshness", NOT_MEASURED),
+        age_status=temporal.get("age_status", NOT_MEASURED),
+        age_hours=temporal.get("age_hours"),
+        observed_at=temporal.get("observed_at"),
+        target=VALUATION_TARGET,
+        snapshot_size=snapshot_size,
     )
 
 
@@ -217,8 +502,23 @@ def _mad_filter(
         z = 0.6745 * abs(c.price - median) / mad
         if z > threshold:
             dropped.append(
-                Comparable(c.id, c.price, c.year, c.km, c.source, c.similarity,
-                           0.0, f"outlier_mad(z={z:.1f})")
+                Comparable(
+                    c.id,
+                    c.price,
+                    c.year,
+                    c.km,
+                    c.source,
+                    c.similarity,
+                    0.0,
+                    f"outlier_mad(z={z:.1f})",
+                    horsepower=c.horsepower,
+                    fuel=c.fuel,
+                    observed_at=c.observed_at,
+                    age_hours=c.age_hours,
+                    freshness=c.freshness,
+                    age_status=c.age_status,
+                    snapshot=c.snapshot,
+                )
             )
         else:
             kept.append(c)
@@ -317,10 +617,81 @@ class ComparableIndex:
     não repetir o trabalho de normalização por consulta.
     """
 
-    def __init__(self, rows: Sequence[Dict[str, Any]]):
+    def __init__(
+        self,
+        rows: Sequence[Dict[str, Any]],
+        *,
+        cutoff: Any = None,
+        max_age_hours: Optional[float] = None,
+        snapshot: str = CURRENT_SNAPSHOT,
+        snapshot_type: Optional[str] = None,
+    ):
+        if snapshot_type is not None:
+            snapshot = snapshot_type
+        if snapshot not in (CURRENT_SNAPSHOT, HISTORICAL_SNAPSHOT):
+            raise ValueError("snapshot deve ser 'current' ou 'historical'")
+        # Validate once here; row_freshness also validates for each row so
+        # direct calls remain safe, while this gives callers an early error on
+        # an invalid service configuration even when rows are empty.
+        normalized_cutoff, normalized_age = resolve_freshness_config(
+            cutoff, max_age_hours
+        )
+
+        effective_cutoff = normalized_cutoff
+        if effective_cutoff is None and normalized_age is not None:
+            effective_cutoff = datetime.now(timezone.utc)
+        self.cutoff = effective_cutoff
+        self.max_age_hours = normalized_age
+        self.snapshot = snapshot
+        self._freshness_enforced = (
+            normalized_cutoff is not None or normalized_age is not None
+        )
+        self.snapshot_metadata: Dict[str, Any] = {
+            "snapshot": snapshot,
+            "cutoff": effective_cutoff.isoformat() if effective_cutoff else None,
+            "max_age_hours": normalized_age,
+            "input_rows": len(rows),
+            "indexed_rows": 0,
+            "excluded_stale": 0,
+            "excluded_future": 0,
+            "excluded_not_measured": 0,
+            "historical_rows": 0,
+            "fresh_rows": 0,
+            "not_measured_rows": 0,
+        }
         self.entries: List[Dict[str, Any]] = []
+        # Kept separately from ``entries`` so callers can report the historical
+        # population without allowing stale rows into a current valuation.
+        self.historical_entries: List[Dict[str, Any]] = []
         self._by_family: Dict[Tuple[str, str], List[int]] = {}
         for row in rows:
+            temporal = row_freshness(
+                row,
+                cutoff=effective_cutoff,
+                max_age_hours=normalized_age,
+                snapshot=snapshot,
+            )
+            if self._freshness_enforced and not _freshness_allows_index(
+                temporal, snapshot
+            ):
+                status = temporal.get("freshness")
+                if status == STALE:
+                    self.snapshot_metadata["excluded_stale"] += 1
+                elif status == FUTURE:
+                    self.snapshot_metadata["excluded_future"] += 1
+                else:
+                    self.snapshot_metadata["excluded_not_measured"] += 1
+                self.historical_entries.append(
+                    {
+                        "id": row.get("id"),
+                        "observed_at": temporal.get("observed_at"),
+                        "age_hours": temporal.get("age_hours"),
+                        "freshness": temporal.get("freshness", NOT_MEASURED),
+                        "age_status": temporal.get("age_status", NOT_MEASURED),
+                        "snapshot": HISTORICAL_SNAPSHOT,
+                    }
+                )
+                continue
             price = finite(row.get("price"))
             if price is None or price <= 0:
                 continue
@@ -336,16 +707,49 @@ class ComparableIndex:
                     "source": canon.source,
                     "fingerprint": row.get("fingerprint"),
                     "last_seen": row.get("last_seen"),
+                    "observed_at": temporal.get("observed_at"),
+                    "age_hours": temporal.get("age_hours"),
+                    "freshness": temporal.get("freshness", NOT_MEASURED),
+                    "age_status": temporal.get("age_status", NOT_MEASURED),
+                    "snapshot": snapshot,
                 }
             )
             self._by_family.setdefault((canon.brand, canon.model_family), []).append(idx)
+        self.snapshot_metadata["indexed_rows"] = len(self.entries)
+        self.snapshot_metadata["historical_rows"] = (
+            len(self.entries) if snapshot == HISTORICAL_SNAPSHOT
+            else len(self.historical_entries)
+        )
+        self.snapshot_metadata["current_rows"] = (
+            len(self.entries) if snapshot == CURRENT_SNAPSHOT else 0
+        )
+        self.snapshot_metadata["fresh_rows"] = sum(
+            1 for entry in self.entries if entry.get("freshness") == FRESH
+        )
+        self.snapshot_metadata["not_measured_rows"] = sum(
+            1 for entry in self.entries if entry.get("freshness") == NOT_MEASURED
+        )
 
     def __len__(self) -> int:
         return len(self.entries)
 
     @classmethod
-    def from_rows(cls, rows: Iterable[Dict[str, Any]]) -> "ComparableIndex":
-        return cls(list(rows))
+    def from_rows(
+        cls,
+        rows: Iterable[Dict[str, Any]],
+        *,
+        cutoff: Any = None,
+        max_age_hours: Optional[float] = None,
+        snapshot: str = CURRENT_SNAPSHOT,
+        snapshot_type: Optional[str] = None,
+    ) -> "ComparableIndex":
+        return cls(
+            list(rows),
+            cutoff=cutoff,
+            max_age_hours=max_age_hours,
+            snapshot=snapshot,
+            snapshot_type=snapshot_type,
+        )
 
     # -- seleção -----------------------------------------------------------
 
@@ -366,6 +770,12 @@ class ComparableIndex:
         caso contrário o preço pedido entraria no seu próprio target.
         """
         target = canonicalize(vehicle)
+        temporal = row_freshness(
+            vehicle,
+            cutoff=self.cutoff,
+            max_age_hours=self.max_age_hours,
+            snapshot=self.snapshot,
+        )
         self_id = vehicle.get("id")
         blocked_ids = {self_id, *exclude_ids} - {None}
         self_fp = vehicle.get("fingerprint")
@@ -376,6 +786,22 @@ class ComparableIndex:
             return _insufficient(
                 "Marca ou modelo não identificados: sem base para comparar.",
                 [], {"identificacao_insuficiente": 1}, notes,
+                freshness=temporal,
+                snapshot=self.snapshot,
+                snapshot_size=len(self.entries),
+            )
+
+        if self._freshness_enforced and not _freshness_allows_index(
+            temporal, self.snapshot
+        ):
+            status = temporal.get("freshness", NOT_MEASURED)
+            return _insufficient(
+                "Snapshot temporal não elegível para valuation: "
+                f"freshness={status}, age_hours={temporal.get('age_hours')!r}.",
+                [], {f"freshness_{str(status).lower()}": 1}, notes,
+                freshness=temporal,
+                snapshot=self.snapshot,
+                snapshot_size=len(self.entries),
             )
 
         pool = self._candidates(target)
@@ -383,6 +809,9 @@ class ComparableIndex:
             return _insufficient(
                 f"Nenhum anúncio de {target.brand} {target.model_family} na base.",
                 [], {"sem_anuncios_do_modelo": 1}, notes,
+                freshness=temporal,
+                snapshot=self.snapshot,
+                snapshot_size=len(self.entries),
             )
 
         rejected: List[Comparable] = []
@@ -393,8 +822,17 @@ class ComparableIndex:
             if len(rejected) < 200:
                 c = entry["canon"]
                 rejected.append(
-                    Comparable(entry["id"], entry["price"], c.year, c.km,
-                               entry["source"], 0.0, 0.0, reason)
+                    Comparable(
+                        entry["id"], entry["price"], c.year, c.km,
+                        entry["source"], 0.0, 0.0, reason,
+                        horsepower=c.horsepower,
+                        fuel=c.fuel,
+                        observed_at=entry.get("observed_at"),
+                        age_hours=entry.get("age_hours"),
+                        freshness=entry.get("freshness", NOT_MEASURED),
+                        age_status=entry.get("age_status", NOT_MEASURED),
+                        snapshot=entry.get("snapshot", self.snapshot),
+                    )
                 )
 
         for level, year_span, need_trans, need_fuel, allow_adjacent, min_n, penalty, min_sim in _LEVELS:
@@ -410,14 +848,22 @@ class ComparableIndex:
                     level_rejects.append((entry, "proprio_anuncio_ou_duplicado"))
                     continue
 
-                # Performance: nunca misturar escalões distantes.
+                # Performance: nunca misturar escalões distantes. Só se
+                # permite, nos níveis amplos (allow_adjacent), a diferença de
+                # acabamento base<->sport_trim (dr=1, ambos rank <= 1); o resto
+                # (incluindo performance real) só se compara exatamente.
                 dr = abs(comp.performance_rank - target.performance_rank)
-                if dr > 0 and not allow_adjacent:
-                    level_rejects.append((entry, "versao_de_performance_diferente"))
-                    continue
-                if dr > 1:
-                    level_rejects.append((entry, "versao_de_performance_diferente"))
-                    continue
+                if dr > 0:
+                    if not allow_adjacent:
+                        level_rejects.append((entry, "versao_de_performance_diferente"))
+                        continue
+                    if dr > 1:
+                        level_rejects.append((entry, "versao_de_performance_diferente"))
+                        continue
+                    # dr == 1: rejeitar variantes de performance (rank >= 2).
+                    if max(target.performance_rank, comp.performance_rank) > 1:
+                        level_rejects.append((entry, "versao_de_performance_diferente"))
+                        continue
 
                 # Combustível.
                 if need_fuel:
@@ -457,16 +903,36 @@ class ComparableIndex:
                     level_rejects.append((entry, "similaridade_insuficiente"))
                     continue
 
+                # Hedonico de combustivel (niveis com need_fuel=False): converte
+                # o preco do comparavel para a classe de combustivel do alvo
+                # usando o premio de mercado. Evita esticar um diesel com
+                # gasolina (ou vice-versa) na mediana.
+                fuel_factor = 1.0
+                if (
+                    not need_fuel
+                    and target.fuel
+                    and comp.fuel
+                    and target.fuel != "unknown"
+                    and comp.fuel != "unknown"
+                    and target.fuel != comp.fuel
+                ):
+                    fuel_factor = fuel_adjustment_factor(target.fuel, comp.fuel)
                 selected.append(
                     Comparable(
                         id=entry["id"],
-                        price=entry["price"],
+                        price=round(entry["price"] * fuel_factor, 2),
                         year=comp.year,
                         km=comp.km,
                         horsepower=comp.horsepower,
                         source=entry["source"],
                         similarity=round(similarity, 3),
                         weight=similarity,
+                        fuel=comp.fuel,
+                        observed_at=entry.get("observed_at"),
+                        age_hours=entry.get("age_hours"),
+                        freshness=entry.get("freshness", NOT_MEASURED),
+                        age_status=entry.get("age_status", NOT_MEASURED),
+                        snapshot=entry.get("snapshot", self.snapshot),
                     )
                 )
 
@@ -483,7 +949,8 @@ class ComparableIndex:
                 reject(entry, reason)
 
             return self._build_estimate(
-                target, kept, level, penalty, rejected, summary, notes
+                target, kept, level, penalty, rejected, summary, notes,
+                freshness=temporal,
             )
 
         # Nenhum nível reuniu comparáveis suficientes: a resposta honesta é
@@ -498,6 +965,9 @@ class ComparableIndex:
                 f"(versão «{target.performance_class}», combustível «{target.fuel}»)."
             ),
             rejected, summary, notes,
+            freshness=temporal,
+            snapshot=self.snapshot,
+            snapshot_size=len(self.entries),
         )
 
     # -- construção do resultado -------------------------------------------
@@ -511,6 +981,8 @@ class ComparableIndex:
         rejected: List[Comparable],
         summary: Dict[str, int],
         notes: List[str],
+        *,
+        freshness: Optional[Dict[str, Any]] = None,
     ) -> MarketEstimate:
         # Pesos: similaridade × proximidade de ano × proximidade de km.
         weighted: List[Comparable] = []
@@ -521,8 +993,23 @@ class ComparableIndex:
             if target.km and c.km:
                 w *= 1.0 / (1.0 + abs(target.km - c.km) / 60_000.0)
             weighted.append(
-                Comparable(c.id, c.price, c.year, c.km, c.source, c.similarity,
-                           round(max(w, 1e-6), 5))
+                Comparable(
+                    c.id,
+                    c.price,
+                    c.year,
+                    c.km,
+                    c.source,
+                    c.similarity,
+                    round(max(w, 1e-6), 5),
+                    c.reason,
+                    horsepower=c.horsepower,
+                    fuel=c.fuel,
+                    observed_at=c.observed_at,
+                    age_hours=c.age_hours,
+                    freshness=c.freshness,
+                    age_status=c.age_status,
+                    snapshot=c.snapshot,
+                )
             )
 
         prices = _winsorize([c.price for c in weighted])
@@ -579,6 +1066,19 @@ class ComparableIndex:
                                 f"ajuste de potência {target.horsepower:.0f} vs "
                                 f"{med_hp:.0f} cv ({factor - 1:+.0%})".replace(",", ".")
                             )
+
+        # Nota de combustivel: quando comparam folgas entre combustiveis (niveis
+        # amplos), cada comparavel ja foi hedonica e ajustado no preco.
+        cross_fuel = [
+            c for c in weighted if getattr(c, "fuel", "")
+            and c.fuel not in ("unknown", "") and target.fuel
+            and c.fuel != target.fuel
+        ]
+        if cross_fuel:
+            adjustments.append(
+                f"ajuste de combustivel: {len(cross_fuel)} "
+                f"comparavel(s) de combustivel diferente"
+            )
 
         # A estimativa nunca sai da vizinhança dos dados observados.
         observed = sorted(c.price for c in weighted)
@@ -655,6 +1155,15 @@ class ComparableIndex:
             rejected=rejected[:50],
             rejection_summary=summary,
             notes=notes,
+            cutoff=(freshness or {}).get("cutoff"),
+            max_age_hours=(freshness or {}).get("max_age_hours"),
+            snapshot=(freshness or {}).get("snapshot", CURRENT_SNAPSHOT),
+            freshness=(freshness or {}).get("freshness", NOT_MEASURED),
+            age_status=(freshness or {}).get("age_status", NOT_MEASURED),
+            age_hours=(freshness or {}).get("age_hours"),
+            observed_at=(freshness or {}).get("observed_at"),
+            target=VALUATION_TARGET,
+            snapshot_size=len(self.entries),
         )
 
 
@@ -680,7 +1189,11 @@ def _similarity(target: CanonicalVehicle, comp: CanonicalVehicle) -> float:
     else:
         score *= 0.85
     if target.performance_class != comp.performance_class:
-        score *= 0.5
+        # Penalizacao graduada pelo escalao de performance (dr). Acabamentos
+        # adjacentes (base<->sport_trim, dr=1) pesam x0.70; versoes distintas
+        # x0.55 ou menos.
+        dr = abs(target.performance_rank - comp.performance_rank)
+        score *= max(0.3, 0.85 - 0.15 * dr)
     if target.fuel != comp.fuel:
         score *= 0.7
     if target.transmission != "unknown" and comp.transmission != "unknown":

@@ -64,11 +64,14 @@ class FeatureStore:
         "km_extreme",        # indicador binário: km > 250k (extremo / outlier tratado)
     ]
 
-    def __init__(self):
+    def __init__(self, reference_year: Optional[int] = None):
         self.brand_to_idx: Dict[str, int] = {}
         self.idx_to_brand: Dict[int, str] = {}
         self.model_to_idx: Dict[str, int] = {}
         self.idx_to_model: Dict[int, str] = {}
+        # Keep temporal features stable after the calendar rolls over.  Old
+        # manifests without this field continue to use the current year.
+        self.reference_year = int(reference_year or datetime.now().year)
 
     def build_brand_index(self, brands: List[str]) -> None:
         counts = Counter(brands)
@@ -97,14 +100,15 @@ class FeatureStore:
             self.model_to_idx = data.get("model_to_idx", {})
             self.idx_to_model = {v: k for k, v in self.model_to_idx.items()}
 
-    def compute_features(self, vehicle: dict) -> dict:
+    def compute_features(self, vehicle: dict, reference_year: Optional[int] = None) -> dict:
+        as_of_year = int(reference_year or self.reference_year)
         features = {}
-        features["year"] = float(vehicle.get("year") or datetime.now().year - 5)
+        features["year"] = float(vehicle.get("year") or as_of_year - 5)
         features["km"] = float(vehicle.get("km") or 0)
         features["horsepower"] = float(vehicle.get("horsepower") or 0)
         features["engine_size"] = float(vehicle.get("engine_size") or 0)
         features["doors"] = float(vehicle.get("doors") or 4)
-        age = max(datetime.now().year - features["year"], 0)
+        age = max(as_of_year - features["year"], 0)
         features["age"] = float(age)
         features["km_per_year"] = features["km"] / max(age, 1)
 

@@ -373,13 +373,17 @@ def create_ensemble_model(X: np.ndarray, y: np.ndarray,
     return ensemble
 
 
-def load_raw_data(vehicle_type: str = "carros") -> pd.DataFrame:
+def _legacy_load_raw_data(vehicle_type: str = "carros") -> pd.DataFrame:
     from database.db import get_db_context
     from database.models import Vehicle, VehicleType
 
     with get_db_context() as db:
         query = db.query(Vehicle).filter(
             Vehicle.vehicle_type == VehicleType(vehicle_type),
+            Vehicle.is_active.is_(True),
+            Vehicle.price_kind == "total",
+            Vehicle.currency == "EUR",
+            Vehicle.quality_status.in_(("valid", "valid_with_warning")),
             Vehicle.price > 500,
             Vehicle.price < 500000,
             Vehicle.year.isnot(None),
@@ -408,7 +412,7 @@ def load_raw_data(vehicle_type: str = "carros") -> pd.DataFrame:
     return df
 
 
-def train_model(vehicle_type: str = "carros", force_retrain: bool = False) -> Optional[Dict]:
+def _legacy_train_model(vehicle_type: str = "carros", force_retrain: bool = False) -> Optional[Dict]:
     raw = load_raw_data(vehicle_type)
     if len(raw) < settings.ml_min_samples:
         logger.warning(f"Only {len(raw)} samples for {vehicle_type}, need {settings.ml_min_samples}")
@@ -618,12 +622,30 @@ def train_model(vehicle_type: str = "carros", force_retrain: bool = False) -> Op
     return metadata
 
 
+def load_raw_data(vehicle_type: str = "carros") -> pd.DataFrame:
+    """Compatibility name backed by the canonical v2 data contract."""
+    from valuation.train_v2 import load_training_frame
+
+    return load_training_frame(vehicle_type)
+
+
+def train_model(
+    vehicle_type: str = "carros", force_retrain: bool = False
+) -> Optional[Dict]:
+    """Compatibility entrypoint; all artifacts are produced by ``train_v2``."""
+    from valuation.train_v2 import train_model_v2
+
+    result = train_model_v2(vehicle_type)
+    if result is not None:
+        result.setdefault("force_retrain", bool(force_retrain))
+    return result
+
+
 def train_all_models(force_retrain: bool = False) -> Dict[str, Optional[Dict]]:
-    results = {}
-    for vtype in ["carros", "motos"]:
-        logger.info(f"Training {vtype} model...")
-        results[vtype] = train_model(vtype, force_retrain)
-    return results
+    """Compatibility entrypoint routed to the one canonical pipeline."""
+    from valuation.train_v2 import train_all
+
+    return train_all(force=force_retrain)
 
 
 if __name__ == "__main__":

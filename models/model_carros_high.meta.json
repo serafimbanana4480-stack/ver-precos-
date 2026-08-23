@@ -1,0 +1,99 @@
+{
+  "model_type": "catboost",
+  "target": "price",
+  "high_threshold": 20000.0,
+  "high_train_threshold": 15000.0,
+  "high_log_target": true,
+  "high_cat_features": [
+    7,
+    8,
+    9,
+    10,
+    11
+  ],
+  "feature_names": [
+    "year",
+    "km",
+    "horsepower",
+    "engine_size",
+    "doors",
+    "age",
+    "km_per_year",
+    "fuel_type",
+    "transmission",
+    "brand",
+    "model",
+    "district",
+    "depreciation_factor",
+    "fuel_premium",
+    "location_premium",
+    "log_km",
+    "km_excess",
+    "km_extreme"
+  ],
+  "n_train_high": 2069,
+  "trained_at": "2026-08-01T06:00:02.669305",
+  "metrics_true_ge_20k_after": {
+    "n": 322,
+    "r2": 0.42644098893310123,
+    "mae": 7168.733353885993,
+    "mape_pct": 14.153261621666088
+  },
+  "metrics_true_ge_20k_before_xgb": {
+    "n": 322,
+    "r2": 0.463870231015425,
+    "mae": 7019.592864421584,
+    "mape_pct": 13.820080246075111
+  },
+  "por_faixa_after": {
+    "20-30k": {
+      "n": 178,
+      "r2": -0.6941837387884944,
+      "mae": 2745.337700855772,
+      "mape_pct": 11.310548391762364
+    },
+    "30-50k": {
+      "n": 106,
+      "r2": -0.9699617391162987,
+      "mae": 5413.9819163695265,
+      "mape_pct": 14.524139518153909
+    },
+    ">50k": {
+      "n": 38,
+      "r2": -0.005258159392793171,
+      "mae": 32783.68279115243,
+      "mape_pct": 26.43457472417014
+    }
+  },
+  "por_faixa_before_xgb": {
+    "20-30k": {
+      "n": 178,
+      "r2": -0.9435072232140844,
+      "mae": 2779.1505607004915,
+      "mape_pct": 11.381309743614782
+    },
+    "30-50k": {
+      "n": 106,
+      "r2": -0.5186159477543146,
+      "mae": 4984.636921432783,
+      "mape_pct": 13.393744813047324
+    },
+    ">50k": {
+      "n": 38,
+      "r2": 0.05778889263883202,
+      "mae": 32559.173391241777,
+      "mape_pct": 26.433046176045742
+    }
+  },
+  "excludes_auctions": [
+    "AUTOLINE",
+    "AUTOROLA",
+    "BCA",
+    "LEILOSOC",
+    "MANHEIM",
+    "MARTELO",
+    "PENHORADO",
+    "VPAUTO"
+  ],
+  "brand_index_path": "brand_index_carros.json"
+}

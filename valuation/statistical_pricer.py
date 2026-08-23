@@ -39,9 +39,12 @@ class StatisticalPricer:
 
         with get_db_context() as db:
             vehicles = db.query(Vehicle).filter(
-                Vehicle.is_active == True,
+                Vehicle.is_active.is_(True),
+                Vehicle.price_kind == "total",
+                Vehicle.currency == "EUR",
                 Vehicle.price > 500,
                 Vehicle.price < 500000,
+                Vehicle.quality_status.in_(("valid", "valid_with_warning")),
                 Vehicle.year.isnot(None),
                 Vehicle.brand.isnot(None),
             ).all()
@@ -203,26 +206,17 @@ class StatisticalPricer:
 
 
 def update_all_valuations() -> int:
-    """Update estimated_value and deal_score for all active vehicles."""
-    pricer = StatisticalPricer()
-    updated = 0
+    """Update all valuations through the canonical writer.
 
-    with get_db_context() as db:
-        vehicles = db.query(Vehicle).filter(Vehicle.is_active == True).all()
-        for v in vehicles:
-            data = {"brand": v.brand, "model": v.model, "year": v.year,
-                    "km": v.km, "price": v.price, "vehicle_type": v.vehicle_type.value if v.vehicle_type else "carros"}
-            result = pricer.score_deal(data)
-            if result:
-                v.estimated_value = result["estimated_value"]
-                v.deal_score = result["deal_score"]
-                v.profit_potential = result["profit_potential"]
-                v.profit_percentage = result["profit_percentage"]
-                db.add(v)
-                updated += 1
-        db.commit()
+    ``StatisticalPricer`` remains available for isolated comparisons, but it
+    must not write a partial set of derived columns. The old implementation
+    left reliability, fiscal profit and publication gates stale.
+    """
+    from valuation.service import revalue_database
 
-    logger.info(f"Updated valuations for {updated} vehicles")
+    stats = revalue_database(force=True)
+    updated = int(stats.get("processed", 0))
+    logger.info("Updated canonical valuations for %d vehicles (stats=%s)", updated, stats)
     return updated
 
 

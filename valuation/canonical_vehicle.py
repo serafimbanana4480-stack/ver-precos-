@@ -41,6 +41,8 @@ __all__ = [
     "normalize_fuel",
     "detect_performance_class",
     "PERFORMANCE_RANK",
+    "FUEL_PREMIUM",
+    "fuel_adjustment_factor",
 ]
 
 
@@ -268,8 +270,13 @@ def normalize_fuel(*texts: Any) -> str:
 #: Combustíveis que competem no mesmo mercado (podem ser comparados com
 #: penalização). Fora destes grupos a comparação é proibida.
 _FUEL_NEIGHBOURS: Dict[str, frozenset] = {
-    FuelClass.GASOLINE: frozenset({FuelClass.GASOLINE, FuelClass.MILD_HYBRID}),
-    FuelClass.DIESEL: frozenset({FuelClass.DIESEL, FuelClass.MILD_HYBRID}),
+        # Gasolina e diesel competem no mesmo segmento dentro de uma família
+    # (ex.: Golf 2.0 TDI vs Golf 1.5 TSI): podem servir de comparável um ao
+    # outro com penalização hedónica (prémio de mercado). A penalização de
+    # similaridade e o ajuste de preço impedem que o carro mais barato carregue
+    # a mediana do mais caro.
+    FuelClass.GASOLINE: frozenset({FuelClass.GASOLINE, FuelClass.MILD_HYBRID, FuelClass.DIESEL}),
+    FuelClass.DIESEL: frozenset({FuelClass.DIESEL, FuelClass.MILD_HYBRID, FuelClass.GASOLINE}),
     FuelClass.MILD_HYBRID: frozenset(
         {FuelClass.MILD_HYBRID, FuelClass.GASOLINE, FuelClass.DIESEL, FuelClass.HYBRID}
     ),
@@ -288,6 +295,36 @@ def fuel_compatible(a: str, b: str) -> bool:
     if a == FuelClass.UNKNOWN or b == FuelClass.UNKNOWN:
         return False
     return b in _FUEL_NEIGHBOURS.get(a, frozenset())
+
+
+#: Prémio de mercado relativo à gasolina (1.0). Usado para converter o preço de
+#: um comparável de combustível diferente para a escala do veículo alvo —
+#: evita, por exemplo, usar a mediana de gasolina para esticar um diesel.
+#: Coerente com ``valuation.feature_store.FUEL_MARKET_PREMIUM``.
+FUEL_PREMIUM: Dict[str, float] = {
+    FuelClass.GASOLINE: 1.00,
+    FuelClass.DIESEL: 0.88,
+    FuelClass.MILD_HYBRID: 0.94,
+    FuelClass.HYBRID: 1.12,
+    FuelClass.PHEV: 1.12,
+    FuelClass.ELECTRIC: 1.30,
+    FuelClass.LPG: 0.92,
+    FuelClass.CNG: 0.90,
+    FuelClass.UNKNOWN: 1.00,
+}
+
+
+def fuel_adjustment_factor(target_fuel: str, comp_fuel: str) -> float:
+    """Factor de conversão de preço: ``price_comp * factor`` para obter o
+    valor equivalente à classe de combustível do alvo."""
+    if not target_fuel or not comp_fuel:
+        return 1.0
+    target = FUEL_PREMIUM.get(target_fuel, 1.0)
+    comp = FUEL_PREMIUM.get(comp_fuel, 1.0)
+    if comp <= 0:
+        return 1.0
+    # Limitado: nunca inverter radicalmente a ordem de preços.
+    return max(0.80, min(1.25, target / comp))
 
 
 # ---------------------------------------------------------------------------

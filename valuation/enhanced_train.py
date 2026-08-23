@@ -103,6 +103,10 @@ class VehicleTypeAwarePricing:
             vehicles = (
                 db.query(Vehicle)
                 .filter(
+                    Vehicle.is_active.is_(True),
+                    Vehicle.price_kind == "total",
+                    Vehicle.currency == "EUR",
+                    Vehicle.quality_status.in_(("valid", "valid_with_warning")),
                     Vehicle.price.isnot(None),
                     Vehicle.year.isnot(None),
                     Vehicle.km.isnot(None),

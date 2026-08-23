@@ -247,7 +247,8 @@ class HybridValuator:
             from sqlalchemy import or_
             vehicles = db.query(Vehicle).filter(
                 Vehicle.is_active == True,  # noqa: E712
-                Vehicle.price.isnot(None),
+                Vehicle.price_kind == "total",
+                Vehicle.currency == "EUR",
                 Vehicle.price > 0,
                 Vehicle.quality_status.in_(("valid", "valid_with_warning")),
             ).all()

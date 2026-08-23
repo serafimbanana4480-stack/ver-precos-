@@ -22,9 +22,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -42,10 +43,19 @@ from sklearn.preprocessing import StandardScaler
 from core.settings import settings
 from valuation.feature_store import FeatureStore
 from valuation.hybrid_valuator import AUCTION_SOURCES
+from valuation.predict import (
+    build_feature_vector,
+    canonical_feature_names,
+    normalize_required_fields,
+    normalize_vehicle_type,
+    required_input_fields,
+)
 
 logger = logging.getLogger(__name__)
 
 MIN_R2_SAVE = 0.30
+PIPELINE_VERSION = "v2"
+FEATURE_CONTRACT_VERSION = "feature_store_v1"
 
 
 def _val_str(val) -> str:
@@ -56,9 +66,54 @@ def _val_str(val) -> str:
     return str(val)
 
 
+def feature_contract(vehicle_type: str = "carros") -> Dict[str, Any]:
+    """Return the shared training/serving feature contract."""
+    vtype = normalize_vehicle_type(vehicle_type)
+    names = list(FeatureStore.ALLOWED_FEATURES)
+    required_fields = list(required_input_fields(vtype))
+    return {
+        "version": FEATURE_CONTRACT_VERSION,
+        "feature_names": names,
+        "required_features": names,
+        "required_fields": required_fields,
+        "missing_policy": "fail_closed",
+    }
+
+
+def strict_feature_matrix(
+    frame: pd.DataFrame,
+    fs: FeatureStore,
+    feature_cols: Sequence[str],
+    *,
+    vehicle_type: str = "carros",
+    reference_year: Optional[int] = None,
+) -> np.ndarray:
+    """Build a matrix without ``dict.get(..., 0)`` for required features."""
+    names = canonical_feature_names(feature_cols)
+    required = normalize_required_fields(None, vehicle_type)
+    rows = []
+    for record in frame.to_dict("records"):
+        rows.append(
+            build_feature_vector(
+                fs,
+                record,
+                names,
+                required_fields=required,
+                reference_year=reference_year,
+            )[0]
+        )
+    if not rows:
+        return np.empty((0, len(names)), dtype=float)
+    matrix = np.asarray(rows, dtype=float)
+    if matrix.shape != (len(rows), len(names)) or not np.isfinite(matrix).all():
+        raise ValueError("feature matrix is not finite or has an invalid shape")
+    return matrix
+
+
 def load_training_frame(vehicle_type: str = "carros") -> pd.DataFrame:
     """Carrega dados de treino limpos: sem leilões, sem preços absurdos,
     sem duplicados exatos, ordenado temporalmente."""
+    vehicle_type = normalize_vehicle_type(vehicle_type)
     from database.db import get_db_context
     from database.models import Vehicle, VehicleType
 
@@ -84,8 +139,13 @@ def load_training_frame(vehicle_type: str = "carros") -> pd.DataFrame:
             src = _val_str(v.source)
             if src in AUCTION_SOURCES:
                 continue  # preços de leilão não são retalho
+            # Brand/model/year are identity signals, not optional numeric
+            # columns.  Excluding an incomplete row is safer than teaching the
+            # model that an absent identity is a real zero/Unknown segment.
+            if not str(v.brand or "").strip() or not str(v.model or "").strip():
+                continue
             records.append({
-                "year": v.year, "km": v.km or 0,
+                "year": v.year, "km": v.km,
                 "horsepower": v.horsepower or 0, "engine_size": v.engine_size or 0,
                 "doors": v.doors or 4,
                 "fuel_type": _val_str(v.fuel_type),
@@ -96,6 +156,8 @@ def load_training_frame(vehicle_type: str = "carros") -> pd.DataFrame:
                 "district": v.district or "",
                 "price": float(v.price),
                 "first_seen": v.first_seen,
+                "source": src,
+                "vehicle_type": vehicle_type,
             })
 
     df = pd.DataFrame(records)
@@ -165,12 +227,30 @@ def _error_by_band(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     return out
 
 
-def _feature_matrix(frame: pd.DataFrame, fs: FeatureStore, feature_cols) -> np.ndarray:
-    rows = [fs.compute_features(r) for r in frame.to_dict("records")]
-    return np.array([[f.get(c, 0.0) for c in feature_cols] for f in rows], dtype=float)
+def _feature_matrix(
+    frame: pd.DataFrame,
+    fs: FeatureStore,
+    feature_cols,
+    reference_year: Optional[int] = None,
+    vehicle_type: str = "carros",
+) -> np.ndarray:
+    return strict_feature_matrix(
+        frame,
+        fs,
+        feature_cols,
+        vehicle_type=vehicle_type,
+        reference_year=reference_year,
+    )
 
 
-def _evaluate(model, frame: pd.DataFrame, feature_cols, tscv) -> Dict[str, float]:
+def _evaluate(
+    model,
+    frame: pd.DataFrame,
+    feature_cols,
+    tscv,
+    vehicle_type: str = "carros",
+    feature_reference_year: Optional[int] = None,
+) -> Dict[str, float]:
     """Evaluate without fitting encoders/scaler on future rows.
 
     The previous implementation fitted the StandardScaler and categorical
@@ -181,13 +261,18 @@ def _evaluate(model, frame: pd.DataFrame, feature_cols, tscv) -> Dict[str, float
     r2s, maes, mapes, rmses, medaes = [], [], [], [], []
     band_metrics: Dict[str, list] = {}
     y = frame["price"].to_numpy(dtype=float)
+    feature_reference_year = feature_reference_year or datetime.now(timezone.utc).year
     y_log = np.log1p(y)
     for tr, te in tscv.split(frame):
-        fs = FeatureStore()
+        fs = FeatureStore(reference_year=feature_reference_year)
         fs.build_brand_index(frame.iloc[tr]["brand"].tolist())
         fs.build_model_index(frame.iloc[tr]["model"].tolist())
-        x_train = _feature_matrix(frame.iloc[tr], fs, feature_cols)
-        x_test = _feature_matrix(frame.iloc[te], fs, feature_cols)
+        x_train = _feature_matrix(
+            frame.iloc[tr], fs, feature_cols, feature_reference_year, vehicle_type
+        )
+        x_test = _feature_matrix(
+            frame.iloc[te], fs, feature_cols, feature_reference_year, vehicle_type
+        )
         scaler = StandardScaler().fit(x_train)
         model.fit(scaler.transform(x_train), y_log[tr])
         pred = np.expm1(model.predict(scaler.transform(x_test)))
@@ -212,54 +297,137 @@ def _evaluate(model, frame: pd.DataFrame, feature_cols, tscv) -> Dict[str, float
     }
 
 
-def _save_artifacts(best_name: str, model, scaler, fs: FeatureStore,
-                    feature_cols, metrics: Dict, n_samples: int,
-                    vehicle_type: str) -> Path:
-    """Grava artefactos de forma atómica + validação round-trip."""
+def _atomic_json(path: Path, payload: Dict[str, Any]) -> None:
+    tmp = path.with_name(f".{path.name}.tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def _atomic_joblib(path: Path, value: Any) -> None:
+    tmp = path.with_name(f".{path.name}.tmp")
+    dump(value, str(tmp))
+    os.replace(tmp, path)
+
+
+def _model_metadata(
+    *,
+    best_name: str,
+    model_path: str,
+    scaler_path: str,
+    brand_index_path: str,
+    feature_cols: Sequence[str],
+    metrics: Dict[str, Any],
+    n_samples: int,
+    vehicle_type: str,
+    feature_reference_year: int,
+) -> Dict[str, Any]:
+    """Build the backwards-compatible manifest consumed by PricePredictor."""
+    vtype = normalize_vehicle_type(vehicle_type)
+    contract = feature_contract(vtype)
+    names = canonical_feature_names(feature_cols)
+    contract["feature_names"] = list(names)
+    contract["required_features"] = list(names)
+    return {
+        "model_type": best_name,
+        "model_path": model_path,
+        "scaler_path": scaler_path,
+        "brand_index_path": brand_index_path,
+        "vehicle_type": vtype,
+        "feature_names": list(names),
+        "required_features": list(names),
+        "required_fields": list(required_input_fields(vtype)),
+        "feature_contract": contract,
+        "full_log_target": True,
+        "metrics": metrics,
+        "n_samples": int(n_samples),
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "feature_reference_year": int(feature_reference_year),
+        "excludes_auctions": list(AUCTION_SOURCES),
+        "pipeline_version": PIPELINE_VERSION,
+        "pipeline_name": "valuation.train_v2",
+        "selected_candidate": best_name,
+    }
+
+
+def _save_artifacts(
+    best_name: str,
+    model,
+    scaler,
+    fs: FeatureStore,
+    feature_cols,
+    metrics: Dict,
+    n_samples: int,
+    vehicle_type: str,
+    feature_reference_year: Optional[int] = None,
+) -> Path:
+    """Grava artefactos atomicamente e valida o round-trip de produção."""
+    vehicle_type = normalize_vehicle_type(vehicle_type)
+    feature_reference_year = int(feature_reference_year or fs.reference_year)
     model_dir = Path(settings.models_dir)
-    model_dir.mkdir(exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
 
     ext_map = {"xgboost": "json", "lightgbm": "txt", "catboost": "cbm",
                "random_forest": "joblib", "extra_trees": "joblib", "huber": "joblib"}
     ext = ext_map.get(best_name, "joblib")
     model_path = model_dir / f"model_{vehicle_type}.{ext}"
-    tmp_path = model_dir / f".tmp_model_{vehicle_type}.{ext}"
+    tmp_path = Path(
+        tempfile.NamedTemporaryFile(
+            dir=model_dir,
+            prefix=f".tmp_model_{vehicle_type}_",
+            suffix=f".{ext}",
+            delete=False,
+        ).name
+    )
 
-    if best_name == "xgboost":
-        model.save_model(str(tmp_path))
-    elif best_name == "lightgbm":
-        model.booster_.save_model(str(tmp_path))
-    elif best_name == "catboost":
-        model.save_model(str(tmp_path))
-    else:
-        dump(model, str(tmp_path))
-    os.replace(tmp_path, model_path)
+    try:
+        if best_name == "xgboost":
+            model.save_model(str(tmp_path))
+        elif best_name == "lightgbm":
+            model.booster_.save_model(str(tmp_path))
+        elif best_name == "catboost":
+            model.save_model(str(tmp_path))
+        else:
+            dump(model, str(tmp_path))
+        os.replace(tmp_path, model_path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
 
-    dump(scaler, str(model_dir / f"scaler_{vehicle_type}.joblib"))
-    fs.save_index(model_dir / f"brand_index_{vehicle_type}.json")
+    scaler_path = model_dir / f"scaler_{vehicle_type}.joblib"
+    _atomic_joblib(scaler_path, scaler)
+    brand_index_path = model_dir / f"brand_index_{vehicle_type}.json"
+    brand_tmp = brand_index_path.with_name(f".{brand_index_path.name}.tmp")
+    fs.save_index(brand_tmp)
+    os.replace(brand_tmp, brand_index_path)
 
-    import sklearn, xgboost
-    metadata = {
-        "model_type": best_name,
-        "model_path": model_path.name,
-        "scaler_path": f"scaler_{vehicle_type}.joblib",
-        "brand_index_path": f"brand_index_{vehicle_type}.json",
-        "vehicle_type": vehicle_type,
-        "feature_names": list(feature_cols),
-        "full_log_target": True,
-        "metrics": metrics,
-        "n_samples": n_samples,
-        "trained_at": datetime.now(timezone.utc).isoformat(),
-        "excludes_auctions": list(AUCTION_SOURCES),
-        "pipeline_version": "v2",
-        "library_versions": {
-            "xgboost": xgboost.__version__,
-            "sklearn": sklearn.__version__,
-        },
-    }
+    metadata = _model_metadata(
+        best_name=best_name,
+        model_path=model_path.name,
+        scaler_path=scaler_path.name,
+        brand_index_path=brand_index_path.name,
+        feature_cols=feature_cols,
+        metrics=metrics,
+        n_samples=n_samples,
+        vehicle_type=vehicle_type,
+        feature_reference_year=feature_reference_year,
+    )
+    try:
+        import sklearn
+
+        metadata["library_versions"] = {"sklearn": sklearn.__version__}
+    except Exception:
+        metadata["library_versions"] = {}
+    try:
+        import xgboost
+
+        metadata["library_versions"]["xgboost"] = xgboost.__version__
+    except Exception:
+        pass
     meta_tmp = model_dir / f".tmp_best_model_{vehicle_type}.json"
-    with open(meta_tmp, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2, ensure_ascii=False)
+    _atomic_json(meta_tmp, metadata)
     os.replace(meta_tmp, model_dir / f"best_model_{vehicle_type}.json")
 
     # ---- validação round-trip: recarrega como produção faria ----
@@ -267,10 +435,11 @@ def _save_artifacts(best_name: str, model, scaler, fs: FeatureStore,
     check = PricePredictor(vehicle_type)
     if not check.model_loaded_ok:
         raise RuntimeError(f"Round-trip falhou: {check.load_error}")
-    probe = check.predict({"year": 2019, "km": 80000, "horsepower": 150,
-                           "engine_size": 2000, "doors": 5, "fuel_type": "diesel",
-                           "transmission": "manual", "brand": "volkswagen",
-                           "model": "golf", "location": "lisboa"})
+    probe = check.predict({"vehicle_type": vehicle_type, "year": 2019, "km": 80000,
+                           "horsepower": 150, "engine_size": 2000, "doors": 5,
+                           "fuel_type": "diesel", "transmission": "manual",
+                           "brand": "volkswagen", "model": "golf",
+                           "location": "lisboa"})
     if not probe or probe <= 0:
         raise RuntimeError(f"Round-trip produziu previsão inválida: {probe}")
     logger.info("Round-trip OK: previsão de teste = €%.0f", probe)
@@ -278,6 +447,7 @@ def _save_artifacts(best_name: str, model, scaler, fs: FeatureStore,
 
 
 def train_model_v2(vehicle_type: str = "carros") -> Optional[Dict[str, Any]]:
+    vehicle_type = normalize_vehicle_type(vehicle_type)
     df = load_training_frame(vehicle_type)
     if len(df) < settings.ml_min_samples:
         logger.warning("Apenas %d amostras para %s (mín. %s)",
@@ -285,11 +455,18 @@ def train_model_v2(vehicle_type: str = "carros") -> Optional[Dict[str, Any]]:
         return None
 
     feature_cols = list(FeatureStore.ALLOWED_FEATURES)
-    fs = FeatureStore()
+    feature_reference_year = datetime.now(timezone.utc).year
+    fs = FeatureStore(reference_year=feature_reference_year)
     fs.build_brand_index(df["brand"].tolist())
     fs.build_model_index(df["model"].tolist())
 
-    X = _feature_matrix(df, fs, feature_cols)
+    X = _feature_matrix(
+        df,
+        fs,
+        feature_cols,
+        feature_reference_year,
+        vehicle_type,
+    )
     y = df["price"].values.astype(float)
     mask = y > 0
     X, y = X[mask], y[mask]
@@ -302,7 +479,14 @@ def train_model_v2(vehicle_type: str = "carros") -> Optional[Dict[str, Any]]:
 
     for name, model in models.items():
         try:
-            metrics = _evaluate(model, df, feature_cols, tscv)
+            metrics = _evaluate(
+                model,
+                df,
+                feature_cols,
+                tscv,
+                vehicle_type,
+                feature_reference_year,
+            )
             results[name] = metrics
             trained[name] = model
             logger.info(
@@ -341,6 +525,7 @@ def train_model_v2(vehicle_type: str = "carros") -> Optional[Dict[str, Any]]:
     meta_path = _save_artifacts(
         best_name, best_model, scaler, fs, feature_cols,
         best_metrics, len(df), vehicle_type,
+        feature_reference_year,
     )
     logger.info("Artefactos gravados: %s", meta_path)
     return {"status": "ok", "best": best_name, "metrics": best_metrics, "results": results}
