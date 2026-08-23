@@ -238,6 +238,64 @@ class VehicleValuation:
             "valuation_details": self.details(),
         }
 
+    def _decision_block(self) -> Dict[str, Any]:
+        """Max Buy Price + hard gates sobre os dados já disponíveis.
+
+        Bloco de *decisão* (não é campo derivado da BD): vive dentro de
+        ``valuation_details``. Fail-closed — qualquer peça em falta devolve
+        um bloco vazio em vez de números inventados.
+        """
+        est = self.estimate
+        opp = self.opportunity
+        if est.value is None or not self.canonical:
+            return {}
+        try:
+            from valuation.economics import buy_verdict, calculate_max_buy_price
+            from valuation.gates import apply_hard_gates
+
+            canon = self.canonical
+            year = canon.get("year")
+            age_years = (
+                datetime.now(timezone.utc).year - int(year)
+                if year
+                else 5
+            )
+            # Lucro esperado: ground truth quando existe; senão a projecção
+            # bruta ask vs mercado (claramente identificada como tal).
+            expected_profit = self.net_profit
+            profit_basis = "ground_truth"
+            if expected_profit is None and opp.listing_price and opp.discount_eur:
+                expected_profit = float(opp.discount_eur)
+                profit_basis = "gross_projection"
+
+            max_buy = calculate_max_buy_price(
+                est.value,
+                vehicle_type=canon.get("vehicle_type") or "carros",
+                engine_cc=int(canon.get("engine_cc") or 0) or 1500,
+                fuel_type=canon.get("fuel") or "gasolina",
+                age_years=max(0, age_years),
+                is_national=bool(canon.get("is_national", True)),
+                days_to_sell=45,
+            )
+            verdict = buy_verdict(opp.listing_price, max_buy)
+            gates = apply_hard_gates(
+                confidence=est.confidence,
+                expected_profit=expected_profit,
+                discount_pct=opp.discount_pct,
+                asking_price=opp.listing_price,
+                max_buy_price=max_buy.get("max_buy_price"),
+            )
+            return {
+                "profit_basis": profit_basis,
+                "max_buy": max_buy,
+                "price_verdict": verdict,
+                "hard_gates": gates,
+                "verdict": gates["verdict"] if gates["verdict"] != "BUY" else verdict,
+            }
+        except Exception as exc:  # noqa: BLE001 — decisão nunca quebra valuation
+            logger.debug("decision block unavailable: %s", exc)
+            return {}
+
     def details(self) -> Dict[str, Any]:
         """Rasto completo da avaliação (guardado em ``valuation_details``)."""
         est = self.estimate
@@ -306,6 +364,8 @@ class VehicleValuation:
             "fingerprint": self.fingerprint,
             "duplicate_of": self.duplicate_of,
             "reliability": self.reliability.to_dict() if self.reliability else None,
+            # Bloco de decisão (max buy + gates) — projeção, não campo derivado.
+            "decision": self._decision_block(),
             "semantics": {
                 "target": self.target,
                 "target_field": self.target,
