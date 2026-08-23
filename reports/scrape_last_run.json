@@ -1,51 +1,99 @@
 {
-  "started_at": "2026-08-06T16:28:49.442929+00:00",
-  "finished_at": "2026-08-06T16:28:53.967726+00:00",
-  "total_listings": 0,
-  "total_saved": 0,
-  "total_duration": 4.524724960327148,
+  "started_at": "2026-08-23T16:58:14.458378+00:00",
+  "finished_at": "2026-08-23T16:58:15.422105+00:00",
+  "total_listings": 2,
+  "total_saved": 1,
+  "total_duration": 0.9636733531951904,
   "vehicle_type": "all",
   "overall_success": false,
   "failed_sources": [
-    "OLX:carros",
-    "OLX:motos"
+    "OLX:motos",
+    "OLX:carros"
   ],
   "scrapers": {
-    "OLX:carros": {
-      "source": "OLX",
-      "count": 0,
-      "duration": 4.521637439727783,
-      "success": false,
-      "errors": [
-        "retry/circuit exaurido"
-      ],
-      "persisted": 0,
-      "updated": 0,
-      "rejected": 0,
-      "duplicates": 0,
-      "quarantined": 0,
-      "valid_price_pct": 0.0,
-      "complete_fields_pct": 0.0,
-      "field_coverage": {},
-      "critical_fields_ok": null
-    },
     "OLX:motos": {
       "source": "OLX",
-      "count": 0,
-      "duration": 4.521423101425171,
+      "count": 1,
+      "duration": 0.7641823291778564,
       "success": false,
       "errors": [
-        "retry/circuit exaurido"
+        "cobertura crítica insuficiente: horsepower"
       ],
       "persisted": 0,
+      "updated": 0,
+      "rejected": 1,
+      "duplicates": 0,
+      "quarantined": 0,
+      "run_log_recorded": true,
+      "valid_price_pct": 100.0,
+      "complete_fields_pct": 100.0,
+      "field_coverage": {
+        "brand": 100.0,
+        "co2_gkm": 0.0,
+        "color": 0.0,
+        "doors": 0.0,
+        "engine_size": 100.0,
+        "fuel_type": 100.0,
+        "horsepower": 0.0,
+        "images": 0.0,
+        "is_national": 0.0,
+        "km": 100.0,
+        "location": 100.0,
+        "model": 100.0,
+        "num_owners": 0.0,
+        "price": 100.0,
+        "seats": 0.0,
+        "seller_type": 100.0,
+        "title": 100.0,
+        "transmission": 100.0,
+        "url": 100.0,
+        "vin": 0.0,
+        "warranty_months": 0.0,
+        "year": 100.0
+      },
+      "critical_fields_ok": false
+    },
+    "OLX:carros": {
+      "source": "OLX",
+      "count": 1,
+      "duration": 0.794231653213501,
+      "success": false,
+      "errors": [
+        "cobertura crítica insuficiente: engine_size"
+      ],
+      "persisted": 1,
       "updated": 0,
       "rejected": 0,
       "duplicates": 0,
       "quarantined": 0,
-      "valid_price_pct": 0.0,
-      "complete_fields_pct": 0.0,
-      "field_coverage": {},
-      "critical_fields_ok": null
+      "run_log_recorded": true,
+      "valid_price_pct": 100.0,
+      "complete_fields_pct": 100.0,
+      "field_coverage": {
+        "brand": 100.0,
+        "co2_gkm": 0.0,
+        "color": 0.0,
+        "doors": 0.0,
+        "engine_size": 0.0,
+        "fuel_type": 100.0,
+        "horsepower": 100.0,
+        "images": 0.0,
+        "is_national": 0.0,
+        "km": 100.0,
+        "location": 100.0,
+        "model": 100.0,
+        "num_owners": 0.0,
+        "price": 100.0,
+        "seats": 0.0,
+        "seller_type": 100.0,
+        "title": 100.0,
+        "transmission": 100.0,
+        "url": 100.0,
+        "vin": 0.0,
+        "warranty_months": 0.0,
+        "year": 100.0
+      },
+      "critical_fields_ok": false
     }
   }
 }

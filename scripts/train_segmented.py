@@ -29,8 +29,8 @@ import xgboost as xgb
 
 from core.settings import settings
 from valuation.feature_store import FeatureStore
-from database.db import get_db_context
-from database.models import Vehicle, VehicleType
+from valuation.predict import build_feature_vector, normalize_vehicle_type, required_input_fields
+from valuation.train_v2 import feature_contract, load_training_frame
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -48,26 +48,14 @@ def _val_str(val):
     return val.value if hasattr(val, "value") else str(val)
 
 
-def load_retail_data():
-    with get_db_context() as db:
-        rows = db.query(Vehicle).filter(
-            Vehicle.vehicle_type == VehicleType("carros"),
-            Vehicle.price > 500, Vehicle.price < 500000,
-            Vehicle.year.isnot(None),
-            Vehicle.km.isnot(None), Vehicle.km > 0,
-        ).all()
-        recs = [{
-            "year": v.year, "km": v.km or 0,
-            "horsepower": v.horsepower or 0, "engine_size": v.engine_size or 0,
-            "doors": v.doors or 4,
-            "fuel_type": _val_str(v.fuel_type),
-            "transmission": _val_str(v.transmission),
-            "brand": v.brand or "Unknown", "model": v.model or "",
-            "location": v.location or "", "district": v.district or "",
-            "price": float(v.price),
-            "source": v.source.value if v.source else "",
-        } for v in rows]
-    df = pd.DataFrame(recs)
+def load_retail_data(vehicle_type="carros"):
+    vehicle_type = normalize_vehicle_type(vehicle_type)
+    if vehicle_type != "carros":
+        raise ValueError("train_segmented is a cars-only candidate pipeline")
+    df = load_training_frame(vehicle_type).copy()
+    if "source" not in df:
+        df["source"] = ""
+    df = df[df["km"].notna() & (df["km"] > 0)].reset_index(drop=True)
     df["is_auction"] = df["source"].isin(AUCTION_SOURCES)
     n_auction = int(df["is_auction"].sum())
     df = df[~df["is_auction"]].drop(columns=["is_auction"]).reset_index(drop=True)
@@ -75,13 +63,21 @@ def load_retail_data():
     return df
 
 
-def build_features(df):
-    fs = FeatureStore()
+def build_features(df, fs=None, feature_reference_year=None, vehicle_type="carros"):
+    vehicle_type = normalize_vehicle_type(vehicle_type)
+    fs = fs or FeatureStore(reference_year=feature_reference_year)
     fs.build_brand_index(df["brand"].tolist())
     fs.build_model_index(df["model"].tolist())
     recs = []
     for r in df.to_dict("records"):
-        f = fs.compute_features(r)
+        f = build_feature_vector(
+            fs,
+            r,
+            FeatureStore.ALLOWED_FEATURES,
+            required_fields=required_input_fields(vehicle_type),
+            reference_year=feature_reference_year,
+        )[0]
+        f = dict(zip(FeatureStore.ALLOWED_FEATURES, f))
         f["price"] = r["price"]
         recs.append(f)
     out = pd.DataFrame(recs).dropna(subset=["price"]).fillna(0)
@@ -173,9 +169,18 @@ def evaluate_current_model(df):
         return None
 
 
-def main():
-    df = load_retail_data()
-    feat_df, fs = build_features(df)
+def main(vehicle_type="carros"):
+    vehicle_type = normalize_vehicle_type(vehicle_type)
+    if vehicle_type != "carros":
+        raise ValueError("train_segmented is a cars-only candidate pipeline")
+    feature_reference_year = datetime.now().year
+    df = load_retail_data(vehicle_type)
+    feat_df, fs = build_features(
+        df,
+        fs=FeatureStore(reference_year=feature_reference_year),
+        feature_reference_year=feature_reference_year,
+        vehicle_type=vehicle_type,
+    )
     feature_cols = FeatureStore.ALLOWED_FEATURES
     logger.info(f"Features ({len(feature_cols)}): {feature_cols}")
 
@@ -240,8 +245,12 @@ def main():
         "low_scaler_path": "scaler_carros_low.joblib",
         "full_log_target": full_log,
         "low_threshold": LOW_THRESHOLD,
-        "vehicle_type": "carros",
+        "vehicle_type": vehicle_type,
         "feature_names": feature_cols,
+        "required_features": list(feature_cols),
+        "required_fields": list(required_input_fields(vehicle_type)),
+        "feature_contract": feature_contract(vehicle_type),
+        "feature_reference_year": feature_reference_year,
         "metrics": new_global,
         "low_metrics": low_metrics,
         "n_samples": int(len(feat_df)),
@@ -254,6 +263,18 @@ def main():
     }
     with open(mdir / "best_model_carros.json", "w") as f:
         json.dump(meta, f, indent=2)
+    # Round-trip through the exact production loader before reporting success.
+    from valuation.predict import PricePredictor
+
+    check = PricePredictor(vehicle_type)
+    probe = check.predict({
+        "vehicle_type": vehicle_type, "year": 2019, "km": 80_000,
+        "horsepower": 150, "engine_size": 2_000, "doors": 5,
+        "fuel_type": "diesel", "transmission": "manual",
+        "brand": "volkswagen", "model": "golf", "location": "lisboa",
+    })
+    if not check.model_loaded_ok or probe is None or probe <= 0:
+        raise RuntimeError(f"Round-trip do candidato segmentado falhou: {check.load_error or probe}")
     logger.info("Modelos guardados em models/")
 
     # ===== RELATÓRIO =====

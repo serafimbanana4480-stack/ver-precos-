@@ -48,6 +48,7 @@ logs/
 
 # Models (large files)
 models/*.joblib
+!models/*.joblib
 models/*.pkl
 models/*.h5
 

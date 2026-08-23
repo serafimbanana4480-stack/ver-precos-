@@ -149,61 +149,46 @@ def fetch_targets(conn: sqlite3.Connection, limit: Optional[int]) -> list:
 
 
 def run(limit: Optional[int], dry_run: bool, verbose: bool = True) -> dict:
-    conn = sqlite3.connect(str(DB_PATH))
-    ensure_net_profit_column(conn)
+    """Recompute profit through the same canonical valuation writer.
 
-    targets = fetch_targets(conn, limit)
+    The former implementation updated only a subset of profit columns with a
+    second fiscal formula. That made the dashboard depend on which script ran
+    last. Dry-run still evaluates the exact canonical block, but never writes.
+    """
+    from valuation.service import ValuationService, load_market_rows, revalue_database
+
+    rows = load_market_rows(limit=None, include_ineligible=True)
+    targets = rows if limit is None else rows[:limit]
     if not targets:
-        logger.info("Nenhum veículo sem buyer_profit encontrado.")
-        conn.close()
+        logger.info("Nenhum veículo elegível para reavaliação.")
         return {"processed": 0, "avg_before": 0, "avg_after": 0}
 
-    valuator = get_resale_valuator()
-
-    before_vals, after_vals = [], []
-    processed = 0
-    cur = conn.cursor()
-
-    for vid, price, est, source, cond, km, year, brand, model, fuel in targets:
-        # Preço de revenda: usa estimated_value se presente (já do HybridValuator),
-        # senão recalcula. estimated_value não inclui CUSTOS, só valor de mercado.
-        if est:
-            resale = float(est)
-        else:
-            resale = valuator.estimate_value({
-                "price": price, "source": source, "condition_score": cond,
-                "km": km, "year": year, "brand": brand, "model": model,
-                "fuel_type": fuel,
-            }) or price
-
-        res = compute_net_profit(price, resale, source, cond, km, year)
-        before_vals.append(float(est or price) - price)  # spread bruto antigo
-        after_vals.append(res["buyer_profit"])
-
-        if not dry_run:
-            cur.execute(
-                """UPDATE vehicles
-                   SET buyer_profit = ?, buyer_profit_margin = ?, net_profit = ?,
-                       taxes = ?, repair_costs = ?, total_additional_costs = ?
-                   WHERE id = ?""",
-                (res["buyer_profit"], res["buyer_profit_margin"], res["net_profit"],
-                 res["taxes"], res["repair_costs"], res["total_additional_costs"], vid),
-            )
-        processed += 1
-
-    if not dry_run:
-        conn.commit()
-    conn.close()
-
-    avg_before = sum(before_vals) / len(before_vals) if before_vals else 0
-    avg_after = sum(after_vals) / len(after_vals) if after_vals else 0
+    service = ValuationService.from_rows(rows)
+    if dry_run:
+        values = [service.evaluate(row) for row in targets]
+        before = [
+            float(row.get("valuation_details", {}).get("estimated_value") or 0.0)
+            - float(row.get("price") or 0.0)
+            for row in targets
+        ]
+        after = [float(value.net_profit) for value in values if value.net_profit is not None]
+        stats = {
+            "processed": len(values),
+            "avg_before": sum(before) / len(before) if before else 0.0,
+            "avg_after": sum(after) / len(after) if after else 0.0,
+            "dry_run": True,
+        }
+    else:
+        stats = revalue_database(
+            force=True,
+            limit=limit,
+            batch_size=min(max(limit or 500, 1), 1000),
+        )
+        stats = {**stats, "dry_run": False}
 
     if verbose:
-        logger.info(f"Processados: {processed}")
-        logger.info(f"Margem média ANTES (spread bruto): €{avg_before:,.0f}")
-        logger.info(f"Margem líquida média DEPOIS:        €{avg_after:,.0f}")
-        logger.info(f"Delta médio: €{avg_after - avg_before:,.0f}")
-    return {"processed": processed, "avg_before": avg_before, "avg_after": avg_after}
+        logger.info("Reavaliação canónica: %s", stats)
+    return stats
 
 
 if __name__ == "__main__":

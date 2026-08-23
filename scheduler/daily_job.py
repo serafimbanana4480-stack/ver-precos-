@@ -2,10 +2,17 @@
 Daily job scheduler for automated scraping, analysis, and watchlist checking
 """
 from __future__ import annotations
+import json
 import logging
 import asyncio
+import os
+import secrets
+import socket
+import threading
+import time as time_module
 from datetime import datetime, time, timezone
-from typing import Dict
+from pathlib import Path
+from typing import Any, Callable, Dict, Mapping, Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
@@ -24,12 +31,284 @@ logger = logging.getLogger(__name__)
 
 # Default timezone for scheduler
 SCHEDULER_TZ = "Europe/Lisbon"
+SCHEDULER_RUNTIME_DIR = Path(__file__).resolve().parents[1] / "logs"
+DEFAULT_LEASE_PATH = SCHEDULER_RUNTIME_DIR / "scheduler.lease.json"
+DEFAULT_LEASE_SECONDS = 300.0
+DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30.0
+
+
+class LeaseUnavailableError(RuntimeError):
+    """Raised by the context-manager form when another worker owns a lease."""
+
+
+_LEASE_GUARDS: dict[str, threading.Lock] = {}
+_LEASE_GUARDS_LOCK = threading.Lock()
+
+
+def _lease_guard(path: Path) -> threading.Lock:
+    key = str(path.resolve())
+    with _LEASE_GUARDS_LOCK:
+        return _LEASE_GUARDS.setdefault(key, threading.Lock())
+
+
+def _lease_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    if isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+    return None
+
+
+class SchedulerLease:
+    """Small cross-process file lease with heartbeat and stale-owner recovery.
+
+    Acquisition uses ``O_EXCL`` so two scheduler processes cannot both become
+    owners.  The JSON is diagnostic state only; it is never an operational DB
+    lock.  A lease is considered orphaned only after its expiry/heartbeat
+    boundary (or when its recorded PID is definitely gone).
+    """
+
+    def __init__(
+        self,
+        path: str | Path = DEFAULT_LEASE_PATH,
+        *,
+        owner_id: Optional[str] = None,
+        lease_seconds: float = DEFAULT_LEASE_SECONDS,
+        heartbeat_timeout: Optional[float] = None,
+        clock: Optional[Callable[[], datetime]] = None,
+    ) -> None:
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        self.path = Path(path)
+        self.owner_id = owner_id or f"{socket.gethostname()}:{os.getpid()}:{threading.get_ident()}"
+        self.lease_seconds = float(lease_seconds)
+        self.heartbeat_timeout = float(heartbeat_timeout or lease_seconds)
+        self._clock = clock
+        self.token = secrets.token_hex(16)
+        self._acquired = False
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread: Optional[threading.Thread] = None
+
+    @property
+    def acquired(self) -> bool:
+        return self._acquired
+
+    @property
+    def held(self) -> bool:
+        return self._acquired
+
+    def _now(self) -> datetime:
+        now = self._clock() if self._clock else datetime.now(timezone.utc)
+        return now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)
+
+    def _payload(self, now: Optional[datetime] = None) -> Dict[str, Any]:
+        current = now or self._now()
+        return {
+            "owner_id": self.owner_id,
+            "pid": os.getpid(),
+            "token": self.token,
+            "acquired_at": current.isoformat(),
+            "heartbeat_at": current.isoformat(),
+            "lease_until": (current.timestamp() + self.lease_seconds),
+            "status": "running",
+        }
+
+    @staticmethod
+    def _read(path: Path) -> Optional[Dict[str, Any]]:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    @staticmethod
+    def _pid_alive(pid: Any) -> bool:
+        try:
+            value = int(pid)
+        except (TypeError, ValueError):
+            return False
+        if value <= 0:
+            return False
+        try:
+            os.kill(value, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+        return True
+
+    def _is_live(self, payload: Mapping[str, Any], now: datetime) -> bool:
+        lease_until = _lease_datetime(payload.get("lease_until"))
+        heartbeat_at = _lease_datetime(payload.get("heartbeat_at"))
+        if lease_until is None or heartbeat_at is None:
+            return False
+        if now >= lease_until or (now - heartbeat_at).total_seconds() > self.heartbeat_timeout:
+            return False
+        pid = payload.get("pid")
+        return pid is None or self._pid_alive(pid)
+
+    def _write_atomic(self, payload: Mapping[str, Any]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_name(f".{self.path.name}.{self.token}.tmp")
+        try:
+            temporary.write_text(json.dumps(dict(payload), sort_keys=True), encoding="utf-8")
+            os.replace(str(temporary), str(self.path))
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    def _recover_locked(self, *, now: Optional[datetime] = None) -> bool:
+        current = self._read(self.path)
+        if current and self._is_live(current, now or self._now()):
+            return False
+        try:
+            self.path.unlink()
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            logger.warning("Could not recover orphaned scheduler lease %s: %s", self.path, exc)
+            return False
+        return True
+
+    def recover_orphan(self) -> bool:
+        """Remove an expired/corrupt lease and report whether recovery occurred."""
+        with _lease_guard(self.path):
+            return self._recover_locked()
+
+    def acquire(self) -> bool:
+        if self._acquired:
+            return True
+        guard = _lease_guard(self.path)
+        with guard:
+            now = self._now()
+            current = self._read(self.path)
+            if current is not None and self._is_live(current, now):
+                return False
+            if current is None and self.path.exists():
+                try:
+                    age = time_module.time() - self.path.stat().st_mtime
+                except OSError:
+                    age = 0.0
+                if age <= self.heartbeat_timeout:
+                    return False
+            if self.path.exists():
+                self._recover_locked(now=now)
+            payload = self._payload(now)
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                descriptor = os.open(
+                    str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                    0o600,
+                )
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, sort_keys=True)
+            except FileExistsError:
+                return False
+            except OSError:
+                return False
+            self._acquired = True
+            return True
+
+    def heartbeat(self) -> bool:
+        if not self._acquired:
+            return False
+        with _lease_guard(self.path):
+            current = self._read(self.path)
+            if not current or current.get("token") != self.token:
+                self._acquired = False
+                return False
+            now = self._now()
+            current.update({
+                "heartbeat_at": now.isoformat(),
+                "lease_until": now.timestamp() + self.lease_seconds,
+                "status": "running",
+            })
+            self._write_atomic(current)
+            return True
+
+    def start_heartbeat(self, interval: Optional[float] = None) -> None:
+        if not self._acquired or self._heartbeat_thread is not None:
+            return
+        delay = float(interval or min(DEFAULT_HEARTBEAT_INTERVAL_SECONDS, self.lease_seconds / 3))
+        delay = max(0.01, delay)
+        self._heartbeat_stop.clear()
+
+        def loop() -> None:
+            while not self._heartbeat_stop.wait(delay):
+                if not self.heartbeat():
+                    break
+
+        self._heartbeat_thread = threading.Thread(
+            target=loop,
+            name=f"scheduler-heartbeat-{self.token[:8]}",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
+
+    def stop_heartbeat(self) -> None:
+        self._heartbeat_stop.set()
+        thread = self._heartbeat_thread
+        self._heartbeat_thread = None
+        if thread and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
+
+    def release(self) -> bool:
+        self.stop_heartbeat()
+        if not self._acquired:
+            return False
+        released = False
+        with _lease_guard(self.path):
+            current = self._read(self.path)
+            if current and current.get("token") == self.token:
+                try:
+                    self.path.unlink()
+                    released = True
+                except FileNotFoundError:
+                    released = True
+                except OSError as exc:
+                    logger.warning("Could not release scheduler lease %s: %s", self.path, exc)
+        self._acquired = False
+        return released
+
+    def snapshot(self) -> Optional[Dict[str, Any]]:
+        return self._read(self.path)
+
+    def __enter__(self) -> "SchedulerLease":
+        if not self.acquire():
+            raise LeaseUnavailableError(f"scheduler lease is held: {self.path}")
+        self.start_heartbeat()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.release()
+
+
+# Compatibility aliases for callers that described the primitive as a lock.
+SchedulerLock = SchedulerLease
+FileLease = SchedulerLease
 
 
 class DailyJob:
     """Daily automated job for scraping, analysis, and watchlist monitoring"""
-    
-    def __init__(self) -> None:
+
+    def __init__(
+        self,
+        *,
+        lease_path: Optional[str | Path] = None,
+        lease_seconds: float = DEFAULT_LEASE_SECONDS,
+        heartbeat_interval_seconds: float = DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+    ) -> None:
         self.scheduler = BackgroundScheduler(timezone=SCHEDULER_TZ)
         self.olx_scraper = OLXScraper()
         self.standvirtual_scraper = StandvirtualScraper()
@@ -37,20 +316,132 @@ class DailyJob:
         self.deal_finder = DealFinder()
         self.watchlist_matcher = WatchlistMatcher()
         self.watchlist_notifier = WatchlistNotifier()
-    
-    async def run(self) -> Dict[str, object]:
-        """Async entry point for scheduler tests (does not run full scrape loop)."""
-        return {"status": "ok", "job": "daily"}
 
-    def run_scraping_job(self) -> None:
+        self.lease_path = Path(lease_path) if lease_path else DEFAULT_LEASE_PATH
+        self.lease_seconds = float(lease_seconds)
+        self.heartbeat_interval_seconds = float(heartbeat_interval_seconds)
+
+    def _lease(self, job_name: str) -> SchedulerLease:
+        return SchedulerLease(
+            self.lease_path,
+            owner_id=f"daily:{job_name}:{os.getpid()}",
+            lease_seconds=self.lease_seconds,
+            heartbeat_timeout=max(self.lease_seconds, self.heartbeat_interval_seconds * 2),
+        )
+
+    def _run_with_lease(
+        self,
+        job_name: str,
+        contract: Callable[[], Optional[Dict[str, object]]],
+    ) -> Dict[str, object]:
+        lease = self._lease(job_name)
+        if not lease.acquire():
+            return {
+                "status": "blocked",
+                "success": False,
+                "executed": False,
+                "executed_contract": False,
+                "job": job_name,
+                "reason": "lease_held",
+                "lease_path": str(self.lease_path),
+            }
+        lease.start_heartbeat(self.heartbeat_interval_seconds)
+        try:
+            result = contract()
+            if not isinstance(result, dict):
+                return {
+                    "status": "failed",
+                    "success": False,
+                    "executed": False,
+                    "executed_contract": False,
+                    "job": job_name,
+                    "reason": "contract_returned_no_result",
+                }
+            return result
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Scheduler contract %s failed", job_name)
+            return {
+                "status": "failed",
+                "success": False,
+                "executed": False,
+                "executed_contract": False,
+                "job": job_name,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        finally:
+            lease.release()
+
+    def _dry_run(self, job_name: str = "daily") -> Dict[str, object]:
+        def contract() -> Dict[str, object]:
+            registry_status = "not_measured"
+            configured_sources: Optional[int] = None
+            try:
+                from scrapers.registry import build_registry_report
+
+                report = build_registry_report()
+                registry_status = str(report.get("status", "unknown"))
+                sources = report.get("sources")
+                configured_sources = len(sources) if isinstance(sources, list) else None
+            except Exception as exc:  # noqa: BLE001
+                registry_status = f"unavailable:{type(exc).__name__}"
+            return {
+                "status": "dry_run",
+                "success": False,
+                "executed": False,
+                "executed_contract": False,
+                "dry_run": True,
+                "job": job_name,
+                "registry_status": registry_status,
+                "configured_sources": configured_sources,
+                "note": "no database, network, model, notification, or scheduler side effect was executed",
+            }
+
+        return self._run_with_lease(f"{job_name}:dry_run", contract)
+
+    async def run(
+        self,
+        *,
+        dry_run: bool = True,
+        send_notifications: bool = False,
+    ) -> Dict[str, object]:
+        """Execute the real daily contract, or return an explicit dry-run state.
+
+        The legacy method returned ``status=ok`` without doing any work.  A
+        dry-run is intentionally not success; callers must request the real
+        contract explicitly and receive measured phase evidence.
+        """
+        if dry_run:
+            return await asyncio.to_thread(self._dry_run, "daily")
+        return await asyncio.to_thread(
+            self.run_scraping_job,
+            dry_run=False,
+            send_notifications=send_notifications,
+        )
+
+    def run_scraping_job(
+        self,
+        *,
+        dry_run: bool = False,
+        send_notifications: bool = True,
+    ) -> Dict[str, object]:
+        if dry_run:
+            return self._dry_run("daily_scraping")
+        return self._run_with_lease(
+            "daily_scraping",
+            lambda: self._run_scraping_contract(send_notifications=send_notifications),
+        )
+
+    def _run_scraping_contract(self, *, send_notifications: bool = True) -> Dict[str, object]:
         """Run complete scraping pipeline"""
         logger.info("=" * 60)
         logger.info("Starting daily scraping job")
         logger.info("=" * 60)
-        
+
+        phases: list[str] = []
         try:
             # Initialize database
             init_db()
+            phases.append("database_initialized")
 
             async def _run_async_scraping() -> None:
                 from database.db import get_db_context
@@ -161,30 +552,64 @@ class DailyJob:
                 asyncio.run(_run_async_scraping())
             else:
                 raise RuntimeError("run_scraping_job não pode ser chamado dentro de um event loop ativo")
+            phases.append("scrape_completed")
             
             # Update valuations
             logger.info("Updating vehicle valuations...")
             update_vehicle_valuations(batch_size=200)
-            
+            phases.append("valuations_updated")
+
             # Find and analyze best deals
             logger.info("Finding best deals...")
             best_deals = self.deal_finder.run_daily_analysis()
-            
+
             # Send notifications
-            if best_deals:
+            if best_deals and send_notifications:
                 logger.info(f"Sending notifications for {len(best_deals)} deals")
                 self.send_notifications(best_deals)
-            
+            phases.append("deals_analyzed")
+            if best_deals and send_notifications:
+                phases.append("notifications_sent")
+
             logger.info("Daily scraping job completed successfully")
-            
+            return {
+                "status": "completed",
+                "success": True,
+                "executed": True,
+                "executed_contract": True,
+                "job": "daily_scraping",
+                "phases": phases,
+            }
+
         except Exception as e:
             logger.error(f"Error in daily scraping job: {e}")
-            raise
-    
-    def run_analysis_job(self) -> None:
+            return {
+                "status": "failed",
+                "success": False,
+                "executed": bool(phases),
+                "executed_contract": False,
+                "job": "daily_scraping",
+                "phases": phases,
+                "error": f"{type(e).__name__}: {e}",
+            }
+
+    def run_analysis_job(
+        self,
+        *,
+        dry_run: bool = False,
+        send_notifications: bool = True,
+    ) -> Dict[str, object]:
+        if dry_run:
+            return self._dry_run("periodic_analysis")
+        return self._run_with_lease(
+            "periodic_analysis",
+            lambda: self._run_analysis_contract(send_notifications=send_notifications),
+        )
+
+    def _run_analysis_contract(self, *, send_notifications: bool = True) -> Dict[str, object]:
         """Run AI analysis on existing vehicles"""
         logger.info("Starting AI analysis job")
-        
+
         try:
             # Update valuations
             update_vehicle_valuations(batch_size=100)
@@ -193,15 +618,42 @@ class DailyJob:
             best_deals = self.deal_finder.run_daily_analysis()
             
             # Send notifications
-            if best_deals:
+            if best_deals and send_notifications:
                 self.send_notifications(best_deals)
-            
+
             logger.info("AI analysis job completed")
-            
+            return {
+                "status": "completed",
+                "success": True,
+                "executed": True,
+                "executed_contract": True,
+                "job": "periodic_analysis",
+            }
         except Exception as e:
             logger.error(f"Error in AI analysis job: {e}")
-    
-    def run_watchlist_checker(self) -> None:
+            return {
+                "status": "failed",
+                "success": False,
+                "executed": True,
+                "executed_contract": False,
+                "job": "periodic_analysis",
+                "error": f"{type(e).__name__}: {e}",
+            }
+
+    def run_watchlist_checker(
+        self,
+        *,
+        dry_run: bool = False,
+        send_notifications: bool = True,
+    ) -> Dict[str, object]:
+        if dry_run:
+            return self._dry_run("watchlist_checker")
+        return self._run_with_lease(
+            "watchlist_checker",
+            lambda: self._run_watchlist_contract(send_notifications=send_notifications),
+        )
+
+    def _run_watchlist_contract(self, *, send_notifications: bool = True) -> Dict[str, object]:
         """Check all watchlists for matching vehicles"""
         logger.info("=" * 40)
         logger.info("Running watchlist checker")
@@ -210,20 +662,45 @@ class DailyJob:
         try:
             matches = self.watchlist_matcher.check_all_watchlists()
             
-            if matches:
+            if matches and send_notifications:
                 logger.info(f"Found {len(matches)} watchlist matches — sending notifications")
                 self.watchlist_notifier.notify_matches(matches)
             else:
                 logger.info("No watchlist matches found")
                 
+            return {
+                "status": "completed",
+                "success": True,
+                "executed": True,
+                "executed_contract": True,
+                "job": "watchlist_checker",
+                "matches": len(matches) if isinstance(matches, list) else None,
+            }
         except Exception as e:
             logger.error(f"Error in watchlist checker: {e}")
+            return {
+                "status": "failed",
+                "success": False,
+                "executed": True,
+                "executed_contract": False,
+                "job": "watchlist_checker",
+                "error": f"{type(e).__name__}: {e}",
+            }
 
     # ── Re-treino periódico controlado ───────────────────────────────────────
     RETRAIN_STATE_PATH = "models/retrain_state.json"
     RETRAIN_MIN_NEW_LISTINGS = 500  # só re-treina com pelo menos este volume novo
 
-    def run_retrain_job(self) -> None:
+    def run_retrain_job(
+        self,
+        *,
+        dry_run: bool = False,
+    ) -> Dict[str, object]:
+        if dry_run:
+            return self._dry_run("weekly_retrain")
+        return self._run_with_lease("weekly_retrain", self._run_retrain_contract)
+
+    def _run_retrain_contract(self) -> Dict[str, object]:
         """Re-treino semanal CONTROLADO do modelo de avaliação.
 
         Só re-treina se houver >= RETRAIN_MIN_NEW_LISTINGS anúncios novos desde
@@ -263,7 +740,15 @@ class DailyJob:
             if last_n > 0 and new_since < self.RETRAIN_MIN_NEW_LISTINGS:
                 logger.info("Re-treino adiado: apenas %d novos (< %d mínimo)",
                             new_since, self.RETRAIN_MIN_NEW_LISTINGS)
-                return
+                return {
+                    "status": "skipped",
+                    "success": False,
+                    "executed": True,
+                    "executed_contract": True,
+                    "job": "weekly_retrain",
+                    "reason": "insufficient_new_listings",
+                    "new_since": new_since,
+                }
 
             py = sys.executable
             for script in ("scripts/train_segmented.py", "scripts/train_high.py"):
@@ -271,7 +756,15 @@ class DailyJob:
                 proc = subprocess.run([py, "-u", script], capture_output=True, text=True)
                 if proc.returncode != 0:
                     logger.error("Falha em %s:\n%s", script, proc.stderr[-2000:])
-                    return
+                    return {
+                        "status": "failed",
+                        "success": False,
+                        "executed": True,
+                        "executed_contract": False,
+                        "job": "weekly_retrain",
+                        "failed_script": script,
+                        "returncode": proc.returncode,
+                    }
                 logger.info("%s OK", script)
 
             # Ligar modelo HIGH aos metadados de produção
@@ -308,9 +801,25 @@ class DailyJob:
             }, indent=2), encoding="utf-8")
             logger.info("Re-treino controlado concluído (R²=%s)",
                         meta.get("metrics", {}).get("r2"))
+            return {
+                "status": "completed",
+                "success": True,
+                "executed": True,
+                "executed_contract": True,
+                "job": "weekly_retrain",
+                "revaluated": total,
+            }
 
         except Exception as e:
             logger.error(f"Error in retrain job: {e}")
+            return {
+                "status": "failed",
+                "success": False,
+                "executed": True,
+                "executed_contract": False,
+                "job": "weekly_retrain",
+                "error": f"{type(e).__name__}: {e}",
+            }
     
     def send_notifications(self, deals: list[dict[str, object]]) -> None:
         """Send notifications via configured channels"""
@@ -463,7 +972,9 @@ class DailyJob:
             trigger=CronTrigger(hour=hour, minute=minute),
             id='daily_scraping',
             name='Daily Scraping Job',
-            replace_existing=True
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
         )
 
         # Add periodic analysis job (every 6 hours)
@@ -473,7 +984,9 @@ class DailyJob:
             hours=settings.scraping_interval_hours if hasattr(settings, 'scraping_interval_hours') else settings.scrape_interval_hours,
             id='periodic_analysis',
             name='Periodic Analysis Job',
-            replace_existing=True
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
         )
         
         # Add watchlist checker job (every hour)
@@ -483,7 +996,9 @@ class DailyJob:
             hours=1,
             id='watchlist_checker',
             name='Watchlist Match Checker',
-            replace_existing=True
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
         )
 
         # Re-treino semanal controlado (domingo de madrugada, minuto fora da hora cheia)
@@ -492,7 +1007,9 @@ class DailyJob:
             trigger=CronTrigger(day_of_week='sun', hour=4, minute=17),
             id='weekly_retrain',
             name='Weekly Controlled Model Retrain',
-            replace_existing=True
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
         )
 
         self.scheduler.start()

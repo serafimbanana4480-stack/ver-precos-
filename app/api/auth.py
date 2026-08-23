@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 import bcrypt
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from config import settings
 
@@ -37,6 +37,17 @@ class UserCreate(BaseModel):
     username: Optional[str] = None
     password: str
 
+    @field_validator("password")
+    @classmethod
+    def validate_bcrypt_length(cls, value: str) -> str:
+        # bcrypt only consumes 72 bytes. Silently truncating would make two
+        # different passwords authenticate as the same credential.
+        if not value:
+            raise ValueError("password must not be empty")
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("password must be at most 72 UTF-8 bytes")
+        return value
+
 
 class UserLogin(BaseModel):
     """User login model"""
@@ -59,19 +70,17 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hash"""
-    # Truncate password to 72 bytes (bcrypt limit)
     password_bytes = plain_password.encode('utf-8')
     if len(password_bytes) > 72:
-        password_bytes = password_bytes[:72]
+        return False
     return bcrypt.checkpw(password_bytes, hashed_password.encode('utf-8'))
 
 
 def get_password_hash(password: str) -> str:
     """Hash a password"""
-    # Truncate password to 72 bytes (bcrypt limit)
     password_bytes = password.encode('utf-8')
     if len(password_bytes) > 72:
-        password_bytes = password_bytes[:72]
+        raise ValueError("password must be at most 72 UTF-8 bytes")
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode('utf-8')

@@ -140,7 +140,7 @@ class Vehicle(Base):
     # Price provenance: preserve source text/semantics so stored values are
     # reconcilable and non-total observations never become retail prices.
     price = Column(Float, nullable=False, index=True)
-    estimated_value = Column(Float, nullable=True)
+    estimated_value = Column(Float, nullable=True, index=True)
     price_raw = Column(Text, nullable=True)
     price_observed_value = Column(Float, nullable=True)
     currency = Column(String(3), nullable=True)
@@ -220,7 +220,11 @@ class Vehicle(Base):
     
     # Scraping metadata
     first_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
-    last_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    # Freshness is an observation fact, not a generic row-update timestamp.
+    # Ingestion advances it explicitly only after validating the observation;
+    # arbitrary enrichment/valuation updates must not make stale inventory
+    # look freshly scraped.
+    last_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     is_active = Column(Boolean, default=True, index=True)
     
     # Valuation and Analysis
@@ -245,10 +249,10 @@ class Vehicle(Base):
     condition_status = Column(String(50), nullable=True)
 
     # Data quality (2026-08-01): valid / quarantined / invalid + auditoria
-    quality_status = Column(String(20), nullable=True, default="valid", index=True)
+    quality_status = Column(String(20), nullable=True, default="valid")
     quality_reasons = Column(JSON, nullable=True)
     quality_checked_at = Column(DateTime, nullable=True)
-    normalized_brand = Column(String(100), nullable=True, index=True)
+    normalized_brand = Column(String(100), nullable=True)
     normalization_confidence = Column(Float, nullable=True)
     
     # Relationships
@@ -262,6 +266,28 @@ class Vehicle(Base):
         Index('idx_price_km', 'price', 'km'),
         Index('idx_deal_score_active', 'deal_score', 'is_active'),
         Index('idx_source_date', 'source', 'first_seen'),
+        # Names preserved from the quality migration so autogenerate does not
+        # propose dropping/recreating equivalent indexes on every run.
+        Index('idx_vehicles_quality_status', 'quality_status'),
+        Index('idx_vehicles_normalized_brand', 'normalized_brand'),
+        # API/DealFinder filters: equality predicates first, freshness next,
+        # and the ranking column last.  These are backed by the real queries
+        # in app/api/main.py rather than being blanket indexes.
+        Index(
+            'idx_vehicle_active_market_score',
+            'is_active', 'price_kind', 'currency', 'quality_status',
+            'last_seen', 'deal_score',
+        ),
+        Index(
+            'idx_vehicle_active_publishable_score',
+            'is_active', 'profit_is_publishable', 'price_kind', 'currency',
+            'quality_status', 'last_seen', 'deal_score',
+        ),
+        Index(
+            'idx_vehicle_market_identity',
+            'brand', 'model', 'year', 'vehicle_type', 'price_kind',
+            'currency', 'quality_status',
+        ),
     )
     
     def to_dict(self) -> dict:
@@ -457,7 +483,13 @@ def _vehicle_before_update(mapper, connection, target: Vehicle) -> None:
 
 
 class PriceHistory(Base):
-    """Price change history for vehicles"""
+    """History of validated total-price observations for a vehicle.
+
+    ``parallel_runner`` records an initial snapshot and subsequent changes
+    only after the price provenance contract is valid.  The existing table is
+    intentionally reused: legacy rows remain untouched and the raw/current
+    provenance stays on ``Vehicle``.
+    """
     __tablename__ = "price_history"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -539,7 +571,7 @@ class AIReview(Base):
 
 
 class ScrapingLog(Base):
-    """Scraping operation logs"""
+    """Durable per-source ingestion run log."""
     __tablename__ = "scraping_logs"
     
     id = Column(Integer, primary_key=True, index=True)

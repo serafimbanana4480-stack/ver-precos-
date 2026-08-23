@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 
-from ..dependencies import get_database, get_cache
+from ..dependencies import get_database, get_cache, get_current_user, require_admin
 from ..schemas import ListingResponse, ListingCreate, ListingUpdate, ListingFilter
 from ..services import ListingService
 
@@ -28,6 +28,7 @@ async def get_listings(
     location: Optional[str] = Query(None),
     fuel_type: Optional[str] = Query(None),
     transmission: Optional[str] = Query(None),
+    current_user = Depends(get_current_user),
     db = Depends(get_database),
     cache = Depends(get_cache)
 ):
@@ -70,48 +71,11 @@ async def get_listings(
         logger.error(f"Error getting listings: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@listings_router.get("/{listing_id}", response_model=ListingResponse)
-async def get_listing(
-    listing_id: str,
-    source: Optional[str] = Query(None),
-    db = Depends(get_database),
-    cache = Depends(get_cache)
-):
-    """Get a specific listing by ID."""
-    
-    try:
-        # Create cache key
-        cache_key = f"listing:{listing_id}:{source}"
-        
-        # Try to get from cache
-        cached_listing = cache.get(cache_key)
-        if cached_listing:
-            logger.info(f"Retrieved listing {listing_id} from cache")
-            return cached_listing
-        
-        # Get from database
-        listing_service = ListingService(db)
-        listing = listing_service.get_listing_by_id(listing_id, source)
-        
-        if not listing:
-            raise HTTPException(status_code=404, detail="Listing not found")
-        
-        # Cache result
-        cache.set(cache_key, listing, ttl=600)  # 10 minutes
-        
-        logger.info(f"Retrieved listing {listing_id} from database")
-        return listing
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting listing {listing_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
 @listings_router.post("/", response_model=ListingResponse)
 async def create_listing(
     listing: ListingCreate,
-    db = Depends(get_database)
+    current_user = Depends(require_admin),
+    db = Depends(get_database),
 ):
     """Create a new listing."""
     
@@ -134,7 +98,8 @@ async def create_listing(
 async def update_listing(
     listing_id: str,
     listing_update: ListingUpdate,
-    db = Depends(get_database)
+    current_user = Depends(require_admin),
+    db = Depends(get_database),
 ):
     """Update a listing."""
     
@@ -163,7 +128,8 @@ async def update_listing(
 async def delete_listing(
     listing_id: str,
     source: Optional[str] = Query(None),
-    db = Depends(get_database)
+    current_user = Depends(require_admin),
+    db = Depends(get_database),
 ):
     """Delete a listing."""
     
@@ -192,6 +158,7 @@ async def delete_listing(
 async def get_similar_listings(
     listing_id: str,
     limit: int = Query(10, ge=1, le=50),
+    current_user = Depends(get_current_user),
     db = Depends(get_database),
     cache = Depends(get_cache)
 ):
@@ -238,6 +205,7 @@ async def get_similar_listings(
 @listings_router.get("/featured", response_model=List[ListingResponse])
 async def get_featured_listings(
     limit: int = Query(20, ge=1, le=100),
+    current_user = Depends(get_current_user),
     db = Depends(get_database),
     cache = Depends(get_cache)
 ):
@@ -271,6 +239,7 @@ async def get_featured_listings(
 async def get_recent_listings(
     hours: int = Query(24, ge=1, le=168),  # 1 hour to 1 week
     limit: int = Query(50, ge=1, le=200),
+    current_user = Depends(get_current_user),
     db = Depends(get_database),
     cache = Depends(get_cache)
 ):
@@ -302,6 +271,7 @@ async def get_recent_listings(
 
 @listings_router.get("/stats", response_model=Dict[str, Any])
 async def get_listing_stats(
+    current_user = Depends(get_current_user),
     db = Depends(get_database),
     cache = Depends(get_cache)
 ):
@@ -334,7 +304,8 @@ async def get_listing_stats(
 @listings_router.post("/bulk", response_model=Dict[str, Any])
 async def bulk_create_listings(
     listings: List[ListingCreate],
-    db = Depends(get_database)
+    current_user = Depends(require_admin),
+    db = Depends(get_database),
 ):
     """Create multiple listings in bulk."""
     
@@ -361,7 +332,8 @@ async def bulk_create_listings(
 @listings_router.delete("/bulk", response_model=Dict[str, Any])
 async def bulk_delete_listings(
     listing_ids: List[str],
-    db = Depends(get_database)
+    current_user = Depends(require_admin),
+    db = Depends(get_database),
 ):
     """Delete multiple listings in bulk."""
     
@@ -391,6 +363,7 @@ async def bulk_delete_listings(
 async def get_search_suggestions(
     query: str = Query(..., min_length=2),
     limit: int = Query(10, ge=1, le=20),
+    current_user = Depends(get_current_user),
     db = Depends(get_database),
     cache = Depends(get_cache)
 ):
@@ -418,4 +391,39 @@ async def get_search_suggestions(
         
     except Exception as e:
         logger.error(f"Error getting search suggestions: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Keep the dynamic detail route after every static route.  Starlette matches
+# routes in declaration order, so placing /{listing_id} first would capture
+# /featured, /recent, and /stats as listing IDs.
+@listings_router.get("/{listing_id}", response_model=ListingResponse)
+async def get_listing(
+    listing_id: str,
+    source: Optional[str] = Query(None),
+    current_user = Depends(get_current_user),
+    db = Depends(get_database),
+    cache = Depends(get_cache),
+):
+    """Get a specific listing by ID."""
+
+    try:
+        cache_key = f"listing:{listing_id}:{source}"
+        cached_listing = cache.get(cache_key)
+        if cached_listing:
+            logger.info(f"Retrieved listing {listing_id} from cache")
+            return cached_listing
+
+        listing_service = ListingService(db)
+        listing = listing_service.get_listing_by_id(listing_id, source)
+        if not listing:
+            raise HTTPException(status_code=404, detail="Listing not found")
+
+        cache.set(cache_key, listing, ttl=600)
+        logger.info(f"Retrieved listing {listing_id} from database")
+        return listing
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting listing {listing_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

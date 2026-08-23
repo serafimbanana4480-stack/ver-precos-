@@ -13,7 +13,7 @@ from utils.logging_config import get_validation_health
 import httpx
 
 
-def check_ollama_health() -> Dict[str, Any]:
+def check_ollama_health(*, probe: bool = False) -> Dict[str, Any]:
     """
     Check Ollama API health and verify required models
     
@@ -24,8 +24,22 @@ def check_ollama_health() -> Dict[str, Any]:
         return {
             "status": "healthy",
             "message": "Ollama is disabled in configuration",
+            "measured": False,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "error": None
+        }
+
+    # Health endpoints must be safe to call when the optional AI provider is
+    # down.  A live HTTP check remains available to an explicit diagnostic
+    # caller, but it is never an implicit dependency of basic health.
+    if not probe:
+        return {
+            "status": "not_measured",
+            "message": "Ollama is configured but no external probe was requested",
+            "configured": True,
+            "measured": False,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": None,
         }
         
     try:
@@ -41,6 +55,7 @@ def check_ollama_health() -> Dict[str, Any]:
                 return {
                     "status": "healthy",
                     "models_available": model_names,
+                    "measured": True,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "error": None
                 }
@@ -48,6 +63,7 @@ def check_ollama_health() -> Dict[str, Any]:
                 return {
                     "status": "degraded",
                     "message": "Ollama is running but no models are pulled. Run: ollama pull qwen2.5-coder:7b",
+                    "measured": True,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "error": "No models found"
                 }
@@ -55,6 +71,7 @@ def check_ollama_health() -> Dict[str, Any]:
             return {
                 "status": "unhealthy",
                 "message": f"Ollama returned HTTP {response.status_code}",
+                "measured": True,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "error": f"HTTP {response.status_code}"
             }
@@ -62,6 +79,7 @@ def check_ollama_health() -> Dict[str, Any]:
         return {
             "status": "unhealthy",
             "message": "Ollama is not responding. Ensure the Ollama service is running.",
+            "measured": True,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "error": str(e)
         }
@@ -141,25 +159,21 @@ def check_log_file_writability() -> Dict[str, Any]:
         Dictionary with log file status and details
     """
     try:
-        # Ensure logs directory exists
-        settings.logs_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Try to write to log file
+        # This is deliberately a read-only capability check.  Creating and
+        # deleting a probe file from a health endpoint can race with logging
+        # and makes liveness mutate the workspace.
         log_file = Path(settings.log_file)
-        test_file = log_file.parent / f".test_write_{os.getpid()}"
-        
-        with open(test_file, 'w') as f:
-            f.write("test")
-        
-        # Clean up test file
-        test_file.unlink()
+        parent = log_file.parent
+        parent_exists = parent.exists()
+        writable = bool(parent_exists and os.access(parent, os.W_OK))
         
         return {
-            "status": "healthy",
+            "status": "healthy" if writable else "warning",
             "log_file": str(log_file),
-            "writable": True,
+            "parent_exists": parent_exists,
+            "writable": writable,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "error": None
+            "error": None if writable else "log_directory_not_writable_or_missing"
         }
     except Exception as e:
         return {
@@ -171,7 +185,7 @@ def check_log_file_writability() -> Dict[str, Any]:
         }
 
 
-def get_system_health() -> Dict[str, Any]:
+def get_system_health(*, probe_external: bool = False) -> Dict[str, Any]:
     """
     Get overall system health status
     
@@ -183,7 +197,7 @@ def get_system_health() -> Dict[str, Any]:
     config_health = check_configuration()
     log_health = check_log_file_writability()
     validation_health = get_validation_health()
-    ollama_health = check_ollama_health()
+    ollama_health = check_ollama_health(probe=probe_external)
     
     # Determine overall status
     component_statuses = [
@@ -195,7 +209,7 @@ def get_system_health() -> Dict[str, Any]:
     
     if "unhealthy" in component_statuses:
         overall_status = "unhealthy"
-    elif "degraded" in component_statuses:
+    elif "degraded" in component_statuses or "warning" in component_statuses or "not_measured" in component_statuses:
         overall_status = "degraded"
     else:
         overall_status = "healthy"
@@ -213,14 +227,14 @@ def get_system_health() -> Dict[str, Any]:
     }
 
 
-def health_check_endpoint() -> Dict[str, Any]:
+def health_check_endpoint(*, probe_external: bool = False) -> Dict[str, Any]:
     """
     Health check endpoint response (for HTTP API)
     
     Returns:
         Dictionary suitable for HTTP JSON response
     """
-    health = get_system_health()
+    health = get_system_health(probe_external=probe_external)
     
     # Add HTTP-specific fields
     return {
@@ -229,7 +243,8 @@ def health_check_endpoint() -> Dict[str, Any]:
         "components": {
             name: {
                 "status": component["status"],
-                "error": component.get("error")
+                "error": component.get("error"),
+                "measured": component.get("measured")
             }
             for name, component in health["components"].items()
         }

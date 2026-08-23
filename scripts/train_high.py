@@ -31,8 +31,8 @@ from catboost import CatBoostRegressor
 
 from core.settings import settings
 from valuation.feature_store import FeatureStore
-from database.db import get_db_context
-from database.models import Vehicle, VehicleType
+from valuation.predict import build_feature_vector, normalize_vehicle_type, required_input_fields
+from valuation.train_v2 import feature_contract, load_training_frame
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -54,26 +54,14 @@ def _val_str(val):
     return "unknown" if val is None else (val.value if hasattr(val, "value") else str(val))
 
 
-def load_retail_data():
-    with get_db_context() as db:
-        rows = db.query(Vehicle).filter(
-            Vehicle.vehicle_type == VehicleType("carros"),
-            Vehicle.price > 500, Vehicle.price < 500000,
-            Vehicle.year.isnot(None),
-            Vehicle.km.isnot(None), Vehicle.km > 0,
-        ).all()
-        recs = [{
-            "year": v.year, "km": v.km or 0,
-            "horsepower": v.horsepower or 0, "engine_size": v.engine_size or 0,
-            "doors": v.doors or 4,
-            "fuel_type": _val_str(v.fuel_type),
-            "transmission": _val_str(v.transmission),
-            "brand": v.brand or "Unknown", "model": v.model or "",
-            "location": v.location or "", "district": v.district or "",
-            "price": float(v.price),
-            "source": v.source.value if v.source else "",
-        } for v in rows]
-    df = pd.DataFrame(recs)
+def load_retail_data(vehicle_type="carros"):
+    vehicle_type = normalize_vehicle_type(vehicle_type)
+    if vehicle_type != "carros":
+        raise ValueError("train_high is a cars-only candidate pipeline")
+    df = load_training_frame(vehicle_type).copy()
+    if "source" not in df:
+        df["source"] = ""
+    df = df[df["km"].notna() & (df["km"] > 0)].reset_index(drop=True)
     n_auction = int(df["source"].isin(AUCTION_SOURCES).sum())
     df = df[~df["source"].isin(AUCTION_SOURCES)].reset_index(drop=True)
     logger.info(f"Carregados {len(df)} retalhos (excluidos {n_auction} leiloes)")
@@ -106,18 +94,34 @@ def to_cat(A, cat_idx):
     return A
 
 
-def main():
+def main(vehicle_type="carros"):
+    vehicle_type = normalize_vehicle_type(vehicle_type)
+    if vehicle_type != "carros":
+        raise ValueError("train_high is a cars-only candidate pipeline; motos use their own model")
     mdir = Path(settings.models_dir)
-    meta_prod = json.load(open(mdir / "best_model_carros.json"))
+    with open(mdir / f"best_model_{vehicle_type}.json", encoding="utf-8") as handle:
+        meta_prod = json.load(handle)
+    if normalize_vehicle_type(meta_prod.get("vehicle_type", vehicle_type)) != vehicle_type:
+        raise RuntimeError("primary metadata belongs to another vehicle_type")
     feature_names = meta_prod["feature_names"]  # fonte de verdade (evita skew)
     cat_idx = [feature_names.index(c) for c in CAT_COLS if c in feature_names]
     logger.info(f"feature_names ({len(feature_names)}) | cat_idx={cat_idx}")
 
-    df = load_retail_data()
-    fs = FeatureStore()
-    fs.load_index(mdir / "brand_index_carros.json")
-    feats = [fs.compute_features(r) for r in df.to_dict("records")]
-    X = np.array([[f.get(k, 0.0) for k in feature_names] for f in feats])
+    feature_reference_year = int(meta_prod.get("feature_reference_year", datetime.now().year))
+    df = load_retail_data(vehicle_type)
+    fs = FeatureStore(reference_year=feature_reference_year)
+    fs.load_index(mdir / meta_prod.get("brand_index_path", "brand_index_carros.json"))
+    feats = [
+        build_feature_vector(
+            fs,
+            r,
+            feature_names,
+            required_fields=meta_prod.get("required_fields", required_input_fields(vehicle_type)),
+            reference_year=feature_reference_year,
+        )[0]
+        for r in df.to_dict("records")
+    ]
+    X = np.array(feats, dtype=float)
     y = df["price"].values
 
     idx = np.arange(len(y))
@@ -176,13 +180,24 @@ def main():
         "model_type": "catboost", "target": "price",
         "high_threshold": HIGH_THRESHOLD, "high_train_threshold": HIGH_TRAIN_THRESHOLD,
         "high_log_target": LOG_TARGET, "high_cat_features": cat_idx,
-        "feature_names": feature_names, "n_train_high": int(len(yh)),
+        "feature_names": feature_names,
+        "required_features": list(feature_names),
+        "required_fields": list(meta_prod.get("required_fields", required_input_fields(vehicle_type))),
+        "feature_contract": feature_contract(vehicle_type),
+        "feature_reference_year": feature_reference_year,
+        "vehicle_type": vehicle_type,
+        "model_path": high_path.name,
+        "n_train_high": int(len(yh)),
         "trained_at": datetime.now().isoformat(),
         "metrics_true_ge_20k_after": after_glob,
         "metrics_true_ge_20k_before_xgb": before_glob,
         "por_faixa_after": after_high, "por_faixa_before_xgb": before_high,
         "excludes_auctions": sorted(AUCTION_SOURCES),
         "brand_index_path": "brand_index_carros.json",
+        "pipeline_version": "v2",
+        "pipeline_name": "scripts.train_high",
+        "artifact_role": "candidate_high",
+        "base_metadata_path": f"best_model_{vehicle_type}.json",
     }
     json.dump(high_meta, open(mdir / "model_carros_high.meta.json", "w"), indent=2)
 

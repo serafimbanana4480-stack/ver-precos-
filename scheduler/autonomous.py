@@ -20,14 +20,18 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import subprocess
 import sys
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Callable, Dict, Optional
 
 import schedule
+
+from scheduler.daily_job import DEFAULT_LEASE_PATH, SchedulerLease
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,6 +45,86 @@ R2_BASELINE_PATH = ROOT / "logs" / "r2_baseline.json"
 
 # Limiar de degradação: se R² cair > 10% em relação ao baseline, alerta.
 R2_DEGRADATION_PCT = 0.10
+AUTONOMOUS_LEASE_SECONDS = 300.0
+
+
+def _with_lease(
+    job_name: str,
+    contract: Callable[[], Dict[str, Any]],
+    *,
+    lease_path: Optional[str | Path] = None,
+    lease_seconds: float = AUTONOMOUS_LEASE_SECONDS,
+) -> Dict[str, Any]:
+    path = Path(lease_path) if lease_path else DEFAULT_LEASE_PATH
+    lease = SchedulerLease(
+        path,
+        owner_id=f"autonomous:{job_name}:{os.getpid() if hasattr(os, 'getpid') else 'unknown'}",
+        lease_seconds=lease_seconds,
+        heartbeat_timeout=lease_seconds,
+    )
+    if not lease.acquire():
+        return {
+            "status": "blocked",
+            "success": False,
+            "executed": False,
+            "executed_contract": False,
+            "job": job_name,
+            "reason": "lease_held",
+            "lease_path": str(path),
+        }
+    lease.start_heartbeat(min(30.0, max(0.01, lease_seconds / 3)))
+    try:
+        result = contract()
+        if not isinstance(result, dict):
+            return {
+                "status": "failed",
+                "success": False,
+                "executed": False,
+                "executed_contract": False,
+                "job": job_name,
+                "reason": "contract_returned_no_result",
+            }
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Autonomous contract %s failed", job_name)
+        return {
+            "status": "failed",
+            "success": False,
+            "executed": False,
+            "executed_contract": False,
+            "job": job_name,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    finally:
+        lease.release()
+
+
+def _dry_run(job_name: str, *, lease_path: Optional[str | Path] = None) -> Dict[str, Any]:
+    def contract() -> Dict[str, Any]:
+        registry_status = "not_measured"
+        configured_sources: Optional[int] = None
+        try:
+            from scrapers.registry import build_registry_report
+
+            report = build_registry_report()
+            registry_status = str(report.get("status", "unknown"))
+            sources = report.get("sources")
+            configured_sources = len(sources) if isinstance(sources, list) else None
+        except Exception as exc:  # noqa: BLE001
+            registry_status = f"unavailable:{type(exc).__name__}"
+        return {
+            "status": "dry_run",
+            "success": False,
+            "executed": False,
+            "executed_contract": False,
+            "dry_run": True,
+            "job": job_name,
+            "registry_status": registry_status,
+            "configured_sources": configured_sources,
+            "note": "no database, network, model, report, baseline, or alert side effect was executed",
+        }
+
+    return _with_lease(f"{job_name}:dry_run", contract, lease_path=lease_path)
 
 
 def _python() -> str:
@@ -67,22 +151,43 @@ def _run(cmd: list[str]) -> tuple[int, str]:
         return 1, str(e)
 
 
-def job_scrape() -> dict:
-    """Scrape de todas as fontes configuradas + gravaçào de falhas."""
+def job_scrape(
+    *,
+    dry_run: bool = False,
+    send_alerts: bool = True,
+    lease_path: Optional[str | Path] = None,
+) -> dict:
+    """Run the real scrape contract, or an explicit side-effect-free dry run."""
+    if dry_run:
+        return _dry_run("scrape", lease_path=lease_path)
+    return _with_lease(
+        "scrape",
+        lambda: _job_scrape_contract(send_alerts=send_alerts),
+        lease_path=lease_path,
+    )
+
+
+def _job_scrape_contract(*, send_alerts: bool = True) -> Dict[str, Any]:
+    """Scrape all configured sources and persist a truthful live result."""
     logger.info("=== JOB: scrape diário ===")
     failed: list[str] = []
-    summary: dict = {}
+    summary: Dict[str, Any] = {}
     try:
         # Chamada direta devolve métricas por fonte e evita declarar sucesso
         # só porque o subprocesso terminou com código 0.
         from scrapers.parallel_runner import run_all_scrapers
-        summary["lightweight"] = run_all_scrapers(
+        lightweight = run_all_scrapers(
             max_per_scraper=200,
             save_to_db=True,
             max_workers=4,
             vehicle_type="carros",
         )
-        failed.extend(summary["lightweight"].get("failed_sources", []))
+        if not isinstance(lightweight, dict) or not isinstance(lightweight.get("scrapers"), dict):
+            raise RuntimeError("lightweight scraper returned no complete runtime summary")
+        summary["lightweight"] = lightweight
+        failed.extend(str(item) for item in lightweight.get("failed_sources", []) or [])
+        if lightweight.get("overall_success") is not True:
+            failed.append("lightweight:overall_failure")
 
         # Fontes Playwright complementares; cada retorno vazio/bloqueio é falha
         # explícita. Não há tentativa de contornar CAPTCHA/WAF/login.
@@ -104,29 +209,71 @@ def job_scrape() -> dict:
         logger.error("Scrape falhou globalmente: %s", e)
         failed.append("global")
 
+    failed = sorted(set(failed))
     _write_alerts(failed)
     if failed:
         logger.error("SCRAPERS FALHADOS: %s", ", ".join(failed))
-        _alert("Scrapers falhados: " + ", ".join(failed))
+        if send_alerts:
+            _alert("Scrapers falhados: " + ", ".join(failed))
     else:
         logger.info("Scrape concluído sem falhas registadas.")
     summary["failed_scrapers"] = failed
     summary["success"] = not failed
+    summary["status"] = "completed" if not failed else (
+        "warning" if summary.get("lightweight", {}).get("scrapers") and len(failed) < len(summary["lightweight"]["scrapers"]) else "unhealthy"
+    )
+    summary["executed"] = True
+    summary["executed_contract"] = not ("global" in failed and "lightweight" not in summary)
+    summary["alerts_sent"] = bool(send_alerts and failed)
     return summary
 
 
-def job_retrain() -> None:
+def job_retrain(
+    *,
+    dry_run: bool = False,
+    send_alerts: bool = True,
+    lease_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    if dry_run:
+        return _dry_run("retrain", lease_path=lease_path)
+    return _with_lease(
+        "retrain",
+        lambda: _job_retrain_contract(send_alerts=send_alerts),
+        lease_path=lease_path,
+    )
+
+
+def _job_retrain_contract(*, send_alerts: bool = True) -> Dict[str, Any]:
     """Retrain semanal com self-monitoring de R²."""
     logger.info("=== JOB: retrain semanal ===")
     rc, out = _run([_python(), "-m", "scripts.pipeline", "train"])
     if rc != 0:
-        _alert("Retrain falhou (rc=%s)" % rc)
-        return
+        if send_alerts:
+            _alert("Retrain falhou (rc=%s)" % rc)
+        return {
+            "status": "failed",
+            "success": False,
+            "executed": True,
+            "executed_contract": False,
+            "job": "retrain",
+            "returncode": rc,
+            "alerts_sent": bool(send_alerts),
+        }
     r2 = _read_current_r2()
     if r2 is None:
         logger.warning("R² indisponível após retrain.")
-        return
+        return {
+            "status": "not_measured",
+            "success": False,
+            "executed": True,
+            "executed_contract": False,
+            "job": "retrain",
+            "reason": "r2_missing_after_retrain",
+        }
     baseline = _load_baseline()
+    status = "completed"
+    success = True
+    alerts_sent = False
     if baseline is not None and baseline > 0:
         drop = (baseline - r2) / baseline
         if drop > R2_DEGRADATION_PCT:
@@ -135,18 +282,56 @@ def job_retrain() -> None:
                 f"-{drop*100:.1f}%)"
             )
             logger.error(msg)
-            _alert(msg)
+            status = "warning"
+            success = False
+            if send_alerts:
+                _alert(msg)
+                alerts_sent = True
         else:
             logger.info("R² estável: %.4f (base %.4f)", r2, baseline)
     else:
         logger.info("Baseline de R² definido: %.4f", r2)
     _save_baseline(r2)
+    return {
+        "status": status,
+        "success": success,
+        "executed": True,
+        "executed_contract": True,
+        "job": "retrain",
+        "r2": r2,
+        "baseline": baseline,
+        "alerts_sent": alerts_sent,
+    }
 
 
-def job_health_report() -> None:
-    """Gera o relatório de saúde diário (.md)."""
+def job_health_report(
+    *,
+    dry_run: bool = False,
+    lease_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    if dry_run:
+        return _dry_run("health_report", lease_path=lease_path)
+    return _with_lease("health_report", _job_health_report_contract, lease_path=lease_path)
+
+
+def _job_health_report_contract() -> Dict[str, Any]:
+    """Generate the daily health report and verify its artifact."""
     logger.info("=== JOB: relatório de saúde ===")
-    _run([_python(), "-m", "reports.health_report"])
+    report_path = ROOT / "reports" / "health_report_latest.md"
+    before = report_path.stat().st_mtime_ns if report_path.exists() else None
+    rc, output = _run([_python(), "-m", "reports.health_report"])
+    after = report_path.stat().st_mtime_ns if report_path.exists() else None
+    generated = rc == 0 and after is not None and (before is None or after > before)
+    return {
+        "status": "completed" if generated else "failed",
+        "success": generated,
+        "executed": True,
+        "executed_contract": generated,
+        "job": "health_report",
+        "returncode": rc,
+        "report_generated": generated,
+        "output_tail": output[-1000:],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -220,21 +405,40 @@ def setup_schedule() -> None:
     logger.info("Agendamento configurado: scrape 03:00, health 03:30, retrain dom 04:00.")
 
 
-def run_once() -> None:
-    """Corre um ciclo completo (útil para testes/CI) e sai."""
-    job_scrape()
-    job_retrain()
-    job_health_report()
-    logger.info("Ciclo único concluído.")
+def run_once(
+    *,
+    dry_run: bool = False,
+    send_alerts: bool = True,
+    lease_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    """Run a bounded cycle and only report success from successful contracts."""
+    results = {
+        "scrape": job_scrape(dry_run=dry_run, send_alerts=send_alerts, lease_path=lease_path),
+        "retrain": job_retrain(dry_run=dry_run, send_alerts=send_alerts, lease_path=lease_path),
+        "health_report": job_health_report(dry_run=dry_run, lease_path=lease_path),
+    }
+    successful = all(result.get("success") is True and result.get("executed_contract") is True for result in results.values())
+    result = {
+        "status": "completed" if successful else ("dry_run" if dry_run else "warning"),
+        "success": successful,
+        "executed": not dry_run,
+        "executed_contract": successful,
+        "dry_run": dry_run,
+        "jobs": results,
+    }
+    logger.info("Ciclo único concluído: status=%s success=%s", result["status"], successful)
+    return result
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="VER PRECOS Autonomous Scheduler")
     parser.add_argument("--once", action="store_true", help="Corre 1 ciclo e sai")
+    parser.add_argument("--dry-run", action="store_true", help="Valida contratos sem BD, rede, relatórios ou alertas")
+    parser.add_argument("--no-alerts", action="store_true", help="Não envia alertas externos")
     args = parser.parse_args()
 
     if args.once:
-        run_once()
+        run_once(dry_run=args.dry_run, send_alerts=not args.no_alerts)
         return
 
     setup_schedule()

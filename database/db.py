@@ -119,6 +119,12 @@ def init_db() -> None:
     inspector = inspect(engine)
     if inspector.has_table("vehicles"):
         ensure_reliability_columns()
+        integrity = database_integrity_check()
+        if integrity["status"] != "healthy":
+            raise RuntimeError(
+                "Database integrity check failed during startup: "
+                f"{integrity.get('result') or integrity.get('error') or integrity}"
+            )
         _db_initialized = True
         logger.info("Database already initialized")
         return
@@ -185,10 +191,36 @@ def health_check() -> bool:
         from sqlalchemy import text
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        return True
+        return database_integrity_check()["status"] in ("healthy", "not_applicable")
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
         return False
+
+
+def database_integrity_check() -> dict:
+    """Run a bounded, read-only integrity check for the configured database.
+
+    SQLite's ``integrity_check`` catches corruption that a successful
+    ``SELECT 1`` cannot. PostgreSQL delegates structural checks to the server
+    and reports ``not_applicable`` rather than pretending to have run SQLite
+    PRAGMAs.
+    """
+    if not _is_sqlite:
+        return {"status": "not_applicable", "backend": "postgresql"}
+    try:
+        from sqlalchemy import text
+
+        with engine.connect() as conn:
+            result = conn.execute(text("PRAGMA integrity_check")).scalar()
+        ok = result == "ok"
+        return {
+            "status": "healthy" if ok else "unhealthy",
+            "backend": "sqlite",
+            "result": result,
+        }
+    except Exception as exc:  # pragma: no cover - depends on damaged DB/runtime
+        logger.error("SQLite integrity check failed: %s", exc)
+        return {"status": "unhealthy", "backend": "sqlite", "error": str(exc)}
 
 
 if __name__ == "__main__":

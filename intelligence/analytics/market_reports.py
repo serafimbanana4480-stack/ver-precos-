@@ -46,8 +46,12 @@ class MarketReports:
                 since_date = datetime.utcnow() - timedelta(days=days)
                 
                 query = db.query(Vehicle).filter(
-                    Vehicle.is_active == True,
-                    Vehicle.first_seen >= since_date
+                    Vehicle.is_active.is_(True),
+                    Vehicle.price_kind == "total",
+                    Vehicle.currency == "EUR",
+                    Vehicle.price > 0,
+                    Vehicle.quality_status.in_(("valid", "valid_with_warning")),
+                    Vehicle.first_seen >= since_date,
                 )
                 
                 if brand:

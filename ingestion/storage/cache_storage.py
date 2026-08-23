@@ -3,6 +3,7 @@ Cache storage for temporary data storage.
 """
 import json
 import hashlib
+import fnmatch
 import time
 from typing import Dict, Any, List, Optional, Union
 import logging
@@ -166,6 +167,34 @@ class CacheStorage:
         except Exception as e:
             logger.error(f"Error deleting cache value: {e}")
             return False
+
+    def delete_pattern(self, pattern: str) -> int:
+        """Delete every cached entry whose original key matches ``pattern``.
+
+        Cache filenames are hashes, so matching must use the original key
+        stored in the index.  The operation is best-effort and updates the
+        index once after all matching files have been removed.
+        """
+        try:
+            matching = [
+                (cache_key, info)
+                for cache_key, info in self.cache_index.items()
+                if fnmatch.fnmatch(str(info.get("key", "")), pattern)
+            ]
+            deleted = 0
+            for cache_key, _info in matching:
+                cache_file = self._get_cache_file_path(cache_key)
+                if cache_file.exists():
+                    cache_file.unlink()
+                self.cache_index.pop(cache_key, None)
+                deleted += 1
+            if matching:
+                self._save_cache_index()
+            logger.debug("Deleted %s cache entries matching %s", deleted, pattern)
+            return deleted
+        except Exception as e:  # noqa: BLE001
+            logger.error("Error deleting cache pattern %s: %s", pattern, e)
+            return 0
     
     def clear(self) -> int:
         """Clear all cache entries."""

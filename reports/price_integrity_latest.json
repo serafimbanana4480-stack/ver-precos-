@@ -1,18 +1,19 @@
 {
-  "checked_at": "2026-08-01T23:57:37.919480+00:00",
-  "rows": 4957,
-  "retail_rows": 3764,
-  "non_retail_rows": 1193,
+  "checked_at": "2026-08-19T03:37:51.510361+00:00",
+  "rows": 5761,
+  "retail_rows": 4238,
+  "non_retail_rows": 1523,
+  "ineligible_rows": 0,
   "quality_status": {
-    "valid": 3693,
-    "quarantined": 1252,
-    "valid_with_warning": 3,
-    "invalid": 9
+    "valid": 4153,
+    "quarantined": 1593,
+    "valid_with_warning": 4,
+    "invalid": 11
   },
   "price_kind": {
-    "total": 3764,
+    "total": 4238,
     "entry": 3,
-    "auction_start": 1186,
+    "auction_start": 1516,
     "monthly": 4
   },
   "hard_failures": [],

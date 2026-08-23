@@ -7,6 +7,7 @@ import re
 import logging
 from typing import Optional, Dict, Any
 from enum import Enum
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -248,8 +249,32 @@ def normalize_vehicle_data(vehicle_data: Dict[str, Any]) -> Dict[str, Any]:
             "auto sapo": "autosapo",
             "custojusto": "custojusto",
             "custo justo": "custojusto",
+            "auto.pt": "autopt",
+            "autopt": "autopt",
+            "autouncle": "autouncle",
+            "autouncle.pt": "autouncle",
         }
         normalized['source'] = source_aliases.get(src, src)
+        # The host is stronger evidence than a legacy adapter label.  This
+        # prevents AutoUncle aggregator rows from being persisted as Auto.pt.
+        try:
+            host = (urlparse(str(normalized.get('url') or '')).hostname or '').lower().removeprefix('www.')
+            host_sources = {
+                'olx.pt': 'olx',
+                'standvirtual.com': 'standvirtual',
+                'autosapo.pt': 'autosapo',
+                'custojusto.pt': 'custojusto',
+                'auto.pt': 'autopt',
+                'autouncle.pt': 'autouncle',
+                'piscapisca.pt': 'piscapisca',
+                'carplus.pt': 'carplus',
+            }
+            for domain, source_name in host_sources.items():
+                if host == domain or host.endswith(f'.{domain}'):
+                    normalized['source'] = source_name
+                    break
+        except ValueError:
+            pass
 
     # Normalize vehicle_type
     if 'vehicle_type' in normalized:

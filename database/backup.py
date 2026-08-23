@@ -5,6 +5,8 @@ Based on Obsidian Vault documentation for backup procedures
 import logging
 import subprocess
 import os
+import sqlite3
+import gzip
 from datetime import datetime
 from typing import Optional
 from pathlib import Path
@@ -80,26 +82,58 @@ class DatabaseBackup:
             return None
     
     def _backup_sqlite(self, db_info: dict, timestamp: str, compression: bool) -> Optional[str]:
-        """Backup SQLite database"""
+        """Backup SQLite using the online backup API, including WAL state.
+
+        Copying ``*.db`` directly is unsafe while SQLite is in WAL mode: the
+        newest committed pages may still be in ``*.db-wal``. The online API
+        takes a consistent snapshot and the result is integrity-checked before
+        it becomes visible as a backup.
+        """
         try:
             source_path = Path(db_info['path'])
-            backup_name = f"sqlite_backup_{timestamp}.db"
-            backup_path = self.backup_dir / backup_name
-            
-            # Copy database file
-            import shutil
-            shutil.copy2(source_path, backup_path)
-            
+            if not source_path.is_file():
+                logger.error("SQLite source does not exist: %s", source_path)
+                return None
+
+            suffix = ".db.gz" if compression else ".db"
+            backup_path = self.backup_dir / f"sqlite_backup_{timestamp}{suffix}"
+            counter = 1
+            while backup_path.exists():
+                backup_path = self.backup_dir / (
+                    f"sqlite_backup_{timestamp}_{counter:02d}{suffix}"
+                )
+                counter += 1
+
+            raw_path = self.backup_dir / f".{backup_path.stem}.tmp.db"
+            if raw_path.exists():
+                raw_path.unlink()
+
+            source = sqlite3.connect(str(source_path))
+            destination = sqlite3.connect(str(raw_path))
+            try:
+                source.backup(destination)
+                check = destination.execute("PRAGMA integrity_check").fetchone()[0]
+                destination.commit()
+            finally:
+                destination.close()
+                source.close()
+
+            if check != "ok":
+                raw_path.unlink(missing_ok=True)
+                logger.error("SQLite backup failed integrity check: %s", check)
+                return None
+
             if compression:
-                import gzip
-                compressed_path = backup_path.with_suffix('.db.gz')
-                with open(backup_path, 'rb') as f_in:
-                    with gzip.open(compressed_path, 'wb') as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                backup_path.unlink()
-                backup_path = compressed_path
-            
-            logger.info(f"SQLite backup created: {backup_path}")
+                compressed_tmp = self.backup_dir / f".{backup_path.name}.tmp"
+                with raw_path.open("rb") as f_in, gzip.open(compressed_tmp, "wb") as f_out:
+                    import shutil
+                    shutil.copyfileobj(f_in, f_out)
+                os.replace(compressed_tmp, backup_path)
+                raw_path.unlink(missing_ok=True)
+            else:
+                os.replace(raw_path, backup_path)
+
+            logger.info("SQLite backup created: %s", backup_path)
             return str(backup_path)
             
         except Exception as e:

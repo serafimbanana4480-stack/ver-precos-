@@ -1,10 +1,11 @@
 """
 Database dependencies for API.
 """
-from typing import Generator
+from typing import Any, Generator, TYPE_CHECKING
 import logging
 
-from ingestion.storage.database_storage import DatabaseStorage
+if TYPE_CHECKING:
+    from ingestion.storage.database_storage import DatabaseStorage
 
 logger = logging.getLogger(__name__)
 
@@ -12,19 +13,21 @@ logger = logging.getLogger(__name__)
 db_storage = None
 
 
-def get_database() -> DatabaseStorage:
+def get_database() -> Any:
     """Get database storage instance."""
     
     global db_storage
     
     if db_storage is None:
+        from ingestion.storage.database_storage import DatabaseStorage
+
         db_storage = DatabaseStorage()
         logger.info("Database storage initialized")
     
     return db_storage
 
 
-def get_db_session() -> Generator[DatabaseStorage, None, None]:
+def get_db_session() -> Generator[Any, None, None]:
     """Get database session (for dependency injection)."""
     
     db = get_database()
@@ -36,7 +39,7 @@ def get_db_session() -> Generator[DatabaseStorage, None, None]:
         pass
 
 
-async def get_async_database() -> DatabaseStorage:
+async def get_async_database() -> Any:
     """Get async database storage instance."""
     
     db = get_database()
@@ -47,7 +50,7 @@ async def get_async_database() -> DatabaseStorage:
     return db
 
 
-async def get_async_db_session() -> Generator[DatabaseStorage, None, None]:
+async def get_async_db_session() -> Generator[Any, None, None]:
     """Get async database session."""
     
     db = await get_async_database()

@@ -152,10 +152,12 @@ class ProductionPipeline:
                     vehicle_data['year'] = extracted_year
                     logger.info(f"Extracted year={extracted_year} from title for vehicle {vehicle_data.get('source_id')}")
                 else:
-                    # Use current year as last resort fallback
-                    from datetime import datetime
-                    vehicle_data['year'] = datetime.now().year
-                    logger.warning(f"No year found for vehicle {vehicle_data.get('source_id')}, using current year as fallback")
+                    # Unknown stays unknown. A current-year fallback invents
+                    # evidence and can make an old listing look artificially
+                    # valuable; the validation gate decides whether it is
+                    # usable instead.
+                    vehicle_data['year'] = None
+                    logger.warning(f"No year found for vehicle {vehicle_data.get('source_id')}; keeping it unknown")
             
             # Stage 1: Data Validation
             validation = validator.validate_vehicle(vehicle_data)
@@ -183,45 +185,46 @@ class ProductionPipeline:
                 'has_accident_indicators': len(ai_analysis.vision_accident_indicators) > 0
             })
             
-            # Stage 3: Hybrid Pricing
-            pricing = pricing_engine.calculate_price(vehicle_data)
-            if pricing.get('insufficient_data') or pricing.get('final_price') is None:
-                vehicle_data['estimated_value'] = None
-                vehicle_data['pricing_confidence'] = pricing.get('pricing_confidence', 'insufficient')
-            else:
-                vehicle_data['estimated_value'] = pricing['final_price']
-                vehicle_data['pricing_confidence'] = pricing.get('pricing_confidence', 'medium')
-            
-            # Stage 4: Multi-dimensional Scoring
-            scoring = scoring_engine.calculate_final_score(vehicle_data)
-            vehicle_data['deal_score'] = scoring.final_score
-            
-            # Stage 4.5: Deal Profit Analysis
-            profit_analysis = deal_profit_calculator.calculate_deal_profit(vehicle_data)
-            vehicle_data.update({
-                'price_discount_percentage': profit_analysis.price_discount_percentage,
-                'estimated_savings': profit_analysis.estimated_savings,
-                'buyer_profit': profit_analysis.buyer_profit,
-                'buyer_profit_margin': profit_analysis.buyer_profit_margin,
-                'buyer_roi': profit_analysis.buyer_roi,
-                'repair_costs': profit_analysis.repair_costs,
-                'taxes': profit_analysis.taxes,
-                'total_additional_costs': profit_analysis.total_additional_costs,
-                'deal_grade': profit_analysis.deal_grade,
-                'profit_recommendation': profit_analysis.recommendation
-            })
+            # Stages 3-4.5: one canonical valuation/profit/deal block.
+            # The older pricing/scoring services are retained for isolated
+            # experiments, but must not write a competing subset of columns.
+            from valuation.service import build_service
+
+            valuation = build_service().evaluate(vehicle_data)
+            derived = valuation.derived_fields()
+            vehicle_data.update(derived)
+            pricing = {
+                'final_price': valuation.estimate.value,
+                'value_low': valuation.estimate.low,
+                'value_high': valuation.estimate.high,
+                'pricing_confidence': valuation.estimate.confidence_label,
+                'insufficient_data': valuation.estimate.value is None,
+                'method': valuation.estimate.method,
+                'valuation': valuation.details(),
+            }
+            scoring = {
+                'final_score': valuation.deal_score,
+                'deal_grade': valuation.deal_grade,
+                'valuation_version': valuation.details()['valuation_version'],
+            }
+            profit_analysis = {
+                'buyer_profit': valuation.net_profit,
+                'net_profit': valuation.net_profit,
+                'profit_is_publishable': valuation.is_publishable,
+            }
             
             # Stage 5: Database Update
             self._save_to_database(vehicle_data, validation, ai_analysis, pricing, scoring, profit_analysis)
             
-            logger.info(f"Vehicle {vehicle_data.get('source_id')} processed successfully - Score: {scoring.final_score}")
+            logger.info(f"Vehicle {vehicle_data.get('source_id')} processed successfully - Score: {valuation.deal_score}")
             
             return {
                 'vehicle_id': vehicle_data.get('source_id'),
                 'validation': validation.dict(),
                 'ai_analysis': ai_analysis.dict(),
                 'pricing': pricing,
-                'scoring': scoring.dict(),
+                'scoring': scoring,
+                'valuation': valuation.to_dict(),
                 'status': 'success'
             }
             
@@ -328,8 +331,9 @@ class ProductionPipeline:
         from utils.source_normalize import normalize_source
         from database.db import get_db_context
         from database.models import Vehicle, PriceHistory
+        from valuation.service import DERIVED_FIELDS
 
-        vehicle['source'] = normalize_source(vehicle.get('source'))
+        vehicle['source'] = normalize_source(vehicle.get('source'), vehicle.get('url'))
         
         # Normalize fuel_type, transmission, and seller_type before DB save
         from validation.normalizers import normalize_fuel_type, normalize_transmission
@@ -380,25 +384,12 @@ class ProductionPipeline:
                     old_price = existing.price
 
                     # Update fields
-                    existing.estimated_value = vehicle.get('estimated_value')
-                    existing.deal_score = vehicle.get('deal_score')
                     existing.ai_risk_score = ai_analysis.llm_risk_score
                     existing.condition_score = ai_analysis.vision_condition_score
                     existing.ai_recommendation = ai_analysis.llm_recommendation
                     existing.damages_detected = ai_analysis.vision_exterior_damage
                     existing.has_accident = len(ai_analysis.vision_accident_indicators) > 0
                     existing.ai_review = ai_analysis.llm_reasoning[:500]
-                    existing.profit_potential = vehicle.get('buyer_profit')
-                    existing.price_discount_percentage = vehicle.get('price_discount_percentage')
-                    existing.estimated_savings = vehicle.get('estimated_savings')
-                    existing.buyer_profit = vehicle.get('buyer_profit')
-                    existing.buyer_profit_margin = vehicle.get('buyer_profit_margin')
-                    existing.buyer_roi = vehicle.get('buyer_roi')
-                    existing.repair_costs = vehicle.get('repair_costs')
-                    existing.taxes = vehicle.get('taxes')
-                    existing.total_additional_costs = vehicle.get('total_additional_costs')
-                    existing.deal_grade = vehicle.get('deal_grade')
-                    existing.profit_recommendation = vehicle.get('profit_recommendation')
                     existing.last_seen = datetime.now(timezone.utc)
 
                     # Update price and core fields that may change on re-scrape
@@ -419,6 +410,8 @@ class ProductionPipeline:
                             recorded_at=datetime.now(timezone.utc)
                         )
                         db.add(price_history)
+                    for field in DERIVED_FIELDS:
+                        setattr(existing, field, vehicle.get(field))
                 else:
                     # Create new vehicle
                     new_vehicle = Vehicle(
@@ -438,29 +431,18 @@ class ProductionPipeline:
                         district=vehicle.get('district', ''),
                         fuel_type=vehicle.get('fuel_type') or None,
                         transmission=vehicle.get('transmission') or None,
-                        estimated_value=vehicle.get('estimated_value'),
-                        deal_score=vehicle.get('deal_score'),
                         ai_risk_score=ai_analysis.llm_risk_score,
                         condition_score=ai_analysis.vision_condition_score,
                         ai_recommendation=ai_analysis.llm_recommendation,
                         damages_detected=ai_analysis.vision_exterior_damage,
                         has_accident=len(ai_analysis.vision_accident_indicators) > 0,
                         ai_review=ai_analysis.llm_reasoning[:500],
-                        profit_potential=vehicle.get('buyer_profit'),
-                        price_discount_percentage=vehicle.get('price_discount_percentage'),
-                        estimated_savings=vehicle.get('estimated_savings'),
-                        buyer_profit=vehicle.get('buyer_profit'),
-                        buyer_profit_margin=vehicle.get('buyer_profit_margin'),
-                        buyer_roi=vehicle.get('buyer_roi'),
-                        repair_costs=vehicle.get('repair_costs'),
-                        taxes=vehicle.get('taxes'),
-                        total_additional_costs=vehicle.get('total_additional_costs'),
-                        deal_grade=vehicle.get('deal_grade'),
-                        profit_recommendation=vehicle.get('profit_recommendation'),
                         first_seen=datetime.now(timezone.utc),
                         last_seen=datetime.now(timezone.utc),
                         is_active=True
                     )
+                    for field in DERIVED_FIELDS:
+                        setattr(new_vehicle, field, vehicle.get(field))
                     db.add(new_vehicle)
                     db.flush()  # Get the assigned ID
 
@@ -501,7 +483,9 @@ class ProductionPipeline:
             
             if result['status'] == 'success':
                 results['success'] += 1
-                total_score += result['scoring']['final_score']
+                score = result['scoring'].get('final_score')
+                if score is not None:
+                    total_score += score
             else:
                 results['error'] += 1
         

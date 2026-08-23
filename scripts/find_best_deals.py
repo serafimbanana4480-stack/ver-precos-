@@ -121,14 +121,10 @@ def load_candidates(
         query = db.query(Vehicle).filter(
             Vehicle.price > 300,
             Vehicle.is_active.is_(True),
-        )
-        # Preço tem de ser retalho total em euros.
-        query = query.filter(
-            (Vehicle.price_kind.is_(None)) | (Vehicle.price_kind == "total")
-        )
-        query = query.filter(
-            (Vehicle.quality_status.is_(None))
-            | (Vehicle.quality_status.in_(["valid", "valid_with_warning"]))
+            # Preço tem de ser retail total em euros e qualidade aceite.
+            Vehicle.price_kind == "total",
+            Vehicle.currency == "EUR",
+            Vehicle.quality_status.in_(["valid", "valid_with_warning"]),
         )
         if vehicle_type and vehicle_type != "all":
             query = query.filter(Vehicle.vehicle_type == vehicle_type)

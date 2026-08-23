@@ -20,6 +20,30 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from database.models import Base
 target_metadata = Base.metadata
 
+
+def _compare_type(context, inspected_column, metadata_column, inspected_type, metadata_type):
+    """Treat SQLite's legacy affinity types as equivalent to ORM types.
+
+    SQLite stores SQLAlchemy ``Enum``/``Boolean`` and many numeric columns as
+    VARCHAR/INTEGER/REAL.  Reporting those affinity differences on every
+    ``alembic check`` obscured real missing-column/index drift. PostgreSQL
+    keeps the default strict comparison.
+    """
+    if context.dialect.name != "sqlite":
+        return None
+
+    from sqlalchemy import Boolean, Enum, Float, Integer, REAL, String, Text
+
+    string_types = (String, Text, Enum)
+    numeric_types = (Float, REAL)
+    if isinstance(inspected_type, string_types) and isinstance(metadata_type, string_types):
+        return False
+    if isinstance(inspected_type, numeric_types) and isinstance(metadata_type, numeric_types):
+        return False
+    if isinstance(inspected_type, (Integer, Boolean)) and isinstance(metadata_type, (Integer, Boolean)):
+        return False
+    return None
+
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
@@ -44,6 +68,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        compare_type=_compare_type,
     )
 
     with context.begin_transaction():
@@ -65,7 +90,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=_compare_type,
         )
 
         with context.begin_transaction():

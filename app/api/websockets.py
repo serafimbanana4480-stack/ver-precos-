@@ -5,8 +5,8 @@ Handles WebSocket connections for streaming vehicle updates
 from __future__ import annotations
 import logging
 import asyncio
-from typing import Dict, Set
-from datetime import datetime, timedelta
+from typing import Any, Dict, Set, Optional
+from datetime import datetime, timezone
 from fastapi import WebSocket, WebSocketDisconnect
 
 from database.db import get_db_context
@@ -71,6 +71,23 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def vehicle_update_payload(vehicle: Any) -> Dict[str, Any]:
+    """Return a JSON-safe, retail-only vehicle update payload."""
+    return {
+        "id": vehicle.id,
+        "source": vehicle.source.value if vehicle.source else None,
+        "source_id": vehicle.source_id,
+        "title": vehicle.title,
+        "brand": vehicle.brand,
+        "model": vehicle.model,
+        "year": vehicle.year,
+        "price": vehicle.price,
+        "deal_score": vehicle.deal_score,
+        "estimated_value": vehicle.estimated_value,
+        "last_seen": vehicle.last_seen.isoformat() if vehicle.last_seen else None,
+    }
+
+
 async def stream_vehicle_updates(websocket: WebSocket, client_id: str, poll_interval: int = 5):
     """
     Stream vehicle updates in real-time
@@ -83,14 +100,18 @@ async def stream_vehicle_updates(websocket: WebSocket, client_id: str, poll_inte
     await manager.connect(websocket, client_id)
     
     try:
-        last_update = datetime.utcnow()
+        last_update = datetime.now(timezone.utc)
         
         while True:
             try:
                 # Get new vehicles from database
                 with get_db_context() as db:
                     new_vehicles = db.query(Vehicle).filter(
-                        Vehicle.is_active == True,
+                        Vehicle.is_active.is_(True),
+                        Vehicle.price_kind == "total",
+                        Vehicle.currency == "EUR",
+                        Vehicle.price > 0,
+                        Vehicle.quality_status.in_(("valid", "valid_with_warning")),
                         Vehicle.last_seen > last_update
                     ).order_by(Vehicle.last_seen.desc()).limit(10).all()
                 
@@ -98,31 +119,20 @@ async def stream_vehicle_updates(websocket: WebSocket, client_id: str, poll_inte
                     # Send updates to client
                     updates = []
                     for v in new_vehicles:
-                        updates.append({
-                            "id": v.id,
-                            "source": v.source,
-                            "source_id": v.source_id,
-                            "title": v.title,
-                            "brand": v.brand,
-                            "model": v.model,
-                            "year": v.year,
-                            "price": v.price,
-                            "deal_score": v.deal_score,
-                            "estimated_value": v.estimated_value,
-                            "last_seen": v.last_seen.isoformat() if v.last_seen else None
-                        })
+                        updates.append(vehicle_update_payload(v))
                     
                     await manager.send_personal_message({
                         "type": "vehicle_update",
                         "count": len(updates),
                         "vehicles": updates,
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": datetime.now(timezone.utc).isoformat()
                     }, websocket)
                     
                     logger.info(f"Sent {len(updates)} vehicle updates to {client_id}")
                 
-                # Update last_seen for next poll
-                last_update = datetime.utcnow()
+                # Update last_seen for next poll even when this poll had no
+                # rows; otherwise the same stale window is re-scanned.
+                last_update = datetime.now(timezone.utc)
                 
                 # Wait before next poll
                 await asyncio.sleep(poll_interval)
@@ -134,8 +144,8 @@ async def stream_vehicle_updates(websocket: WebSocket, client_id: str, poll_inte
                 logger.error(f"Error streaming updates for {client_id}: {e}")
                 await manager.send_personal_message({
                     "type": "error",
-                    "message": str(e),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "message": "Falha temporária ao obter atualizações.",
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }, websocket)
                 await asyncio.sleep(poll_interval)
                 

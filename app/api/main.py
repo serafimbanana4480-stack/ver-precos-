@@ -5,7 +5,7 @@ REST API for vehicle valuation, deal finding, and market intelligence
 from __future__ import annotations
 import logging
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, Depends, WebSocket, WebSocketDisconnect
@@ -32,9 +32,16 @@ from processing.pipeline import production_pipeline
 from intelligence.pricing.engine import pricing_engine
 from intelligence.scoring.engine import scoring_engine
 from database.db import get_db_context
-from database.models import Vehicle
+from database.models import Source, Vehicle
 
 logger = logging.getLogger(__name__)
+
+INVENTORY_MAX_AGE_HOURS = 48
+
+
+def _fresh_inventory_cutoff() -> datetime:
+    """Return the visibility cutoff for listings exposed as active."""
+    return datetime.now(timezone.utc) - timedelta(hours=INVENTORY_MAX_AGE_HOURS)
 
 
 @asynccontextmanager
@@ -43,11 +50,12 @@ async def lifespan(app: FastAPI):
     from utils.observability import setup_structured_logging
     setup_structured_logging()
     logger.info("Starting AutoDeal API...")
-    # Check Ollama availability
-    if settings.check_ollama_available():
-        logger.info("✅ Ollama is available")
+    # Optional providers are diagnostic inputs, not a startup dependency.
+    # A health request must remain usable while Ollama is stopped or absent.
+    if settings.use_ollama:
+        logger.info("Ollama is configured; live provider health is not measured at startup")
     else:
-        logger.warning("⚠️ Ollama not available - AI features will use fallback")
+        logger.info("Ollama is disabled - AI features use the configured fallback")
     yield
     logger.info("Shutting down AutoDeal API...")
 
@@ -80,17 +88,38 @@ app.add_middleware(
 # Health check endpoint
 @app.get("/api/v1/health")
 async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
+    """Read-only API health; optional providers are reported as unmeasured."""
+    from api.services.health_service import HealthService
+
+    checked = HealthService().check_api_health()
+    status_code = 200 if checked["status"] == "healthy" else 503
+    external = checked.get("external", {})
+    ollama = external.get("ollama", {}) if isinstance(external, dict) else {}
+    return JSONResponse(status_code=status_code, content={
+        "status": checked["status"],
         "version": "1.0.0",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": checked["timestamp"],
         "services": {
-            "database": "connected",
-            "ai": "available" if settings.check_ollama_available() else "unavailable",
-            "scrapers": "ready"
-        }
-    }
+            "database": checked["database"]["status"],
+            "models": checked["models"]["status"],
+            "ai": ollama.get("status", "not_measured"),
+            "scrapers": checked["scrapers"]["status"],
+        },
+        "details": checked,
+    })
+
+
+@app.get("/api/v1/readiness")
+@app.get("/api/v1/ready")
+async def readiness_check():
+    """Readiness is stricter than liveness and requires fresh live evidence."""
+    from api.services.health_service import HealthService
+
+    readiness = HealthService().check_readiness()
+    return JSONResponse(
+        status_code=200 if readiness.get("ready") else 503,
+        content=readiness,
+    )
 
 
 # Metrics endpoint for Prometheus
@@ -105,7 +134,7 @@ async def metrics():
 @app.websocket("/api/v1/ws/vehicles")
 async def websocket_vehicle_updates(
     websocket: WebSocket,
-    client_id: str = Query(...),
+    client_id: str = Query(..., min_length=1, max_length=100),
     current_user: User = Depends(get_current_active_user)
 ):
     """
@@ -161,7 +190,17 @@ async def get_vehicles(
     """
     try:
         with get_db_context() as db:
-            query = db.query(Vehicle).filter(Vehicle.is_active == True)
+            # ``Vehicle.price`` is intentionally zero for monthly, entry,
+            # auction, unknown, and rejected observations.  Never expose
+            # those rows as a normal retail inventory query.
+            query = db.query(Vehicle).filter(
+                Vehicle.is_active.is_(True),
+                Vehicle.last_seen >= _fresh_inventory_cutoff(),
+                Vehicle.price_kind == "total",
+                Vehicle.currency == "EUR",
+                Vehicle.price > 0,
+                Vehicle.quality_status.in_(("valid", "valid_with_warning")),
+            )
             
             # Apply filters
             if brand:
@@ -179,7 +218,14 @@ async def get_vehicles(
             if deal_score_min:
                 query = query.filter(Vehicle.deal_score >= deal_score_min)
             if source:
-                query = query.filter(Vehicle.source == source)
+                from utils.source_normalize import normalize_source
+
+                try:
+                    query = query.filter(Vehicle.source == Source(normalize_source(source)))
+                except ValueError:
+                    # An unknown source must return no rows, not silently
+                    # widen the query or depend on database enum coercion.
+                    query = query.filter(Vehicle.id == -1)
             
             # Apply pagination
             vehicles = query.order_by(Vehicle.deal_score.desc()).offset(offset).limit(limit).all()
@@ -204,7 +250,12 @@ async def get_top_deals(
     try:
         with get_db_context() as db:
             vehicles = db.query(Vehicle).filter(
-                Vehicle.is_active == True,
+                Vehicle.is_active.is_(True),
+                Vehicle.last_seen >= _fresh_inventory_cutoff(),
+                Vehicle.price_kind == "total",
+                Vehicle.currency == "EUR",
+                Vehicle.price > 0,
+                Vehicle.quality_status.in_(("valid", "valid_with_warning")),
                 Vehicle.profit_is_publishable == True,
                 Vehicle.credible_profit.isnot(None),
                 Vehicle.credible_profit > 0,
@@ -232,13 +283,24 @@ async def get_top_deals(
 
 # Get vehicle by ID endpoint
 @app.get("/api/v1/vehicles/{vehicle_id}", response_model=VehicleResponse)
-async def get_vehicle(vehicle_id: int):
+async def get_vehicle(
+    vehicle_id: int,
+    current_user: User = Depends(get_current_active_user),
+):
     """
     Get a specific vehicle by ID
     """
     try:
         with get_db_context() as db:
-            vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
+            vehicle = db.query(Vehicle).filter(
+                Vehicle.id == vehicle_id,
+                Vehicle.is_active.is_(True),
+                Vehicle.last_seen >= _fresh_inventory_cutoff(),
+                Vehicle.price_kind == "total",
+                Vehicle.currency == "EUR",
+                Vehicle.price > 0,
+                Vehicle.quality_status.in_(("valid", "valid_with_warning")),
+            ).first()
             
             if not vehicle:
                 raise HTTPException(status_code=404, detail="Vehicle not found")

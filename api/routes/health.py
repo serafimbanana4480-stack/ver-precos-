@@ -41,15 +41,12 @@ async def detailed_health_check(
         health_service = HealthService(db, cache)
         health_status = health_service.get_detailed_health()
         
-        # Determine overall status
-        overall_status = "healthy"
-        
-        for component, status in health_status['components'].items():
-            if status['status'] != "healthy":
-                overall_status = "unhealthy"
-                break
-            elif status['status'] == "warning":
-                overall_status = "warning"
+        # Preserve warning/degraded/not-measured separately from a hard
+        # unhealthy result.  The previous ordering made every warning look
+        # unhealthy before its warning branch could ever run.
+        overall_status = HealthService.aggregate_status(
+            health_status.get("components", {}).values()
+        )
         
         health_status['overall_status'] = overall_status
         health_status['timestamp'] = datetime.now().isoformat()
@@ -109,13 +106,14 @@ async def api_health():
 @health_router.get("/services", response_model=Dict[str, Any])
 async def services_health(
     db = Depends(get_database),
-    cache = Depends(get_cache)
+    cache = Depends(get_cache),
+    probe: bool = False,
 ):
-    """External services health check."""
+    """External services health check; live probing is explicit only."""
     
     try:
         health_service = HealthService(db, cache)
-        services_health = health_service.check_external_services()
+        services_health = health_service.check_external_services(probe=probe)
         
         return services_health
         

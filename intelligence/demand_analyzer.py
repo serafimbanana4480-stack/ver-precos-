@@ -27,7 +27,13 @@ class DemandAnalyzer:
         - Deal score distribution
         """
         with get_db_context() as db:
-            conditions = [Vehicle.is_active == True]  # noqa: E712
+            conditions = [
+                Vehicle.is_active.is_(True),
+                Vehicle.price_kind == "total",
+                Vehicle.currency == "EUR",
+                Vehicle.price > 0,
+                Vehicle.quality_status.in_(("valid", "valid_with_warning")),
+            ]
             conditions.append(Vehicle.brand.ilike(f"%{brand}%"))
             if model:
                 conditions.append(Vehicle.model.ilike(f"%{model}%"))
@@ -135,7 +141,13 @@ class DemandAnalyzer:
                 func.count(Vehicle.id).label("count"),
                 func.avg(Vehicle.price).label("avg_price"),
                 func.avg(Vehicle.deal_score).label("avg_score"),
-            ).filter(Vehicle.is_active == True)  # noqa: E712
+            ).filter(
+                Vehicle.is_active.is_(True),
+                Vehicle.price_kind == "total",
+                Vehicle.currency == "EUR",
+                Vehicle.price > 0,
+                Vehicle.quality_status.in_(("valid", "valid_with_warning")),
+            )
 
             if vehicle_type:
                 try:
@@ -171,6 +183,11 @@ class DemandAnalyzer:
             conditions = [
                 Vehicle.first_seen >= since,
                 Vehicle.brand.ilike(f"%{brand}%"),
+                Vehicle.is_active.is_(True),
+                Vehicle.price_kind == "total",
+                Vehicle.currency == "EUR",
+                Vehicle.price > 0,
+                Vehicle.quality_status.in_(("valid", "valid_with_warning")),
             ]
             if model:
                 conditions.append(Vehicle.model.ilike(f"%{model}%"))

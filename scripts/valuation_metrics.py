@@ -25,20 +25,123 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import func
-
 from database.db import get_db_context
 from database.models import Vehicle
+from valuation.comparables import (
+    FUTURE,
+    FRESH,
+    HISTORICAL_SNAPSHOT,
+    NOT_MEASURED,
+    STALE,
+    normalize_cutoff,
+    row_freshness,
+)
+from valuation.service import VALUATION_TARGET
 
 logger = logging.getLogger("valuation_metrics")
 
 
-def collect_metrics() -> dict:
-    metrics: dict = {"generated_at": datetime.now(timezone.utc).isoformat()}
+def _value(obj, attr):
+    value = getattr(obj, attr, None)
+    return getattr(value, "value", value)
+
+
+def _row_temporal(obj) -> dict:
+    return {
+        "last_seen": getattr(obj, "last_seen", None),
+        "first_seen": getattr(obj, "first_seen", None),
+    }
+
+
+def _retail_eligible(obj) -> bool:
+    try:
+        price = float(getattr(obj, "price", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    return (
+        price > 0
+        and str(getattr(obj, "price_kind", "") or "").lower() == "total"
+        and str(getattr(obj, "currency", "") or "").upper() == "EUR"
+        and str(getattr(obj, "quality_status", "") or "").lower()
+        in {"valid", "valid_with_warning"}
+    )
+
+
+def collect_metrics(
+    *,
+    cutoff=None,
+    max_age_hours: float | None = 48,
+    snapshot: str = "current",
+) -> dict:
+    """Recolhe métricas read-only do snapshot corrente e contexto histórico.
+
+    A avaliação só é contada no snapshot corrente fresco. Linhas antigas ou
+    sem timestamp permanecem visíveis como cobertura/falha de freshness, mas
+    não são convertidas em uma pontuação atual.
+    """
+    explicit_cutoff = normalize_cutoff(cutoff)
+    if max_age_hours is not None:
+        max_age_hours = float(max_age_hours)
+        if max_age_hours <= 0:
+            raise ValueError("max_age_hours deve ser positivo")
+    effective_cutoff = explicit_cutoff or (
+        datetime.now(timezone.utc) if max_age_hours is not None else None
+    )
+    metrics: dict = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "target": VALUATION_TARGET,
+        "target_field": VALUATION_TARGET,
+        "snapshot": {
+            "kind": snapshot,
+            "cutoff": effective_cutoff.isoformat() if effective_cutoff else None,
+            "cutoff_source": "explicit" if explicit_cutoff else "runtime_now" if max_age_hours is not None else None,
+            "max_age_hours": float(max_age_hours) if max_age_hours is not None else None,
+        },
+    }
 
     with get_db_context() as db:
-        active = db.query(Vehicle).filter(Vehicle.is_active == True).all()  # noqa: E712
+        all_rows = db.query(Vehicle).all()
+        active_all = [v for v in all_rows if bool(getattr(v, "is_active", False))]
+        eligible_all = [v for v in all_rows if _retail_eligible(v)]
+        active = [v for v in eligible_all if bool(getattr(v, "is_active", False))]
+        current_temporal = {
+            getattr(v, "id", id(v)): row_freshness(
+                _row_temporal(v),
+                cutoff=effective_cutoff,
+                max_age_hours=max_age_hours,
+                snapshot=snapshot,
+            )
+            for v in active
+        }
+        current_rows = []
+        if snapshot == "current":
+            current_rows = [
+                v for v in active
+                if current_temporal[getattr(v, "id", id(v))].get("freshness") == FRESH
+            ]
+        else:
+            # This script is a current observability snapshot.  A historical
+            # request is represented separately and never silently joins it.
+            current_rows = []
+
+        freshness_counts = Counter(
+            current_temporal[getattr(v, "id", id(v))].get("freshness", NOT_MEASURED)
+            for v in active
+        )
         metrics["active_listings"] = len(active)
+        metrics["active_listings_total"] = len(active_all)
+        metrics["current_snapshot_listings"] = len(current_rows)
+        metrics["snapshot"].update({
+            "eligible_active": len(active),
+            "included_current": len(current_rows),
+            "freshness_counts": dict(freshness_counts),
+        })
+        metrics["historical"] = {
+            "eligible_rows": len(eligible_all),
+            "inactive_rows": sum(1 for v in eligible_all if not bool(getattr(v, "is_active", False))),
+            "active_rows_outside_current": len(active) - len(current_rows),
+            "status": "SEPARATE_FROM_CURRENT_SNAPSHOT",
+        }
 
         ests, scores, confs = [], [], []
         conf_labels = Counter()
@@ -50,9 +153,10 @@ def collect_metrics() -> dict:
         quality_reasons = Counter()
         comparables = []
         inconclusive = 0
-        skipped_quality = 0
+        skipped_quality = len(active_all) - len(active)
+        measured_profit_count = 0
 
-        for v in active:
+        for v in current_rows:
             quality[str(v.quality_status or "unknown")] += 1
             for r in (v.quality_reasons or []):
                 quality_reasons[str(r).split("(")[0] + "()"] += 1
@@ -61,6 +165,8 @@ def collect_metrics() -> dict:
             if v.deal_score is not None:
                 scores.append(v.deal_score)
             vd = v.valuation_details or {}
+            if isinstance(vd, str):
+                vd = {}
             if vd.get("method"):
                 methods[vd["method"]] += 1
             if vd.get("method") == "skipped_quality":
@@ -82,6 +188,9 @@ def collect_metrics() -> dict:
                     inconclusive += 1
             for f in (vd.get("features_missing") or []):
                 missing_fields[f] += 1
+            gt = vd.get("ground_truth") or {}
+            if isinstance(gt, dict) and gt.get("available"):
+                measured_profit_count += 1
 
     ests.sort()
     scores.sort()
@@ -111,6 +220,20 @@ def collect_metrics() -> dict:
     }
     metrics["inconclusive_valuations"] = inconclusive
     metrics["quality_excluded_from_valuation"] = skipped_quality
+    metrics["freshness"] = {
+        "status": "MEASURED" if max_age_hours is not None or effective_cutoff else NOT_MEASURED,
+        "counts": dict(freshness_counts),
+        "stale": freshness_counts.get(STALE, 0),
+        "not_measured": freshness_counts.get(NOT_MEASURED, 0),
+        "future": freshness_counts.get(FUTURE, 0),
+    }
+    metrics["valuation_semantics"] = {
+        "target": VALUATION_TARGET,
+        "target_field": VALUATION_TARGET,
+        "ground_truth_sale_count": measured_profit_count,
+        "profit_status": "MEASURED" if measured_profit_count else NOT_MEASURED,
+        "note": "Preço pedido não é preço vendido; sem ground truth não há realized_profit.",
+    }
     metrics["comparables_per_valuation"] = {
         "mean": round(sum(comparables) / len(comparables), 1) if comparables else None,
         "median": pct(sorted(comparables), 0.5),
@@ -145,10 +268,26 @@ def collect_metrics() -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default="reports/valuation_metrics.json")
+    parser.add_argument("--cutoff", default=None, help="cutoff ISO-8601 explícito")
+    parser.add_argument(
+        "--max-age-hours",
+        type=float,
+        default=48,
+        help="idade máxima do snapshot corrente (default: 48)",
+    )
+    parser.add_argument(
+        "--snapshot",
+        choices=("current", "historical"),
+        default="current",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    metrics = collect_metrics()
+    metrics = collect_metrics(
+        cutoff=args.cutoff,
+        max_age_hours=args.max_age_hours,
+        snapshot=args.snapshot,
+    )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")

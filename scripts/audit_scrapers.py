@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import dataclasses
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -42,6 +43,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scrapers.schema import parse_price_evidence  # noqa: E402
+from scrapers.resilience import (  # noqa: E402
+    STATUS_BLOCKED,
+    STATUS_BLOCKED_CREDENTIALS,
+    STATUS_DEGRADED,
+    STATUS_EMPTY,
+    STATUS_FAILED,
+    STATUS_OK,
+    STATUS_TIMEOUT,
+    ScraperRuntimeError,
+)
 
 logger = logging.getLogger("scraper_audit")
 
@@ -75,8 +86,74 @@ async def _sync(fn: Callable[[], List[Any]]) -> List[Any]:
     return await asyncio.to_thread(fn)
 
 
+def _close_scraper_instance(instance: Any) -> None:
+    """Release a per-run scraper or its requests session when available."""
+    close = getattr(instance, "close", None)
+    if callable(close):
+        result = close()
+        if inspect.isawaitable(result):
+            # This helper is used inside a worker thread for sync adapters.
+            asyncio.run(result)
+        return
+    session = getattr(instance, "session", None)
+    close_session = getattr(session, "close", None)
+    if callable(close_session):
+        result = close_session()
+        if inspect.isawaitable(result):
+            asyncio.run(result)
+
+
+async def _close_scraper_instance_async(instance: Any) -> None:
+    """Close async/sync scraper resources without leaking transports."""
+    close = getattr(instance, "close", None)
+    if callable(close):
+        result = close()
+        if inspect.isawaitable(result):
+            await result
+        return
+    session = getattr(instance, "session", None)
+    close_session = getattr(session, "close", None)
+    if callable(close_session):
+        result = close_session()
+        if inspect.isawaitable(result):
+            await result
+
+
+def _raise_if_runtime_failure(instance: Any, rows: List[Any], source: str) -> None:
+    """Keep an adapter's terminal empty state visible to ``run_spec``."""
+    if rows:
+        return
+    status = str(getattr(instance, "last_status", "") or "")
+    if status in {
+        STATUS_BLOCKED,
+        STATUS_BLOCKED_CREDENTIALS,
+        STATUS_TIMEOUT,
+        STATUS_DEGRADED,
+        STATUS_FAILED,
+    }:
+        detail = getattr(instance, "last_error", None) or status
+        raise ScraperRuntimeError(
+            f"{source}: {detail}",
+            status=status,
+            source=source,
+        )
+
+
 async def _light(cls: Any, vehicle_type: str, max_listings: int) -> List[Any]:
-    return cls().scrape_listings(vehicle_type, max_listings=max_listings)
+    # Lightweight adapters are synchronous (requests/BeautifulSoup). Running
+    # them directly inside this coroutine blocked the event loop, so the
+    # semaphore did not provide real concurrency and the outer timeout could
+    # not fire while a request was in progress.
+    def scrape() -> List[Any]:
+        instance = cls()
+        try:
+            rows = instance.scrape_listings(vehicle_type, max_listings=max_listings)
+            _raise_if_runtime_failure(instance, rows, getattr(cls, "__name__", "lightweight"))
+            return rows
+        finally:
+            _close_scraper_instance(instance)
+
+    return await _sync(scrape)
 
 
 async def _leilosoc_light(vehicle_type: str, max_listings: int) -> List[Any]:
@@ -84,37 +161,66 @@ async def _leilosoc_light(vehicle_type: str, max_listings: int) -> List[Any]:
     # has no vehicle_type parameter.
     from scrapers.leilosoc_lightweight import LeilosocLightweight
 
-    return LeilosocLightweight().scrape_listings(max_listings=max_listings)
+    def scrape() -> List[Any]:
+        instance = LeilosocLightweight()
+        try:
+            # Leilosoc is category-scoped and has no vehicle_type argument;
+            # passing it positionally plus by keyword duplicates max_listings.
+            rows = instance.scrape_listings(max_listings=max_listings)
+            _raise_if_runtime_failure(instance, rows, "LeilosocLightweight")
+            return rows
+        finally:
+            _close_scraper_instance(instance)
+
+    return await _sync(scrape)
 
 
 async def _browser(cls: Any, vehicle_type: str, max_listings: int) -> List[Any]:
-    return await cls().scrape_listings(
-        vehicle_type, max_listings=max_listings, scrape_details=False
-    )
+    instance = cls()
+    try:
+        return await instance.scrape_listings(
+            vehicle_type, max_listings=max_listings, scrape_details=False
+        )
+    finally:
+        await _close_scraper_instance_async(instance)
 
 
 async def _olx_playwright(vehicle_type: str, max_listings: int) -> List[Any]:
     from scrapers.olx_scraper import OlxScraper
 
-    return await OlxScraper().scrape_listings(
-        vehicle_type, max_listings=max_listings, scrape_details=False
-    )
+    instance = OlxScraper()
+    try:
+        return await instance.scrape_listings(
+            vehicle_type, max_listings=max_listings, scrape_details=False
+        )
+    finally:
+        await _close_scraper_instance_async(instance)
 
 
 async def _olx_generic(vehicle_type: str, max_listings: int) -> List[Any]:
     from scrapers.lightweight_scraper import LightweightOLXScraper
 
-    return await LightweightOLXScraper().scrape_listings(vehicle_type, max_listings)
+    instance = LightweightOLXScraper()
+    try:
+        return await instance.scrape_listings(vehicle_type, max_listings)
+    finally:
+        await _close_scraper_instance_async(instance)
 
 
 async def _imovirtual(vehicle_type: str, max_listings: int) -> List[Any]:
     from scrapers.imovirtual_scraper import ImoVirtualScraper
 
-    return await _sync(
-        lambda: ImoVirtualScraper().scrape_listings(
-            max_listings=max_listings, vehicle_type=vehicle_type
-        )
-    )
+    def scrape() -> List[Any]:
+        instance = ImoVirtualScraper()
+        try:
+            return instance.scrape_listings(
+                max_listings=max_listings,
+                vehicle_type=vehicle_type,
+            )
+        finally:
+            _close_scraper_instance(instance)
+
+    return await _sync(scrape)
 
 
 async def _old_auction(source: str, _vehicle_type: str, max_listings: int) -> List[Any]:
@@ -156,6 +262,11 @@ async def _ground_truth(cls: Any, _vehicle_type: str, max_listings: int) -> List
             return await scraper.scrape(max_listings=max_listings)
     finally:
         await http.close()
+        close_browser = getattr(browser, "close", None)
+        if callable(close_browser):
+            result = close_browser()
+            if inspect.isawaitable(result):
+                await result
 
 
 async def _ebay(vehicle_type: str, max_listings: int) -> List[Any]:
@@ -163,7 +274,11 @@ async def _ebay(vehicle_type: str, max_listings: int) -> List[Any]:
         raise RuntimeError("credential_missing: EBAY_API_KEY")
     from scrapers.ebay_motors import eBayMotorsAPI
 
-    return await eBayMotorsAPI().scrape_listings(vehicle_type, max_listings=max_listings)
+    instance = eBayMotorsAPI()
+    try:
+        return await instance.scrape_listings(vehicle_type, max_listings=max_listings)
+    finally:
+        await _close_scraper_instance_async(instance)
 
 
 def build_specs() -> List[ScraperSpec]:
@@ -298,6 +413,12 @@ def _price_check(row: Dict[str, Any], source: str) -> Dict[str, Any]:
 
 def validate_rows(rows: Iterable[Any], spec: ScraperSpec, vehicle_type: str) -> Dict[str, Any]:
     records = [_as_dict(row) for row in rows]
+    from scrapers.extractors import enrich_listing
+
+    for row in records:
+        if row.get("vehicle_type") in (None, ""):
+            row["vehicle_type"] = vehicle_type
+        enrich_listing(row)
     issues: Counter[str] = Counter()
     prices: List[Dict[str, Any]] = []
     urls: Counter[str] = Counter()
@@ -369,6 +490,9 @@ def validate_rows(rows: Iterable[Any], spec: ScraperSpec, vehicle_type: str) -> 
 
 
 def _classify_error(message: str) -> str:
+    # ``run_spec`` normally passes a formatted exception string, but keeping
+    # this helper string-based preserves its public/tested API. Typed runtime
+    # errors are handled by ``_classify_exception`` below.
     text = message.lower()
     if "source_unavailable" in text:
         return "unsupported"
@@ -379,6 +503,21 @@ def _classify_error(message: str) -> str:
     if "timeout" in text or "timed out" in text:
         return "timeout"
     return "failed"
+
+
+def _classify_exception(exc: BaseException) -> str:
+    status = getattr(exc, "status", None)
+    if status in {
+        STATUS_BLOCKED,
+        STATUS_BLOCKED_CREDENTIALS,
+        STATUS_TIMEOUT,
+        STATUS_DEGRADED,
+        STATUS_FAILED,
+        STATUS_EMPTY,
+        STATUS_OK,
+    }:
+        return str(status)
+    return _classify_error(f"{type(exc).__name__}: {exc}")
 
 
 async def run_spec(spec: ScraperSpec, vehicle_type: str, max_listings: int, timeout: float) -> Dict[str, Any]:
@@ -396,13 +535,35 @@ async def run_spec(spec: ScraperSpec, vehicle_type: str, max_listings: int, time
         rows = await asyncio.wait_for(spec.adapter(vehicle_type, max_listings), timeout=timeout)
         audit = validate_rows(rows, spec, vehicle_type)
         result.update(audit)
-        result["status"] = "ok" if audit["count"] > 0 and not any(
-            key in audit["issues"] for key in ("invalid_url", "source_mismatch", "price_mismatch")
-        ) else ("empty" if audit["count"] == 0 else "degraded")
+        quality_issues = {
+            "invalid_url", "source_mismatch", "price_mismatch",
+            "price_provenance_missing", "duplicate_url", "duplicate_source_id",
+            "vehicle_type_mismatch", "missing_title", "price_missing",
+        }
+        # These fields are the minimum identity/market signal for a listing
+        # to be called healthy. Horsepower/engine_size remain reported in the
+        # coverage matrix, but their absence alone does not invalidate a
+        # source that can still provide a defensible comparable.
+        core_missing = {
+            "brand", "model", "year", "km", "fuel_type", "transmission",
+            "vehicle_type",
+        }
+        # Non-retail auction prices are expected to be non-total, but missing
+        # provenance is never acceptable. Keep the distinction explicit so a
+        # parser can be fast without silently lowering data quality.
+        if audit["count"] == 0:
+            result["status"] = "empty"
+        elif (
+            any(key in audit["issues"] for key in quality_issues)
+            or any(key in audit["field_missing"] for key in core_missing)
+        ):
+            result["status"] = "degraded"
+        else:
+            result["status"] = "ok"
     except Exception as exc:  # noqa: BLE001 - audit must isolate each source
         message = f"{type(exc).__name__}: {exc}"
         result["errors"] = [message]
-        result["status"] = _classify_error(message)
+        result["status"] = _classify_exception(exc)
     result["duration_seconds"] = round(time.monotonic() - started, 3)
     result["finished_at"] = datetime.now(timezone.utc).isoformat()
     return result
@@ -427,8 +588,32 @@ async def audit_once(
             return await run_spec(spec, vehicle_type, max_listings, timeout)
 
     started = datetime.now(timezone.utc)
-    results = await asyncio.gather(*(guarded(spec) for spec in specs))
-    status_counts = Counter(r["status"] for r in results)
+    try:
+        results = await asyncio.gather(*(guarded(spec) for spec in specs))
+    finally:
+        # Browser adapters use a shared pool. Closing it at the end of a live
+        # audit prevents timed-out pages from leaving Chromium subprocesses
+        # attached to the event loop/interpreter.
+        try:
+            from scrapers.browser_pool import get_browser_pool
+
+            await get_browser_pool().close_all()
+        except Exception as exc:  # noqa: BLE001 - audit result remains useful
+            logger.debug("Browser pool cleanup failed: %s", exc)
+    raw_counts = Counter(r["status"] for r in results)
+    status_counts = {
+        status: raw_counts.get(status, 0)
+        for status in (
+            STATUS_OK,
+            STATUS_EMPTY,
+            STATUS_BLOCKED,
+            STATUS_BLOCKED_CREDENTIALS,
+            STATUS_TIMEOUT,
+            STATUS_DEGRADED,
+            STATUS_FAILED,
+            "unsupported",
+        )
+    }
     return {
         "started_at": started.isoformat(),
         "finished_at": datetime.now(timezone.utc).isoformat(),
@@ -436,7 +621,11 @@ async def audit_once(
         "max_listings": max_listings,
         "scraper_count": len(results),
         "status_counts": dict(status_counts),
-        "overall_success": not any(r["status"] in {"failed", "timeout"} for r in results),
+        # A run is only globally successful when every requested adapter
+        # produced non-empty rows that passed the audit contract. Empty,
+        # degraded, blocked or unsupported sources remain visible in the
+        # per-source report and cannot be mistaken for a healthy run.
+        "overall_success": bool(results) and all(r["status"] == "ok" for r in results),
         "scrapers": results,
     }
 

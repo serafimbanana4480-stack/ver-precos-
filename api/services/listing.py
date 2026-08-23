@@ -11,11 +11,24 @@ logger = logging.getLogger(__name__)
 class ListingService:
     """Service for managing car listings."""
     
-    def __init__(self, database, cache):
+    def __init__(self, database, cache=None):
         """Initialize listing service."""
         self.db = database
-        self.cache = cache
+        self._cache = cache
         self.default_ttl = 300  # 5 minutes
+
+    @property
+    def cache(self):
+        """Resolve the cache lazily for legacy callers.
+
+        Several old routes instantiate ``ListingService(db)``.  Previously
+        those routes crashed with ``NoneType.get`` before reaching the DB.
+        """
+        if self._cache is None:
+            from api.dependencies.cache import get_cache
+
+            self._cache = get_cache()
+        return self._cache
         
     def get_listings(self, 
                     skip: int = 0,

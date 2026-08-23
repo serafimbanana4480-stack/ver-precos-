@@ -178,8 +178,11 @@ class HybridPricingEngine:
                 VehicleModel.brand == brand,
                 VehicleModel.model.like(f"{model_word}%"),
                 VehicleModel.year.between(year - 2, year + 2),
-                VehicleModel.is_active == True,
+                VehicleModel.is_active.is_(True),
+                VehicleModel.price_kind == "total",
+                VehicleModel.currency == "EUR",
                 VehicleModel.price > 0,
+                VehicleModel.quality_status.in_(("valid", "valid_with_warning")),
             ]
             if vehicle_type and vehicle_type.lower() in ["moto", "scooter", "quad"]:
                 conditions.append(VehicleModel.vehicle_type.in_(["moto", "scooter", "quad"]))
@@ -204,8 +207,11 @@ class HybridPricingEngine:
                 conditions2 = [
                     VehicleModel.brand == brand,
                     VehicleModel.year.between(year - 3, year + 3),
-                    VehicleModel.is_active == True,
+                    VehicleModel.is_active.is_(True),
+                    VehicleModel.price_kind == "total",
+                    VehicleModel.currency == "EUR",
                     VehicleModel.price > 0,
+                    VehicleModel.quality_status.in_(("valid", "valid_with_warning")),
                 ]
                 if vehicle_type and vehicle_type.lower() in ["moto", "scooter", "quad"]:
                     conditions2.append(VehicleModel.vehicle_type.in_(["moto", "scooter", "quad"]))
@@ -224,8 +230,11 @@ class HybridPricingEngine:
                     # Level 3: Same brand (any year)
                     conditions3 = [
                         VehicleModel.brand == brand,
-                        VehicleModel.is_active == True,
+                        VehicleModel.is_active.is_(True),
+                        VehicleModel.price_kind == "total",
+                        VehicleModel.currency == "EUR",
                         VehicleModel.price > 0,
+                        VehicleModel.quality_status.in_(("valid", "valid_with_warning")),
                     ]
                     if vehicle_type and vehicle_type.lower() in ["moto", "scooter", "quad"]:
                         conditions3.append(VehicleModel.vehicle_type.in_(["moto", "scooter", "quad"]))
@@ -441,8 +450,11 @@ class HybridPricingEngine:
         def _build_vehicle_conditions():
             """Build safe query conditions for vehicles."""
             conditions = [
-                VehicleModel.is_active == True,
+                VehicleModel.is_active.is_(True),
+                VehicleModel.price_kind == "total",
+                VehicleModel.currency == "EUR",
                 VehicleModel.price > 0,
+                VehicleModel.quality_status.in_(("valid", "valid_with_warning")),
             ]
             return conditions
         

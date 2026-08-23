@@ -212,7 +212,7 @@ class Settings(BaseSettings):
     ml_min_r2: float = Field(default=0.6, ge=0.0, le=1.0)
     ml_train_test_split: float = Field(default=0.2, ge=0.1, le=0.5)
     model_features: List[str] = Field(default=[
-        "brand", "model", "year", "mileage", "fuel_type", "transmission",
+        "brand", "model", "year", "km", "fuel_type", "transmission",
     ])
 
     # ==================== DEAL SCORING ====================

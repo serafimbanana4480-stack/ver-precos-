@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 from importlib.abc import Loader, MetaPathFinder
 from importlib.machinery import ModuleSpec
+from pathlib import Path
 
 PACKAGES = {
     "ingestion.monitoring",
@@ -63,6 +64,19 @@ class _Finder(MetaPathFinder):
     def find_spec(self, fullname, path, target=None):
         if not fullname.startswith("ingestion."):
             return None
+
+        # Compatibility modules must never shadow real project modules.  In
+        # particular, ``ingestion.storage`` contains the production cache and
+        # database adapters; returning a placeholder package here makes every
+        # import below it silently lose its implementation.
+        relative = fullname.removeprefix("ingestion.").split(".")
+        real_root = Path(__file__).resolve().parent
+        real_package = real_root.joinpath(*relative)
+        if real_package.is_dir() and (real_package / "__init__.py").is_file():
+            return None
+        if real_package.with_suffix(".py").is_file():
+            return None
+
         if fullname in PACKAGES:
             return ModuleSpec(fullname, _Loader(fullname), is_package=True)
         parent = fullname.rsplit(".", 1)[0]

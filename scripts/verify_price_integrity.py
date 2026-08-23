@@ -27,6 +27,7 @@ def verify() -> dict:
         "rows": 0,
         "retail_rows": 0,
         "non_retail_rows": 0,
+        "ineligible_rows": 0,
         "quality_status": {},
         "price_kind": {},
         "hard_failures": [],
@@ -42,16 +43,28 @@ def verify() -> dict:
         report["price_kind"] = dict(kinds)
         for v in rows:
             kind = str(v.price_kind or "unknown")
-            if kind in NON_RETAIL:
-                report["non_retail_rows"] += 1
-            else:
-                report["retail_rows"] += 1
+            currency = str(v.currency or "unknown").upper()
             price = float(v.price or 0)
             observed = float(v.price_observed_value or 0)
-            if kind not in NON_RETAIL and price <= 0:
+            is_retail = (
+                kind == "total"
+                and currency == "EUR"
+                and price > 0
+                and observed > 0
+            )
+            if kind in NON_RETAIL:
+                report["non_retail_rows"] += 1
+            elif not is_retail:
+                # Unknown/malformed provenance is not retail.  In
+                # particular, do not let ``price_kind IS NULL`` inflate the
+                # retail count just because a legacy row has price > 0.
+                report["ineligible_rows"] += 1
+            else:
+                report["retail_rows"] += 1
+            if not is_retail and kind not in NON_RETAIL:
                 report["hard_failures"].append({
                     "id": v.id, "source": getattr(v.source, "value", v.source),
-                    "reason": "retail_price_missing_or_non_positive", "title": v.title,
+                    "reason": "retail_price_provenance_missing_or_invalid", "title": v.title,
                 })
             if price < 0 or observed < 0:
                 report["hard_failures"].append({
