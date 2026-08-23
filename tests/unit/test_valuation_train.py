@@ -33,6 +33,19 @@ def test_feature_store_all_features_used():
         assert col in feats
 
 
+def test_feature_store_reference_year_is_stable():
+    fs = FeatureStore(reference_year=2026)
+    vehicle = {"year": 2020, "km": 60_000, "brand": "renault", "model": "clio"}
+
+    first = fs.compute_features(vehicle)
+    second = fs.compute_features(vehicle, reference_year=2026)
+    later_calendar = fs.compute_features(vehicle, reference_year=2030)
+
+    assert first["age"] == second["age"] == 6.0
+    assert later_calendar["age"] == 10.0
+    assert first["depreciation_factor"] != later_calendar["depreciation_factor"]
+
+
 def test_trained_artifacts_consistent():
     """Metadados, artefacto e features têm de estar alinhados."""
     meta_path = Path("models/best_model_carros.json")

@@ -6,24 +6,37 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
+from pydantic import ValidationError
 
 from app.api.main import app
+from app.api.auth import UserCreate
 
 
 client = TestClient(app)
+
+
+def test_auth_rejects_passwords_that_bcrypt_would_truncate():
+    with pytest.raises(ValidationError):
+        UserCreate(email="long@test.com", password="x" * 73)
+
+
+def test_auth_accepts_multibyte_password_within_bcrypt_byte_limit():
+    user = UserCreate(email="unicode@test.com", password="á" * 36)
+    assert len(user.password.encode("utf-8")) == 72
 
 
 class TestHealthEndpoint:
     """Test health check endpoint"""
 
     def test_health_check(self):
-        """Health check should return status healthy"""
+        """Health check must expose a truthful readiness status."""
         response = client.get("/api/v1/health")
-        assert response.status_code == 200
+        assert response.status_code in (200, 503)
         data = response.json()
-        assert data["status"] == "healthy"
+        assert data["status"] in {"healthy", "unhealthy"}
         assert "version" in data
         assert "timestamp" in data
+        assert "models" in data["services"]
 
 
 class TestRootEndpoint:
@@ -105,6 +118,11 @@ class TestProtectedEndpoints:
         )
         # Should work (even if empty database)
         assert response.status_code in [200, 500]  # 200 if DB works, 500 if DB issue
+
+    def test_get_vehicle_by_id_without_auth(self):
+        """A direct vehicle lookup must not bypass the auth boundary."""
+        response = client.get("/api/v1/vehicles/1")
+        assert response.status_code == 401
 
     def test_valuate_vehicle_with_auth(self):
         """Should valuate vehicle with auth"""

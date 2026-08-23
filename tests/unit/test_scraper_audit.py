@@ -1,4 +1,6 @@
-from scripts.audit_scrapers import ScraperSpec, _price_check, validate_rows
+import asyncio
+
+from scripts.audit_scrapers import ScraperSpec, _price_check, run_spec, validate_rows
 
 
 def _spec(source="OLX", website="https://www.olx.pt"):
@@ -34,3 +36,32 @@ def test_audit_flags_cross_source_fallback_url():
         "carros",
     )
     assert result["issues"]["cross_source_url"] == 1
+
+
+def test_audit_does_not_call_rows_healthy_when_core_fields_are_missing():
+    async def adapter(_vehicle_type, _max_listings):
+        return [{
+            "source": "OLX",
+            "source_id": "x",
+            "url": "https://www.olx.pt/d/anuncio/carro-x",
+            "title": "Volkswagen Golf",
+            "brand": "Volkswagen",
+            "model": "Golf",
+            "price": 10_000,
+            "price_raw": "10.000 €",
+            "currency": "EUR",
+            "price_kind": "total",
+            "vehicle_type": "carros",
+        }]
+
+    result = asyncio.run(
+        run_spec(
+            ScraperSpec("test", "OLX", "https://www.olx.pt", adapter),
+            "carros",
+            1,
+            5,
+        )
+    )
+
+    assert result["status"] == "degraded"
+    assert result["field_missing"]["year"] == 1

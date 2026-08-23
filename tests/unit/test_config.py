@@ -103,7 +103,7 @@ class TestSettingsProperties:
         features = settings.model_features
         assert isinstance(features, list)
         assert "year" in features
-        assert "mileage" in features
+        assert "km" in features
 
 
 class TestSettingsValidation:
